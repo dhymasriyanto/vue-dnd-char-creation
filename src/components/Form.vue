@@ -156,7 +156,9 @@ const searchClass = (classSelected) => {
   subClass.value = {}
   axios.get(`http://localhost:3001/class/${classSelected}`)
     .then((response) =>{
-      characterClass.value = response.data.data.class[0]
+      console.log(response.data.data)
+      characterClass.value.class = response.data.data.class[0]
+      characterClass.value.classFeature = response.data.data.classFeature
       searchSubClas(response.data.data)
     })
     .catch((error) => {
@@ -167,8 +169,8 @@ const searchClass = (classSelected) => {
 const searchSubClas = (classSelected) => {
   axios.get(`http://localhost:3001/sub-class/${classSelected.class[0].name.toLowerCase()}/${classSelected.class[0].source.toLowerCase()}`)
     .then((response) =>{
+      console.log(response.data.data)
       subClass.value = response.data.data.subClass
-      console.log(subClass.value)
     })
     .catch((error) => {
       console.log(error)
