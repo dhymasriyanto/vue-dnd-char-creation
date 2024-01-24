@@ -1,6 +1,7 @@
 <script setup>
 import axios from 'axios'
 import RaceSubRaceDetail from './RaceSubRaceDetail.vue'
+import ClassSubClassDetail from './ClassSubClassDetail.vue';
 import {nextTick, onBeforeUpdate, onMounted, onUpdated, ref, watch } from 'vue'
 
 const currentStep = ref(1)
@@ -24,6 +25,7 @@ const subRace = ref({})
 const allClass = ref({})
 const subClass = ref({})
 const error = ref('')
+const classLevel = ref(1)
 
 onMounted(() =>{
     axios.get('http://localhost:3001/race')
@@ -156,7 +158,6 @@ const searchClass = (classSelected) => {
   subClass.value = {}
   axios.get(`http://localhost:3001/class/${classSelected}`)
     .then((response) =>{
-      console.log(response.data.data)
       characterClass.value.class = response.data.data.class[0]
       characterClass.value.classFeature = response.data.data.classFeature
       searchSubClas(response.data.data)
@@ -169,7 +170,6 @@ const searchClass = (classSelected) => {
 const searchSubClas = (classSelected) => {
   axios.get(`http://localhost:3001/sub-class/${classSelected.class[0].name.toLowerCase()}/${classSelected.class[0].source.toLowerCase()}`)
     .then((response) =>{
-      console.log(response.data.data)
       subClass.value = response.data.data.subClass
     })
     .catch((error) => {
@@ -216,7 +216,7 @@ const submitForm = () => {
 </script>
 
 <template>
-  <div ref="scrollRef" class="max-w-md mx-auto my-8 p-6 bg-white rounded shadow-md">
+  <div ref="scrollRef" class="max-w-md mx-auto mb-20 my-8 p-6 bg-white rounded shadow-md">
     <div v-if="currentStep === 1">
       <!-- Step 1: Basic Information -->
       <h2 class="text-2xl font-bold mb-4">Step 1: Basic Information</h2>
@@ -242,33 +242,37 @@ const submitForm = () => {
         </select>
       </div>
       <RaceSubRaceDetail :selected="characterSubRace" />
-      <div class="mt-4 flex justify-end">
-        <button class="bg-blue-500 text-white px-4 py-2 rounded" @click="nextStep">Next</button>
-      </div>
     </div>
 
     <div v-else-if="currentStep === 2">
       <!-- Step 3: Class and Race -->
       <h2 class="text-2xl font-bold mb-4">Step 2: Class</h2>
       <div class="mb-4">
-        <label for="characterClass" class="block text-sm font-medium text-gray-700">Character Class:</label>
-        <select id="characterClass" @change="searchClass(classSelected)" v-model="classSelected" class="mt-1 p-2 border rounded w-full">
-          <option value="">Choose class</option>
-          <option v-for="(c,n) in allClass" :value="n">{{n.charAt(0).toUpperCase() + n.slice(1)}}</option>
-        </select>
+        <div class="grid grid-cols-4">
+          <div class="col-span-3">
+            <label for="characterClass" class="block text-sm font-medium text-gray-700">Character Class:</label>
+            <select id="characterClass" @change="searchClass(classSelected)" v-model="classSelected" class="mt-1 p-2 border rounded w-full">
+              <option value="">Choose class</option>
+              <option v-for="(c,n) in allClass" :value="n">{{n.charAt(0).toUpperCase() + n.slice(1)}}</option>
+            </select>
+          </div>
+          <div class="col-span-1">
+            <label for="characterClassLevel" class="block ml-2 text-sm font-medium text-gray-700">Level:</label>
+            <select v-model="classLevel" class="mt-1 ml-2 p-2 border rounded w-full" id="characterClassLevel">
+              <option v-for="n in 20" :value="n">{{n}}</option>
+            </select>
+          </div>
+        </div>
         <p class="text-red-500 text-xs mt-1">{{ error }}</p>
       </div>
-      <div v-if="Object.keys(characterClass).length != 0 && Object.keys(subClass).length != 0" class="my-4">
-        <label for="characterSubClass" class="block text-sm font-medium text-gray-700">Character Sub Class:</label>
-        <select id="characterSubClass" v-model="characterSubClass" class="mt-1 p-2 border rounded w-full">
-          <option :value="{}">Choose sub class</option>
-          <option v-for="c in subClass" :value="c">{{c.name}} ({{c.source}})</option>
-        </select>
-      </div>
-      <div class="flex justify-between">
-        <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded" @click="prevStep">Previous</button>
-        <button class="bg-blue-500 text-white px-4 py-2 rounded" @click="nextStep">Next</button>
-      </div>
+      <ClassSubClassDetail :selected="characterClass" :classLevel="classLevel" />
+      <!-- <div v-if="Object.keys(characterClass).length != 0 && Object.keys(subClass).length != 0" class="my-4"> -->
+      <!--   <label for="characterSubClass" class="block text-sm font-medium text-gray-700">Character Sub Class:</label> -->
+      <!--   <select id="characterSubClass" v-model="characterSubClass" class="mt-1 p-2 border rounded w-full"> -->
+      <!--     <option :value="{}">Choose sub class</option> -->
+      <!--     <option v-for="c in subClass" :value="c">{{c.name}} ({{c.source}})</option> -->
+      <!--   </select> -->
+      <!-- </div> -->
     </div>
 
     <div v-else-if="currentStep === 3">
@@ -304,10 +308,6 @@ const submitForm = () => {
         <input type="number" id="charisma" v-model="charisma" class="mt-1 p-2 border rounded w-full">
         <p class="text-red-500 text-xs mt-1">{{ error }}</p>
       </div>
-      <div class="flex justify-between">
-        <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded" @click="prevStep">Previous</button>
-        <button class="bg-blue-500 text-white px-4 py-2 rounded" @click="nextStep">Next</button>
-      </div>
     </div>
 
     <div v-else-if="currentStep === 4">
@@ -321,8 +321,19 @@ const submitForm = () => {
         <label for="alignment" class="block text-sm font-medium text-gray-700">Alignment:</label>
         <input type="text" id="alignment" v-model="alignment" class="mt-1 p-2 border rounded w-full">
       </div>
-      <div class="flex justify-between">
+    </div>
+  </div>
+  <div class="sticky-buttons">
+    <div class="button-container">
+      <div v-if="currentStep !== 1">
         <button class="bg-gray-300 text-gray-700 px-4 py-2 rounded" @click="prevStep">Previous</button>
+      </div>
+    </div>
+    <div class="button-container">
+      <div v-if="currentStep !== 4">
+        <button class="bg-blue-500 text-white px-4 py-2 rounded" @click="nextStep">Next</button>
+      </div>
+      <div v-else>
         <button class="bg-green-500 text-white px-4 py-2 rounded" @click="submitForm">Submit</button>
       </div>
     </div>
@@ -330,5 +341,24 @@ const submitForm = () => {
 </template>
 
 <style>
+.sticky-buttons {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background-color: #ffffff; /* You can adjust the background color */
+  padding: 10px;
+  box-shadow: 0px -2px 10px rgba(0, 0, 0, 0.1); /* Optional: Add a shadow effect */
+  display: flex;
+  justify-content: space-between;
+}
+
+.button-container {
+  display: flex;
+}
+
+.sticky-buttons button {
+  margin-right: 10px; /* Optional: Add some spacing between buttons */
+}
 </style>
 
