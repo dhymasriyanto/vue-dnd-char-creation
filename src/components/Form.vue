@@ -3,6 +3,7 @@ import axios from 'axios'
 import RaceSubRaceDetail from './RaceSubRaceDetail.vue'
 import ClassSubClassDetail from './ClassSubClassDetail.vue';
 import {nextTick, onBeforeUpdate, onMounted, onUpdated, ref, watch } from 'vue'
+import { useSubClassStore } from '../stores/subclass';
 
 const currentStep = ref(1)
 const scrollRef = ref()
@@ -106,6 +107,8 @@ watch(error , () => {
   }
 })
 
+const subClassStore = useSubClassStore()
+
 const nextStep = () => {
   switch (currentStep.value) {
     case 1:
@@ -171,6 +174,7 @@ const searchSubClas = (classSelected) => {
   axios.get(`http://localhost:3001/sub-class/${classSelected.class[0].name.toLowerCase()}/${classSelected.class[0].source.toLowerCase()}`)
     .then((response) =>{
       subClass.value = response.data.data.subClass
+      subClassStore.subClass = response.data.data.subClass
     })
     .catch((error) => {
       console.log(error)
@@ -194,7 +198,6 @@ const removeClickHandlers = () => {
 const handleAnnotationClick = (event) => {
   console.log(event.target.innerText)
 }
-
 
 const submitForm = () => {
   console.log("Form submitted!", {
@@ -266,13 +269,6 @@ const submitForm = () => {
         <p class="text-red-500 text-xs mt-1">{{ error }}</p>
       </div>
       <ClassSubClassDetail :selected="characterClass" :classLevel="classLevel" />
-      <!-- <div v-if="Object.keys(characterClass).length != 0 && Object.keys(subClass).length != 0" class="my-4"> -->
-      <!--   <label for="characterSubClass" class="block text-sm font-medium text-gray-700">Character Sub Class:</label> -->
-      <!--   <select id="characterSubClass" v-model="characterSubClass" class="mt-1 p-2 border rounded w-full"> -->
-      <!--     <option :value="{}">Choose sub class</option> -->
-      <!--     <option v-for="c in subClass" :value="c">{{c.name}} ({{c.source}})</option> -->
-      <!--   </select> -->
-      <!-- </div> -->
     </div>
 
     <div v-else-if="currentStep === 3">

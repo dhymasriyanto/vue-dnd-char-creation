@@ -17,7 +17,7 @@
   <div v-if="Object.keys(selected).length != 0">
     <h3 class="text-xl font-bold mb-2">{{ selected.class.name }} Class Feature</h3>
     <div v-for="classFeature in selected.classFeature">
-      <CollapsedComponent v-if="classLevel >= classFeature.level" :data="classFeature" />
+      <CollapsedComponent v-if="classLevel >= classFeature.level" :data="classFeature" :classData="selected.class.classFeatures" />
     </div>
   </div>
 </template>

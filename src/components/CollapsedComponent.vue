@@ -1,10 +1,15 @@
 <script setup>
   import { ref } from 'vue'
+  import { useSubClassStore } from '../stores/subclass';
 
   defineProps({
     data: {
       type: Object,
       required: true,
+    },
+    classData: {
+      type: Object,
+      required: true
     },
   })
 
@@ -13,6 +18,10 @@
   const toggleCollapse = () => {
     isCollapsed.value = !isCollapsed.value;
   }
+
+  const subClassStore = useSubClassStore()
+
+  const characterSubClass = ref({})
 
   const renderAnnotatedText = (text) => {
       if (typeof text !== 'string') {
@@ -34,51 +43,74 @@
 
       return replaceAnnotation(text);
   }
+
+  const formatClassFeature  = (text) =>{
+    // Split the input text using the pipe character as a delimiter
+    const parts = text.split('|');
+
+    // Extract the desired parts
+    const featureName = parts[0];
+    const level = parseInt(parts[3], 10); // Convert level to a numeric value
+
+    return { featureName, level };
+  }
 </script>
 
 <template>
   <div class="collapsed">
-    <div class="header" @click="toggleCollapse">
-      {{ data.name }}
-      <span v-if="isCollapsed">+</span>
-      <span v-else>-</span>
+    <div class="grid grid-cols-5 header">
+      <div class="p-2 col-span-4" @click="toggleCollapse">
+        <div>
+          {{ data.name }}
+        </div>
+        <div class="text-xs font-thin text-gray-500" v-if="data.level"> <!-- Display level if available -->
+          Level {{ data.level }}
+        </div>
+      </div>
+      <div class="flex justify-end mr-2 items-center">
+        <span v-if="isCollapsed">+</span>
+        <span v-else>-</span>
+      </div>
     </div>
     <transition name="fade">
       <div v-show="!isCollapsed" class="content">
         <ul>
           <li v-for="e in data.entries">
             <p class="mb-3" v-html="renderAnnotatedText(e)"></p>
-            <div v-if="e.type === 'table'" class="mb-8">
-              <table class="table-auto">
-                <thead>
-                  <tr>
-                    <th v-for="h in e.colLabels" class="px-4 py-2">{{h}}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in e.rows">
-                    <td v-for="c in r" class="border px-4 py-2" v-html="renderAnnotatedText(c)"></td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="ml-5 mb-4" v-if="e.type === 'list'">
-              <ul>
-                <li v-for="l in e.items">
-                  <span>
-                    <span class="mr-4  text-sky-900 font-bold">{{l.name}}</span>
-                    <span v-html="renderAnnotatedText(l.entry)"></span>
-                    <span v-if="typeof l === 'string'" v-html="`- ${renderAnnotatedText(l)}`"></span>
-                    <ul v-if="l.type === 'item'">
-                      <li v-for="i in l.entries">
-                        <span v-html="renderAnnotatedText(i)"></span>
-                      </li>
-                    </ul>
-                  </span>
-                </li>
-              </ul>
+            <div v-if="e.type === 'entries'" class="my-6">
+              <h2 class="font-bold" v-html="renderAnnotatedText(e.name)"></h2>
+              <div class="mb-3" v-for="en in e.entries">
+                  <div v-if="en.type === 'abilityDc'">
+                    <p>
+                      <b>Spell save DC</b> = 8 + your proficiency bonus + your <span v-for="att in en.attributes">{{att}}</span> modifier
+                    </p>
+                    <p>
+                      <b>Spell attack modifier</b> = your proficiency bonus + your <span v-for="att in en.attributes">{{att}}</span> modifier
+                    </p>
+                  </div>
+                  <span v-html="renderAnnotatedText(en)"></span>
+              </div>
             </div>
           </li>
+
+          <div  v-for="cf in classData">
+            <div v-if="typeof cf === 'object'">
+              <div v-if="formatClassFeature(cf.classFeature).featureName === data.name && formatClassFeature(cf.classFeature).level === data.level">
+                <div v-if="cf.gainSubclassFeature">
+                  <label for="characterSubClass" class="block text-sm font-medium text-gray-700">Character Sub Class:</label>
+                  <select id="characterSubClass" v-model="characterSubClass" class="mt-1 p-2 border rounded w-full">
+                    <option :value="{}">Choose sub class</option>
+                    <option v-for="c in subClassStore.subClass" :value="c">{{c.name}} ({{c.source}})</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div v-else>
+              <div v-if="formatClassFeature(cf) === data.name">
+                <!-- Code here -->
+              </div>
+            </div>
+          </div>
         </ul>
         <slot></slot>
       </div>
@@ -96,7 +128,6 @@
   padding: 10px;
   background-color: #f0f0f0;
   cursor: pointer;
-  display: flex;
   justify-content: space-between;
 }
 
@@ -104,5 +135,6 @@
   padding: 10px;
   border-top: 1px solid #ccc;
 }
+
 </style>
 
