@@ -3,7 +3,12 @@ import axios from 'axios'
 import RaceSubRaceDetail from './RaceSubRaceDetail.vue'
 import ClassSubClassDetail from './ClassSubClassDetail.vue';
 import {nextTick, onBeforeUpdate, onMounted, onUpdated, ref, watch } from 'vue'
-import { useSubClassStore } from '../stores/subclass';
+import { useCharacterStore } from '../stores/character';
+import { useConfig } from '../config'
+
+const API_URL = useConfig().API_URL
+
+const characterStore = useCharacterStore()
 
 const currentStep = ref(1)
 const scrollRef = ref()
@@ -29,7 +34,7 @@ const error = ref('')
 const classLevel = ref(1)
 
 onMounted(() =>{
-    axios.get('http://localhost:3001/race')
+    axios.get(`${API_URL}/race`)
       .then((response) =>{
         race.value = response.data.data
       })
@@ -37,7 +42,7 @@ onMounted(() =>{
         console.log(error)
       })
 
-    axios.get('http://localhost:3001/class')
+    axios.get(`${API_URL}/class`)
       .then((response) =>{
         allClass.value = response.data.data
       })
@@ -107,8 +112,6 @@ watch(error , () => {
   }
 })
 
-const subClassStore = useSubClassStore()
-
 const nextStep = () => {
   switch (currentStep.value) {
     case 1:
@@ -144,9 +147,9 @@ const prevStep = () => {
   currentStep.value--
 }
 
-const searchSubRace = (race) => {
+const searchSubRace = async (race) => {
   characterSubRace.value = {}
-  axios.get(`http://localhost:3001/sub-race/${race.name}/${race.source}`)
+  await axios.get(`${API_URL}/sub-race/${race.name}/${race.source}`)
     .then((response) =>{
       subRace.value = response.data.data
     })
@@ -155,26 +158,26 @@ const searchSubRace = (race) => {
     })
 }
 
-const searchClass = (classSelected) => {
+const searchClass = async (classSelected) => {
   characterSubClass.value = {}
   characterClass.value = {}
   subClass.value = {}
-  axios.get(`http://localhost:3001/class/${classSelected}`)
+  await axios.get(`${API_URL}/class/${classSelected}`)
     .then((response) =>{
       characterClass.value.class = response.data.data.class[0]
       characterClass.value.classFeature = response.data.data.classFeature
-      searchSubClas(response.data.data)
+      searchSubClass(response.data.data)
     })
     .catch((error) => {
       console.log(error)
     })
 }
 
-const searchSubClas = (classSelected) => {
-  axios.get(`http://localhost:3001/sub-class/${classSelected.class[0].name.toLowerCase()}/${classSelected.class[0].source.toLowerCase()}`)
+const searchSubClass = async (classSelected) => {
+  await axios.get(`${API_URL}/sub-class/${classSelected.class[0].name.toLowerCase()}/${classSelected.class[0].source.toLowerCase()}`)
     .then((response) =>{
       subClass.value = response.data.data.subClass
-      subClassStore.subClass = response.data.data.subClass
+      characterStore.subClassLists = response.data.data.subClass
     })
     .catch((error) => {
       console.log(error)
