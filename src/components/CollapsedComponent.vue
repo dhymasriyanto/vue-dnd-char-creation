@@ -27,14 +27,20 @@
 
   const subClassSelected = ref({})
 
-  const searchSubClassFeature = async (subClassSelected) => {
-    await axios.get(`${API_URL}/sub-class/${subClassSelected.className.toLowerCase()}/${subClassSelected.classSource.toLowerCase()}/${subClassSelected.name}/${subClassSelected.source}/${subClassSelected.shortName}/${subClassSelected.page}`)
-      .then((response) =>{
-        characterStore.characterSubClass = response.data.data
-      })
-      .catch((error) => {
-        console.log(error)
-      })
+  const searchSubClassFeature = async (subClassSelected, level) => {
+    if(Object.keys(subClassSelected).length != 0){
+      await axios.get(`${API_URL}/sub-class/${subClassSelected.className.toLowerCase()}/${subClassSelected.classSource.toLowerCase()}/${subClassSelected.name}/${subClassSelected.source}/${subClassSelected.shortName}/${subClassSelected.page}`)
+        .then((response) =>{
+          characterStore.characterSubClass = response.data.data
+          characterStore.isSubClassSelected = true
+          characterStore.subClassLevelGained= level
+        })
+        .catch((error) => {
+          console.log(error)
+        })
+    }else{
+      characterStore.characterSubClass = {}
+    }
   }
 
   const renderAnnotatedText = (text) => {
@@ -110,9 +116,9 @@
           <div  v-for="cf in classData">
             <div v-if="typeof cf === 'object'">
               <div v-if="formatClassFeature(cf.classFeature).featureName === data.name && formatClassFeature(cf.classFeature).level === data.level">
-                <div v-if="cf.gainSubclassFeature">
+                <div v-if="cf.gainSubclassFeature && !characterStore.isSubClassSelected || characterStore.subClassLevelGained == data.level">
                   <label for="characterSubClass" class="block text-sm font-medium text-gray-700">Character Sub Class:</label>
-                  <select id="characterSubClass" @change="searchSubClassFeature(subClassSelected)" v-model="subClassSelected" class="mt-1 p-2 border rounded w-full">
+                  <select id="characterSubClass" @change="searchSubClassFeature(subClassSelected, data.level)" v-model="subClassSelected" class="mt-1 p-2 border rounded w-full">
                     <option :value="{}">Choose sub class</option>
                     <option v-for="c in characterStore.subClassLists" :value="c">{{c.name}} ({{c.source}})</option>
                   </select>
