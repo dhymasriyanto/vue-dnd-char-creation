@@ -4,7 +4,9 @@ import {ref} from "vue";
 export const useCharacterStore = defineStore('character', () => {
 	const subClassLists = ref({})
 	const characterSubClass = ref({})
+	const isSubClassSelected = ref(false)
+	const subClassLevelGained = ref(0)
 
-	return {subClassLists, characterSubClass}
+	return {subClassLists, characterSubClass, isSubClassSelected}
 })
 
