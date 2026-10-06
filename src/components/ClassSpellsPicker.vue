@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { renderAnnotatedText } from '../utils/textRenderer'
-import { IconArrowLeft, IconArrowRight } from '@tabler/icons-vue'
+import { IconArrowLeft, IconArrowRight, IconChevronUp, IconChevronDown, IconX } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 
@@ -574,15 +574,24 @@ onBeforeUnmount(() => {
           <button
             type="button"
             @click="emit('close')"
-            class="px-2.5 py-1 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+            class="px-2.5 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
           >
             <IconArrowLeft class="w-3.5 h-3.5" />
             <span>Back to Features</span>
           </button>
           <button
             type="button"
+            @click="emit('close')"
+            class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+            title="Close"
+          >
+            <IconX class="w-3.5 h-3.5" />
+            <span>Close</span>
+          </button>
+          <button
+            type="button"
             @click="autoSelectRecommended"
-            class="px-2.5 py-1 bg-white border border-gray-300 hover:border-indigo-400 text-gray-700 hover:text-indigo-600 rounded text-[11px] font-medium transition cursor-pointer"
+            class="px-2.5 py-1 bg-white border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 rounded text-[11px] font-medium transition cursor-pointer"
           >
             Auto-select Recommended
           </button>
@@ -608,12 +617,12 @@ onBeforeUnmount(() => {
 
         <div class="bg-white border border-gray-200 rounded p-2">
           <div class="text-[10px] text-gray-500 uppercase font-semibold">Spell Save DC</div>
-          <div class="text-sm font-bold text-indigo-700 font-mono">{{ spellSaveDc }}</div>
+          <div class="text-sm font-bold text-gray-900 font-mono">{{ spellSaveDc }}</div>
         </div>
 
         <div class="bg-white border border-gray-200 rounded p-2">
           <div class="text-[10px] text-gray-500 uppercase font-semibold">Spell Attack Bonus</div>
-          <div class="text-sm font-bold text-indigo-700 font-mono">{{ spellAttackBonus >= 0 ? '+' : '' }}{{ spellAttackBonus }}</div>
+          <div class="text-sm font-bold text-gray-900 font-mono">{{ spellAttackBonus >= 0 ? '+' : '' }}{{ spellAttackBonus }}</div>
         </div>
 
         <div class="bg-white border border-gray-200 rounded p-2">
@@ -665,7 +674,7 @@ onBeforeUnmount(() => {
           v-model="searchQuery"
           type="text"
           placeholder="Search spells (e.g. Fire Bolt, Shield)..."
-          class="w-full p-2 border border-gray-300 rounded bg-white text-xs focus:ring-1 focus:ring-indigo-500"
+          class="w-full p-2 border border-gray-300 rounded bg-white text-xs focus:ring-1 focus:ring-gray-500"
         />
       </div>
 
@@ -727,7 +736,7 @@ onBeforeUnmount(() => {
             :key="spell.id || spell.name"
             class="border rounded p-2 transition bg-white text-xs select-none"
             :class="[
-              isSpellSelected(spell) ? 'border-indigo-500 bg-indigo-50/40 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300'
+              isSpellSelected(spell) ? 'border-gray-800 bg-gray-100 ring-1 ring-gray-800' : 'border-gray-200 hover:border-gray-300'
             ]"
           >
             <div class="flex items-start justify-between gap-1.5">
@@ -737,7 +746,7 @@ onBeforeUnmount(() => {
                   :checked="isSpellSelected(spell)"
                   :disabled="!isSpellSelected(spell) && maxCantrips > 0 && chosenCantrips.length >= maxCantrips"
                   @change="toggleSpell(spell)"
-                  class="mt-0.5 rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                  class="mt-0.5 rounded text-gray-900 accent-gray-900 focus:ring-0 cursor-pointer"
                 />
                 <div class="min-w-0 flex-1">
                   <div class="font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
@@ -745,7 +754,7 @@ onBeforeUnmount(() => {
                     <span class="text-[10px] px-1.5 py-0.2 bg-gray-100 text-gray-600 rounded font-normal">
                       {{ getSchoolName(spell.school) }}
                     </span>
-                    <span v-if="spell.concentration || spell.duration?.[0]?.concentration" class="text-[9px] px-1 py-0.2 bg-amber-100 text-amber-800 rounded font-mono font-bold" title="Concentration">
+                    <span v-if="spell.concentration || spell.duration?.[0]?.concentration" class="text-[9px] px-1 py-0.2 bg-gray-200 text-gray-800 rounded font-mono font-bold" title="Concentration">
                       C
                     </span>
                   </div>
@@ -760,10 +769,11 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 @click="toggleSpellExpand('sp_' + (spell.id || spell.name))"
-                class="text-gray-400 hover:text-gray-600 px-1 py-0.5 text-xs font-mono font-bold"
+                class="text-gray-400 hover:text-gray-600 px-1 py-0.5 text-xs transition cursor-pointer"
                 title="Toggle details"
               >
-                {{ expandedSpellIds['sp_' + (spell.id || spell.name)] ? '▲' : '▼' }}
+                <IconChevronUp v-if="expandedSpellIds['sp_' + (spell.id || spell.name)]" class="w-3.5 h-3.5" />
+                <IconChevronDown v-else class="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -802,7 +812,7 @@ onBeforeUnmount(() => {
             :key="spell.id || spell.name"
             class="border rounded p-2 transition bg-white text-xs select-none"
             :class="[
-              isSpellSelected(spell) ? 'border-indigo-500 bg-indigo-50/40 ring-1 ring-indigo-500' : 'border-gray-200 hover:border-gray-300'
+              isSpellSelected(spell) ? 'border-gray-800 bg-gray-100 ring-1 ring-gray-800' : 'border-gray-200 hover:border-gray-300'
             ]"
           >
             <div class="flex items-start justify-between gap-1.5">
@@ -812,21 +822,21 @@ onBeforeUnmount(() => {
                   :checked="isSpellSelected(spell)"
                   :disabled="!isSpellSelected(spell) && maxPreparedSpells > 0 && chosenLeveled.length >= maxPreparedSpells"
                   @change="toggleSpell(spell)"
-                  class="mt-0.5 rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                  class="mt-0.5 rounded text-gray-900 accent-gray-900 focus:ring-0 cursor-pointer"
                 />
                 <div class="min-w-0 flex-1">
                   <div class="font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
                     <span>{{ spell.name }}</span>
-                    <span class="text-[10px] px-1.5 py-0.2 bg-indigo-50 text-indigo-700 rounded font-semibold">
+                    <span class="text-[10px] px-1.5 py-0.2 bg-gray-100 text-gray-700 border border-gray-200 rounded font-semibold">
                       Lv {{ spell.level }}
                     </span>
                     <span class="text-[10px] px-1.5 py-0.2 bg-gray-100 text-gray-600 rounded font-normal">
                       {{ getSchoolName(spell.school) }}
                     </span>
-                    <span v-if="spell.concentration || spell.duration?.[0]?.concentration" class="text-[9px] px-1 py-0.2 bg-amber-100 text-amber-800 rounded font-mono font-bold" title="Concentration">
+                    <span v-if="spell.concentration || spell.duration?.[0]?.concentration" class="text-[9px] px-1 py-0.2 bg-gray-200 text-gray-800 rounded font-mono font-bold" title="Concentration">
                       C
                     </span>
-                    <span v-if="spell.ritual || spell.meta?.ritual" class="text-[9px] px-1 py-0.2 bg-blue-100 text-blue-800 rounded font-mono font-bold" title="Ritual">
+                    <span v-if="spell.ritual || spell.meta?.ritual" class="text-[9px] px-1 py-0.2 bg-gray-200 text-gray-800 rounded font-mono font-bold" title="Ritual">
                       R
                     </span>
                   </div>
@@ -841,10 +851,11 @@ onBeforeUnmount(() => {
               <button
                 type="button"
                 @click="toggleSpellExpand('sp_' + (spell.id || spell.name))"
-                class="text-gray-400 hover:text-gray-600 px-1 py-0.5 text-xs font-mono font-bold"
+                class="text-gray-400 hover:text-gray-600 px-1 py-0.5 text-xs transition cursor-pointer"
                 title="Toggle details"
               >
-                {{ expandedSpellIds['sp_' + (spell.id || spell.name)] ? '▲' : '▼' }}
+                <IconChevronUp v-if="expandedSpellIds['sp_' + (spell.id || spell.name)]" class="w-3.5 h-3.5" />
+                <IconChevronDown v-else class="w-3.5 h-3.5" />
               </button>
             </div>
 
@@ -870,7 +881,7 @@ onBeforeUnmount(() => {
       <button
         type="button"
         @click="emit('close')"
-        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+        class="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
       >
         <span>Done / Back to Class Features</span>
         <IconArrowRight class="w-4 h-4" />

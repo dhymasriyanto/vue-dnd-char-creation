@@ -6,7 +6,7 @@ import { useCharacterStore } from '../stores/character'
 import { useCompendiumModal } from '../composables/useCompendiumModal'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
 import { renderAnnotatedText, formatPrerequisite, format5eEntries } from '../utils/textRenderer'
-import { IconExternalLink } from '@tabler/icons-vue'
+import { IconExternalLink, IconX, IconChevronUp, IconChevronDown } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 const characterStore = useCharacterStore()
@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
   <div
     v-if="isOpen"
     class="dnd-compendium-modal fixed inset-0 z-[10000] bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5"
-    @click="onBackdropClick"
+    @click.self="closeModal"
   >
     <div
       @click.stop
@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
             {{ modalTitle }}
           </h2>
           <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-500">
-            <span class="uppercase tracking-wider font-medium text-indigo-600">{{ modalCategory }}</span>
+            <span class="uppercase tracking-wider font-semibold text-gray-900">{{ modalCategory }}</span>
             <span>•</span>
             <span>Edition {{ characterStore.edition || '2024' }}</span>
           </div>
@@ -197,7 +197,7 @@ onBeforeUnmount(() => {
           <button
             type="button"
             @click="openFullCompendium"
-            class="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold px-2 py-1 rounded bg-indigo-50 border border-indigo-200 transition cursor-pointer flex items-center gap-1"
+            class="text-[11px] text-gray-800 hover:text-black font-semibold px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 border border-gray-300 transition cursor-pointer flex items-center gap-1"
           >
             <span>Full Page</span>
             <IconExternalLink class="w-3.5 h-3.5" />
@@ -205,10 +205,11 @@ onBeforeUnmount(() => {
           <button
             type="button"
             @click.stop="closeModal"
-            class="text-gray-500 hover:text-gray-800 px-2.5 py-1 rounded bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer text-xs font-bold"
+            class="text-gray-600 hover:text-gray-900 px-2.5 py-1 rounded bg-gray-100 hover:bg-gray-200 transition-colors cursor-pointer text-xs font-semibold flex items-center gap-1"
             aria-label="Close"
           >
-            Close
+            <span>Close</span>
+            <IconX class="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -220,7 +221,7 @@ onBeforeUnmount(() => {
           v-model="searchQuery"
           type="text"
           placeholder="Filter by name, type, or school..."
-          class="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded focus:border-indigo-500 focus:outline-none"
+          class="w-full px-2.5 py-1.5 text-xs border border-gray-200 rounded focus:border-gray-900 focus:outline-none"
         />
 
         <!-- Level Pills (Spells only) -->
@@ -236,7 +237,7 @@ onBeforeUnmount(() => {
             :class="[
               'px-2 py-0.5 rounded transition-colors whitespace-nowrap cursor-pointer',
               selectedSpellLevel === pill.value
-                ? 'bg-indigo-600 text-white font-medium'
+                ? 'bg-gray-900 text-white font-medium'
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             ]"
           >
@@ -249,7 +250,7 @@ onBeforeUnmount(() => {
       <div class="flex-1 overflow-y-auto p-3 space-y-2 divide-y divide-gray-100">
         <!-- Loading State -->
         <div v-if="isLoading" class="py-12 text-center text-gray-500 space-y-2">
-          <div class="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <div class="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
           <p class="text-xs">Loading compendium entries...</p>
         </div>
 
@@ -332,7 +333,8 @@ onBeforeUnmount(() => {
               type="button"
               class="text-gray-400 hover:text-gray-700 text-xs px-1"
             >
-              {{ expandedItemId === (item.id || item.name) ? '▲' : '▼' }}
+              <IconChevronUp v-if="expandedItemId === (item.id || item.name)" class="w-3.5 h-3.5" />
+              <IconChevronDown v-else class="w-3.5 h-3.5" />
             </button>
           </div>
 

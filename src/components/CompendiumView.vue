@@ -5,7 +5,7 @@ import { useConfig } from '../config'
 import { useCharacterStore } from '../stores/character'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
 import { renderAnnotatedText, formatPrerequisite, format5eEntries } from '../utils/textRenderer'
-import { IconArrowLeft } from '@tabler/icons-vue'
+import { IconArrowLeft, IconX } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 const characterStore = useCharacterStore()
@@ -35,16 +35,16 @@ const monsterTypeFilter = ref('all')
 const featCategoryFilter = ref('all')
 const ruleCategoryFilter = ref('all')
 
-const displayedLimit = ref(40)
-const displayedList = computed(() => {
-  return rawList.value.slice(0, displayedLimit.value)
-})
+const PAGE_SIZE = 60
+const hasMore = ref(true)
+const isLoadingMore = ref(false)
+const allPage = ref(0)
 
 const onListScroll = (e) => {
   const el = e.target
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
-    if (displayedLimit.value < rawList.value.length) {
-      displayedLimit.value = Math.min(displayedLimit.value + 40, rawList.value.length)
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 200) {
+    if (hasMore.value && !isLoadingMore.value && !isLoading.value) {
+      fetchMore()
     }
   }
 }
@@ -52,14 +52,32 @@ const onListScroll = (e) => {
 const isItemSelected = (item) => {
   if (!selectedItem.value || !item) return false
   if (selectedItem.value === item) return true
-  if (selectedItem.value.id && item.id) {
-    return String(selectedItem.value.id) === String(item.id)
+
+  const cat1 = selectedItem.value._category || ''
+  const cat2 = item._category || ''
+  if (cat1 && cat2 && cat1 !== cat2) return false
+
+  const id1 = selectedItem.value.id
+  const id2 = item.id
+  if (id1 && id2 && cat1 === cat2) {
+    if (String(id1) !== String(id2)) return false
   }
-  return (
-    selectedItem.value.name === item.name &&
-    (selectedItem.value.source || '') === (item.source || '') &&
-    (selectedItem.value.edition || '') === (item.edition || '')
-  )
+
+  const name1 = (selectedItem.value.name || '').trim().toLowerCase()
+  const name2 = (item.name || '').trim().toLowerCase()
+  if (name1 !== name2) return false
+
+  const src1 = (selectedItem.value.source || '').toUpperCase()
+  const src2 = (item.source || '').toUpperCase()
+  if (src1 && src2 && src1 !== src2) return false
+
+  const ed1 = String(selectedItem.value.edition || '')
+  const ed2 = String(item.edition || '')
+  if (ed1 && ed2 && ed1 !== ed2) return false
+
+  if (id1 && id2 && String(id1) === String(id2)) return true
+
+  return (selectedItem.value.source || '') === (item.source || '')
 }
 
 const sourceOptions2024 = [
@@ -67,7 +85,16 @@ const sourceOptions2024 = [
   { label: "XPHB (Player's Handbook 2024)", value: 'XPHB' },
   { label: "XDMG (DM Guide 2024)", value: 'XDMG' },
   { label: "XMM (Monster Manual 2024)", value: 'XMM' },
-  { label: 'TCE (Tasha)', value: 'TCE' }
+  { label: 'PHB (2014 Core)', value: 'PHB' },
+  { label: 'DMG (2014 Core)', value: 'DMG' },
+  { label: 'MM (2014 Core)', value: 'MM' },
+  { label: 'MPMM (Multiverse)', value: 'MPMM' },
+  { label: 'TCE (Tasha)', value: 'TCE' },
+  { label: 'XGE (Xanathar)', value: 'XGE' },
+  { label: 'FTD (Fizban)', value: 'FTD' },
+  { label: 'BGG (Bigby)', value: 'BGG' },
+  { label: 'ERLW (Eberron)', value: 'ERLW' },
+  { label: 'SCAG (Sword Coast)', value: 'SCAG' }
 ]
 
 const sourceOptions2014 = [
@@ -193,6 +220,12 @@ const initFromNavState = () => {
 
   // Handle passed filter params (e.g. from class spell lists: { class: 'cleric' })
   if (compendiumParams.value) {
+    if (compendiumParams.value.edition) {
+      currentEdition.value = compendiumParams.value.edition
+    }
+    if (compendiumParams.value.source) {
+      sourceFilter.value = compendiumParams.value.source
+    }
     if (compendiumParams.value.class) {
       spellClassFilter.value = compendiumParams.value.class.toLowerCase()
     } else {
@@ -226,20 +259,19 @@ const clearSearch = () => {
 const setTab = (tab) => {
   activeTab.value = tab
   selectedItem.value = null
-  displayedLimit.value = 40
   fetchData()
 }
 
 const fetchData = async () => {
   isLoading.value = true
-  displayedLimit.value = 40
+  hasMore.value = true
   const edition = currentEdition.value
   const q = searchQuery.value.trim()
   const src = sourceFilter.value !== 'all' ? sourceFilter.value : null
 
   try {
     if (activeTab.value === 'spells') {
-      const params = { edition, limit: 250 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
       if (spellClassFilter.value !== 'all') params.className = spellClassFilter.value
@@ -247,18 +279,20 @@ const fetchData = async () => {
 
       const res = await axios.get(`${API_URL}/compendium/spells`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'spells' }))
     } else if (activeTab.value === 'items') {
-      const params = { edition, limit: 250 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
       if (itemTypeFilter.value !== 'all') params.type = itemTypeFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/items`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'items' }))
     } else if (activeTab.value === 'monsters') {
-      const params = { edition, limit: 120 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
       if (monsterCrFilter.value !== 'all') params.cr = monsterCrFilter.value
@@ -266,42 +300,48 @@ const fetchData = async () => {
 
       const res = await axios.get(`${API_URL}/compendium/monsters`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'monsters' }))
     } else if (activeTab.value === 'feats') {
-      const params = { edition, limit: 200 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
       if (featCategoryFilter.value !== 'all') params.category = featCategoryFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/feats`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'feats' }))
     } else if (activeTab.value === 'rules') {
-      const params = { edition }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
       if (ruleCategoryFilter.value !== 'all') params.category = ruleCategoryFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/rules`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'rules' }))
     } else if (activeTab.value === 'optionalfeatures') {
-      const params = { edition }
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
       if (q) params.search = q
       if (src) params.source = src
 
       const res = await axios.get(`${API_URL}/compendium/optionalfeatures`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'optionalfeatures' }))
     } else if (activeTab.value === 'all') {
-      const baseParams = { edition, search: q }
+      allPage.value = 1
+      const baseParams = { edition }
+      if (q) baseParams.search = q
       if (src) baseParams.source = src
       const [spellsRes, itemsRes, monstersRes, featsRes, rulesRes] = await Promise.all([
-        axios.get(`${API_URL}/compendium/spells`, { params: { ...baseParams, limit: 50 } }),
-        axios.get(`${API_URL}/compendium/items`, { params: { ...baseParams, limit: 50 } }),
-        axios.get(`${API_URL}/compendium/monsters`, { params: { ...baseParams, limit: 40 } }),
-        axios.get(`${API_URL}/compendium/feats`, { params: { ...baseParams, limit: 30 } }),
-        axios.get(`${API_URL}/compendium/rules`, { params: { ...baseParams, limit: 40 } })
+        axios.get(`${API_URL}/compendium/spells`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/items`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/monsters`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/feats`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/rules`, { params: { ...baseParams, limit: 20, offset: 0 } })
       ])
 
       const spells = (Array.isArray(spellsRes.data?.data) ? spellsRes.data.data : []).map(i => ({ ...i, _category: 'spells' }))
@@ -310,7 +350,11 @@ const fetchData = async () => {
       const feats = (Array.isArray(featsRes.data?.data) ? featsRes.data.data : []).map(i => ({ ...i, _category: 'feats' }))
       const rules = (Array.isArray(rulesRes.data?.data) ? rulesRes.data.data : []).map(i => ({ ...i, _category: 'rules' }))
 
-      rawList.value = [...spells, ...items, ...monsters, ...feats, ...rules]
+      const combined = [...spells, ...items, ...monsters, ...feats, ...rules]
+      if (combined.length < 20) {
+        hasMore.value = false
+      }
+      rawList.value = combined
     }
 
     if (src) {
@@ -336,6 +380,91 @@ const fetchData = async () => {
     rawList.value = []
   } finally {
     isLoading.value = false
+  }
+}
+
+const fetchMore = async () => {
+  if (!hasMore.value || isLoadingMore.value || isLoading.value) return
+
+  isLoadingMore.value = true
+  const edition = currentEdition.value
+  const q = searchQuery.value.trim()
+  const src = sourceFilter.value !== 'all' ? sourceFilter.value : null
+
+  try {
+    if (activeTab.value === 'all') {
+      const offset = allPage.value * 20
+      allPage.value++
+      const baseParams = { edition, limit: 20, offset }
+      if (q) baseParams.search = q
+      if (src) baseParams.source = src
+
+      const [spellsRes, itemsRes, monstersRes, featsRes, rulesRes] = await Promise.all([
+        axios.get(`${API_URL}/compendium/spells`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/items`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/monsters`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/feats`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/rules`, { params: baseParams })
+      ])
+
+      const spells = (Array.isArray(spellsRes.data?.data) ? spellsRes.data.data : []).map(i => ({ ...i, _category: 'spells' }))
+      const items = (Array.isArray(itemsRes.data?.data) ? itemsRes.data.data : []).map(i => ({ ...i, _category: 'items' }))
+      const monsters = (Array.isArray(monstersRes.data?.data) ? monstersRes.data.data : []).map(i => ({ ...i, _category: 'monsters' }))
+      const feats = (Array.isArray(featsRes.data?.data) ? featsRes.data.data : []).map(i => ({ ...i, _category: 'feats' }))
+      const rules = (Array.isArray(rulesRes.data?.data) ? rulesRes.data.data : []).map(i => ({ ...i, _category: 'rules' }))
+
+      const nextBatch = [...spells, ...items, ...monsters, ...feats, ...rules]
+      if (nextBatch.length === 0) {
+        hasMore.value = false
+      } else {
+        rawList.value = [...rawList.value, ...nextBatch]
+      }
+      return
+    }
+
+    const offset = rawList.value.length
+    let endpoint = ''
+    const params = { edition, limit: PAGE_SIZE, offset }
+    if (q) params.search = q
+    if (src) params.source = src
+
+    if (activeTab.value === 'spells') {
+      endpoint = `${API_URL}/compendium/spells`
+      if (spellClassFilter.value !== 'all') params.className = spellClassFilter.value
+      if (spellLevelFilter.value !== 'all') params.level = spellLevelFilter.value
+    } else if (activeTab.value === 'items') {
+      endpoint = `${API_URL}/compendium/items`
+      if (itemTypeFilter.value !== 'all') params.type = itemTypeFilter.value
+    } else if (activeTab.value === 'monsters') {
+      endpoint = `${API_URL}/compendium/monsters`
+      if (monsterCrFilter.value !== 'all') params.cr = monsterCrFilter.value
+      if (monsterTypeFilter.value !== 'all') params.type = monsterTypeFilter.value
+    } else if (activeTab.value === 'feats') {
+      endpoint = `${API_URL}/compendium/feats`
+      if (featCategoryFilter.value !== 'all') params.category = featCategoryFilter.value
+    } else if (activeTab.value === 'rules') {
+      endpoint = `${API_URL}/compendium/rules`
+      if (ruleCategoryFilter.value !== 'all') params.category = ruleCategoryFilter.value
+    } else if (activeTab.value === 'optionalfeatures') {
+      endpoint = `${API_URL}/compendium/optionalfeatures`
+    }
+
+    if (!endpoint) return
+
+    const res = await axios.get(endpoint, { params })
+    const list = Array.isArray(res.data?.data) ? res.data.data : []
+    const mapped = list.map(item => ({ ...item, _category: activeTab.value }))
+
+    if (mapped.length < PAGE_SIZE) {
+      hasMore.value = false
+    }
+
+    rawList.value = [...rawList.value, ...mapped]
+  } catch (err) {
+    console.error('Failed to load more compendium entries:', err)
+    hasMore.value = false
+  } finally {
+    isLoadingMore.value = false
   }
 }
 
@@ -542,7 +671,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="isCompendiumOpen" class="min-h-screen bg-gray-100 flex flex-col text-xs text-gray-800">
+  <div
+    v-if="isCompendiumOpen"
+    class="min-h-screen bg-gray-100 flex flex-col text-xs text-gray-800"
+    :data-edition="currentEdition"
+    :data-source="sourceFilter !== 'all' ? sourceFilter : (currentEdition === '2024' ? 'XPHB' : 'PHB')"
+  >
     <!-- Top Navigation Bar -->
     <header class="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
       <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
@@ -573,7 +707,7 @@ onBeforeUnmount(() => {
                 @click="currentEdition = '2024'"
                 :class="[
                   'px-2.5 py-1 text-xs font-semibold rounded transition cursor-pointer',
-                  currentEdition === '2024' ? 'bg-indigo-600 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  currentEdition === '2024' ? 'bg-gray-900 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
                 ]"
               >
                 2024 (Revised)
@@ -583,7 +717,7 @@ onBeforeUnmount(() => {
                 @click="currentEdition = '2014'"
                 :class="[
                   'px-2.5 py-1 text-xs font-semibold rounded transition cursor-pointer',
-                  currentEdition === '2014' ? 'bg-indigo-600 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                  currentEdition === '2014' ? 'bg-gray-900 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
                 ]"
               >
                 2014 (Legacy)
@@ -593,9 +727,10 @@ onBeforeUnmount(() => {
           <button
             type="button"
             @click="closeCompendium"
-            class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold text-xs transition cursor-pointer border border-gray-200"
+            class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold text-xs transition cursor-pointer border border-gray-200 flex items-center gap-1"
           >
-            Close
+            <IconX class="w-3.5 h-3.5" />
+            <span>Close</span>
           </button>
         </div>
       </div>
@@ -612,7 +747,7 @@ onBeforeUnmount(() => {
             @click="setTab('all')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'all' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'all' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             All
@@ -622,7 +757,7 @@ onBeforeUnmount(() => {
             @click="setTab('spells')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'spells' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'spells' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Spells
@@ -632,7 +767,7 @@ onBeforeUnmount(() => {
             @click="setTab('items')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'items' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'items' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Items & Equipment
@@ -642,7 +777,7 @@ onBeforeUnmount(() => {
             @click="setTab('monsters')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'monsters' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'monsters' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Monsters & Bestiary
@@ -652,7 +787,7 @@ onBeforeUnmount(() => {
             @click="setTab('feats')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'feats' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'feats' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Feats
@@ -662,7 +797,7 @@ onBeforeUnmount(() => {
             @click="setTab('rules')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'rules' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'rules' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Rules & Glossary
@@ -672,7 +807,7 @@ onBeforeUnmount(() => {
             @click="setTab('optionalfeatures')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'optionalfeatures' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              activeTab === 'optionalfeatures' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             Optional Features
@@ -688,17 +823,17 @@ onBeforeUnmount(() => {
               @input="onSearchInput"
               type="text"
               placeholder="Search by name, rule, type, or property..."
-              class="w-full pl-8 pr-8 py-2 bg-gray-50 border border-gray-200 rounded focus:bg-white focus:border-indigo-500 focus:outline-none text-xs"
+              class="w-full pl-8 pr-8 py-2 bg-gray-50 border border-gray-200 rounded focus:bg-white focus:border-gray-900 focus:outline-none text-xs"
             />
             <svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
             <button
               v-if="searchQuery"
               type="button"
               @click="clearSearch"
-              class="absolute right-2.5 top-2 text-gray-400 hover:text-gray-700 text-sm font-bold"
+              class="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-700 transition cursor-pointer"
               aria-label="Clear search"
             >
-              &times;
+              <IconX class="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -706,8 +841,8 @@ onBeforeUnmount(() => {
           <div class="flex items-center gap-1.5">
             <select
               v-model="sourceFilter"
-              @change="displayedLimit = 40; fetchData()"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="src in currentSourceOptions" :key="src.value" :value="src.value">
                 {{ src.label }}
@@ -720,7 +855,7 @@ onBeforeUnmount(() => {
             <select
               v-model="spellClassFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="cls in spellClasses" :key="cls.value" :value="cls.value">
                 {{ cls.label }}
@@ -733,7 +868,7 @@ onBeforeUnmount(() => {
             <select
               v-model="itemTypeFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="t in itemTypes" :key="t.value" :value="t.value">
                 {{ t.label }}
@@ -746,7 +881,7 @@ onBeforeUnmount(() => {
             <select
               v-model="monsterCrFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="cr in monsterCrList" :key="cr.value" :value="cr.value">
                 {{ cr.label }}
@@ -755,7 +890,7 @@ onBeforeUnmount(() => {
             <select
               v-model="monsterTypeFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="mt in monsterTypeList" :key="mt.value" :value="mt.value">
                 {{ mt.label }}
@@ -768,7 +903,7 @@ onBeforeUnmount(() => {
             <select
               v-model="featCategoryFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="fc in featCategories" :key="fc.value" :value="fc.value">
                 {{ fc.label }}
@@ -781,7 +916,7 @@ onBeforeUnmount(() => {
             <select
               v-model="ruleCategoryFilter"
               @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
             >
               <option v-for="rc in ruleCategories" :key="rc.value" :value="rc.value">
                 {{ rc.label }}
@@ -804,8 +939,8 @@ onBeforeUnmount(() => {
             :class="[
               'px-2 py-0.5 rounded transition cursor-pointer whitespace-nowrap',
               spellLevelFilter === pill.value
-                ? 'bg-indigo-600 text-white font-semibold'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                ? 'bg-gray-900 text-white font-semibold'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             ]"
           >
             {{ pill.label }}
@@ -819,13 +954,19 @@ onBeforeUnmount(() => {
         <div class="md:col-span-5 bg-white rounded border border-gray-200 shadow-xs flex flex-col h-[650px] overflow-hidden">
           <div class="px-3 py-2 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
             <span class="text-gray-500 font-medium">
-              Found <strong class="text-gray-800">{{ displayedList.length }}</strong><span v-if="displayedList.length < rawList.length"> of <strong class="text-gray-800">{{ rawList.length }}</strong></span> entries
+              Showing <strong class="text-gray-800">{{ rawList.length }}</strong> entries
+              <span v-if="hasMore" class="text-gray-700 font-medium ml-1">(scroll for more)</span>
+              <span v-else class="text-gray-400 font-normal ml-1">(all loaded)</span>
             </span>
+            <div v-if="isLoadingMore" class="flex items-center gap-1.5 text-[11px] text-gray-700">
+              <div class="w-3 h-3 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading more...</span>
+            </div>
           </div>
 
           <!-- Loading Spinner -->
           <div v-if="isLoading" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500 space-y-2">
-            <div class="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <div class="w-6 h-6 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
             <p class="text-xs">Loading compendium entries...</p>
           </div>
 
@@ -843,13 +984,13 @@ onBeforeUnmount(() => {
             @scroll="onListScroll"
           >
             <div
-              v-for="item in displayedList"
-              :key="item.id || `${item.name}-${item.source || ''}-${item.edition || ''}`"
+              v-for="item in rawList"
+              :key="(item._category || '') + '_' + (item.id || item.name) + '_' + (item.source || '') + '_' + (item.edition || '')"
               @click="selectedItem = item"
               :class="[
                 'p-3 cursor-pointer transition border-l-3',
                 isItemSelected(item)
-                  ? 'bg-indigo-50/50 border-l-indigo-600'
+                  ? 'bg-gray-100 border-l-gray-900'
                   : 'hover:bg-gray-50 border-l-transparent'
               ]"
             >
@@ -865,7 +1006,7 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <div class="mt-1 flex items-center gap-1.5 text-[11px] text-gray-500 flex-wrap">
-                <span class="font-medium text-indigo-700 bg-indigo-50 px-1 rounded">
+                <span class="font-medium text-gray-700 bg-gray-100 border border-gray-200 px-1 rounded">
                   {{ getItemBadge(item) }}
                 </span>
                 <span v-if="item.school">• {{ item.school }}</span>
@@ -873,11 +1014,29 @@ onBeforeUnmount(() => {
                 <span v-if="item.time?.[0]">• {{ item.time[0].number }} {{ item.time[0].unit }}</span>
               </div>
             </div>
+
+            <div v-if="isLoadingMore" class="p-3 text-center text-gray-500 flex items-center justify-center gap-2">
+              <div class="w-3.5 h-3.5 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading more entries...</span>
+            </div>
+            <div v-else-if="hasMore" class="p-2 text-center border-t border-gray-100 bg-gray-50/50">
+              <button
+                type="button"
+                @click="fetchMore"
+                class="px-3 py-1 bg-white hover:bg-gray-100 text-gray-700 border border-gray-200 rounded text-xs transition cursor-pointer font-medium"
+              >
+                Load more entries
+              </button>
+            </div>
           </div>
         </div>
 
         <!-- Right Column: Detail Card (7 cols on md) -->
-        <div class="md:col-span-7 bg-white rounded border border-gray-200 shadow-xs p-4 sm:p-5 flex flex-col h-[650px] overflow-y-auto">
+        <div
+          class="md:col-span-7 bg-white rounded border border-gray-200 shadow-xs p-4 sm:p-5 flex flex-col h-[650px] overflow-y-auto"
+          :data-edition="selectedItem?.edition || currentEdition"
+          :data-source="selectedItem?.source || (sourceFilter !== 'all' ? sourceFilter : (currentEdition === '2024' ? 'XPHB' : 'PHB'))"
+        >
           <div v-if="selectedItem" class="space-y-4">
             <!-- Detail Header -->
             <div class="border-b border-gray-200 pb-3">
@@ -887,7 +1046,7 @@ onBeforeUnmount(() => {
                     {{ selectedItem.name }}
                   </h2>
                   <div class="flex items-center gap-2 mt-1 text-[11px] text-gray-500 flex-wrap">
-                    <span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold uppercase">
+                    <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 border border-gray-200 font-semibold uppercase">
                       {{ getItemBadge(selectedItem) }}
                     </span>
                     <span v-if="selectedItem.source">Source: <strong>{{ selectedItem.source }}</strong></span>
@@ -960,14 +1119,14 @@ onBeforeUnmount(() => {
             </div>
 
             <!-- Feat / Feature Prerequisite -->
-            <div v-if="selectedItem.prerequisite" class="bg-amber-50 border border-amber-200 text-amber-900 p-2 rounded text-[11px]">
+            <div v-if="selectedItem.prerequisite" class="bg-gray-50 border border-gray-200 text-gray-800 p-2 rounded text-[11px]">
               <strong>Prerequisite: </strong> {{ formatPrerequisite(selectedItem.prerequisite) }}
             </div>
 
             <!-- Monster Stat Block -->
             <div
               v-if="selectedItem._category === 'monsters' || selectedItem.cr !== undefined"
-              class="space-y-3 bg-amber-50/20 border border-amber-200/60 rounded-md p-3.5"
+              class="space-y-3 bg-gray-50/50 border border-gray-200 rounded-md p-3.5"
             >
               <!-- Monster Meta -->
               <div class="italic text-gray-600 text-[11px] border-b border-gray-200 pb-2">
@@ -976,68 +1135,68 @@ onBeforeUnmount(() => {
 
               <!-- AC, HP, Speed -->
               <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
-                <div><strong class="text-amber-900">Armor Class:</strong> {{ formatMonsterAc(selectedItem.ac) }}</div>
-                <div><strong class="text-amber-900">Hit Points:</strong> {{ formatMonsterHp(selectedItem.hp) }}</div>
-                <div><strong class="text-amber-900">Speed:</strong> {{ formatMonsterSpeed(selectedItem.speed) }}</div>
+                <div><strong class="text-gray-900">Armor Class:</strong> {{ formatMonsterAc(selectedItem.ac) }}</div>
+                <div><strong class="text-gray-900">Hit Points:</strong> {{ formatMonsterHp(selectedItem.hp) }}</div>
+                <div><strong class="text-gray-900">Speed:</strong> {{ formatMonsterSpeed(selectedItem.speed) }}</div>
               </div>
 
               <!-- Ability Scores Box -->
-              <div class="grid grid-cols-6 gap-1 bg-amber-100/50 p-2 rounded text-center border border-amber-200/60 text-[11px]">
+              <div class="grid grid-cols-6 gap-1 bg-gray-100 p-2 rounded text-center border border-gray-200 text-[11px]">
                 <div v-for="ab in ['str', 'dex', 'con', 'int', 'wis', 'cha']" :key="ab">
-                  <div class="font-bold text-amber-900 uppercase text-[10px]">{{ ab }}</div>
+                  <div class="font-bold text-gray-600 uppercase text-[10px]">{{ ab }}</div>
                   <div class="font-semibold text-gray-900">{{ selectedItem[ab] || 10 }} ({{ abMod(selectedItem[ab] || 10) }})</div>
                 </div>
               </div>
 
               <!-- Stats & Senses -->
               <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
-                <div v-if="selectedItem.save && Object.keys(selectedItem.save).length"><strong class="text-amber-900">Saving Throws:</strong> {{ formatMonsterSaves(selectedItem.save) }}</div>
-                <div v-if="selectedItem.skill && Object.keys(selectedItem.skill).length"><strong class="text-amber-900">Skills:</strong> {{ formatMonsterSkills(selectedItem.skill) }}</div>
-                <div v-if="selectedItem.senses && (Array.isArray(selectedItem.senses) ? selectedItem.senses.length : selectedItem.senses)"><strong class="text-amber-900">Senses:</strong> {{ Array.isArray(selectedItem.senses) ? selectedItem.senses.join(', ') : selectedItem.senses }}</div>
-                <div v-if="selectedItem.languages && (Array.isArray(selectedItem.languages) ? selectedItem.languages.length : selectedItem.languages)"><strong class="text-amber-900">Languages:</strong> {{ Array.isArray(selectedItem.languages) ? selectedItem.languages.join(', ') : selectedItem.languages }}</div>
-                <div><strong class="text-amber-900">Challenge:</strong> {{ selectedItem.cr || '0' }} ({{ getMonsterXp(selectedItem.cr) }} XP)</div>
+                <div v-if="selectedItem.save && Object.keys(selectedItem.save).length"><strong class="text-gray-900">Saving Throws:</strong> {{ formatMonsterSaves(selectedItem.save) }}</div>
+                <div v-if="selectedItem.skill && Object.keys(selectedItem.skill).length"><strong class="text-gray-900">Skills:</strong> {{ formatMonsterSkills(selectedItem.skill) }}</div>
+                <div v-if="selectedItem.senses && (Array.isArray(selectedItem.senses) ? selectedItem.senses.length : selectedItem.senses)"><strong class="text-gray-900">Senses:</strong> {{ Array.isArray(selectedItem.senses) ? selectedItem.senses.join(', ') : selectedItem.senses }}</div>
+                <div v-if="selectedItem.languages && (Array.isArray(selectedItem.languages) ? selectedItem.languages.length : selectedItem.languages)"><strong class="text-gray-900">Languages:</strong> {{ Array.isArray(selectedItem.languages) ? selectedItem.languages.join(', ') : selectedItem.languages }}</div>
+                <div><strong class="text-gray-900">Challenge:</strong> {{ selectedItem.cr || '0' }} ({{ getMonsterXp(selectedItem.cr) }} XP)</div>
               </div>
 
               <!-- Traits -->
               <div v-if="selectedItem.trait && selectedItem.trait.length" class="space-y-2 pt-1">
                 <div v-for="(tr, idx) in selectedItem.trait" :key="idx" class="text-[11px]">
-                  <strong class="text-amber-900">{{ tr.name }}.</strong>
+                  <strong class="text-gray-900">{{ tr.name }}.</strong>
                   <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(tr.entries))"></span>
                 </div>
               </div>
 
               <!-- Actions -->
               <div v-if="selectedItem.action && selectedItem.action.length" class="space-y-2 pt-2 border-t border-gray-200">
-                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Actions</h4>
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900 border-b border-gray-200 pb-0.5">Actions</h4>
                 <div v-for="(act, idx) in selectedItem.action" :key="idx" class="text-[11px]">
-                  <strong class="text-amber-900">{{ act.name }}.</strong>
+                  <strong class="text-gray-900">{{ act.name }}.</strong>
                   <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(act.entries))"></span>
                 </div>
               </div>
 
               <!-- Bonus Actions -->
               <div v-if="selectedItem.bonus && selectedItem.bonus.length" class="space-y-2 pt-2 border-t border-gray-200">
-                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Bonus Actions</h4>
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900 border-b border-gray-200 pb-0.5">Bonus Actions</h4>
                 <div v-for="(b, idx) in selectedItem.bonus" :key="idx" class="text-[11px]">
-                  <strong class="text-amber-900">{{ b.name }}.</strong>
+                  <strong class="text-gray-900">{{ b.name }}.</strong>
                   <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(b.entries))"></span>
                 </div>
               </div>
 
               <!-- Reactions -->
               <div v-if="selectedItem.reaction && selectedItem.reaction.length" class="space-y-2 pt-2 border-t border-gray-200">
-                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Reactions</h4>
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900 border-b border-gray-200 pb-0.5">Reactions</h4>
                 <div v-for="(r, idx) in selectedItem.reaction" :key="idx" class="text-[11px]">
-                  <strong class="text-amber-900">{{ r.name }}.</strong>
+                  <strong class="text-gray-900">{{ r.name }}.</strong>
                   <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(r.entries))"></span>
                 </div>
               </div>
 
               <!-- Legendary Actions -->
               <div v-if="selectedItem.legendary && selectedItem.legendary.length" class="space-y-2 pt-2 border-t border-gray-200">
-                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Legendary Actions</h4>
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900 border-b border-gray-200 pb-0.5">Legendary Actions</h4>
                 <div v-for="(la, idx) in selectedItem.legendary" :key="idx" class="text-[11px]">
-                  <strong class="text-amber-900">{{ la.name }}.</strong>
+                  <strong class="text-gray-900">{{ la.name }}.</strong>
                   <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(la.entries))"></span>
                 </div>
               </div>
@@ -1045,7 +1204,10 @@ onBeforeUnmount(() => {
 
             <!-- Description Body -->
             <div class="prose-xs leading-relaxed text-gray-800 space-y-2 pt-1">
-              <div v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+              <div v-if="selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true)" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+              <div v-else-if="!selectedItem.trait && !selectedItem.action" class="text-gray-400 italic text-xs py-2">
+                No additional rules text recorded for this entry.
+              </div>
             </div>
 
             <!-- At Higher Levels -->
@@ -1074,5 +1236,21 @@ onBeforeUnmount(() => {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+:deep(ul) {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+:deep(li) {
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+}
+:deep(p) {
+  margin-bottom: 0.4rem;
+}
+:deep(p:last-child) {
+  margin-bottom: 0;
 }
 </style>

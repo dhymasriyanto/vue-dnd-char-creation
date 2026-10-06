@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
-import { renderAnnotatedText, renderTableCell } from '../utils/textRenderer';
+import { renderAnnotatedText, format5eEntries } from '../utils/textRenderer';
 
 const props = defineProps({
   selected: {
@@ -282,8 +282,8 @@ const getAvailableOptions = (slotIdx) => {
         <li v-for="(spell, index) in selected.additionalSpells" :key="index">
           <div v-if="spell.ability">
             <span v-if="selected.additionalSpells.length > 1">
-              <div v-if="index === 0" class="text-sky-500">Choose one of the spell, from:</div>
-              <div v-else class="text-sky-500">or</div>
+              <div v-if="index === 0" class="text-gray-700 font-medium">Choose one of the spell, from:</div>
+              <div v-else class="text-gray-700 font-medium">or</div>
             </span>
             <span v-if="spell.ability.choose">
               Choose your spellcasting ability from:
@@ -442,130 +442,10 @@ const getAvailableOptions = (slotIdx) => {
     </p>
     <div v-if="selected.entries && selected.entries.length">
       <hr class="my-4 border-gray-200">
-      <ul class="space-y-3">
-        <li v-for="(entry, entryIdx) in selected.entries" :key="entryIdx">
-          <div v-if="entry.type === 'table'" class="my-3 overflow-x-auto w-full border border-gray-200 rounded max-w-full">
-            <table class="w-full min-w-full text-left text-xs divide-y divide-gray-200">
-              <caption v-if="entry.caption" class="p-2 text-xs font-bold text-gray-800 bg-gray-50 text-left border-b border-gray-200">
-                {{ entry.caption }}
-              </caption>
-              <thead class="bg-gray-50">
-                <tr>
-                  <th
-                    v-for="(h, hIdx) in (entry.colLabels || [])"
-                    :key="hIdx"
-                    class="px-2.5 py-1.5 font-semibold text-gray-700 text-[11px] whitespace-nowrap"
-                    v-html="renderTableCell(h)"
-                  ></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-200 bg-white">
-                <tr v-for="(r, rIdx) in (entry.rows || [])" :key="rIdx" class="hover:bg-gray-50/80">
-                  <td
-                    v-for="(c, cIdx) in r"
-                    :key="cIdx"
-                    class="px-2.5 py-1.5 text-gray-700 text-xs whitespace-normal align-top"
-                    v-html="renderTableCell(c)"
-                  ></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p v-else-if="typeof entry === 'string'" class="mb-2 leading-relaxed" v-html="renderAnnotatedText(entry)"></p>
-          <template v-else>
-            <p v-if="entry.name" class="font-bold text-gray-900 mt-2 mb-1">
-              {{ entry.name }}
-            </p>
-            <div v-if="typeof entry.entries === 'string'" class="mb-2 leading-relaxed">
-              <p v-html="renderAnnotatedText(entry.entries)"></p>
-            </div>
-            <div v-else-if="Array.isArray(entry.entries)" class="space-y-2">
-              <template v-for="(e, eIdx) in entry.entries" :key="eIdx">
-                <p v-if="typeof e === 'string'" class="mb-2 leading-relaxed" v-html="renderAnnotatedText(e)"></p>
-
-                <div v-else-if="e.type === 'table'" class="my-3 overflow-x-auto w-full border border-gray-200 rounded max-w-full">
-                  <table class="w-full min-w-full text-left text-xs divide-y divide-gray-200">
-                    <caption v-if="e.caption" class="p-2 text-xs font-bold text-gray-800 bg-gray-50 text-left border-b border-gray-200">
-                      {{ e.caption }}
-                    </caption>
-                    <thead class="bg-gray-50">
-                      <tr>
-                        <th
-                          v-for="(h, hIdx) in (e.colLabels || [])"
-                          :key="hIdx"
-                          class="px-2.5 py-1.5 font-semibold text-gray-700 text-[11px] whitespace-nowrap"
-                          v-html="renderTableCell(h)"
-                        ></th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-200 bg-white">
-                      <tr v-for="(r, rIdx) in (e.rows || [])" :key="rIdx" class="hover:bg-gray-50/80">
-                        <td
-                          v-for="(c, cIdx) in r"
-                          :key="cIdx"
-                          class="px-2.5 py-1.5 text-gray-700 text-xs whitespace-normal align-top"
-                          v-html="renderTableCell(c)"
-                        ></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div v-else-if="e.type === 'list'" class="ml-3 sm:ml-5 mb-2">
-                  <ul class="space-y-1">
-                    <li v-for="(l, lIdx) in e.items" :key="lIdx">
-                      <span v-if="typeof l === 'string'" v-html="`- ${renderAnnotatedText(l)}`"></span>
-                      <span v-else>
-                        <span v-if="l.name" class="mr-2 text-sky-900 font-bold">{{ l.name }}</span>
-                        <span v-if="l.entry" v-html="renderAnnotatedText(l.entry)"></span>
-                        <ul v-if="l.type === 'item' && Array.isArray(l.entries)" class="ml-3 space-y-0.5">
-                          <li v-for="(i, iIdx) in l.entries" :key="iIdx">
-                            <span v-html="renderAnnotatedText(i)"></span>
-                          </li>
-                        </ul>
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div v-else-if="e.type === 'entries'" class="mb-2">
-                  <p v-if="e.name" class="font-bold text-gray-800 mb-1" v-html="renderAnnotatedText(e.name)"></p>
-                  <template v-for="(subE, subIdx) in (e.entries || [])" :key="subIdx">
-                    <p v-if="typeof subE === 'string'" class="mb-1 leading-relaxed" v-html="renderAnnotatedText(subE)"></p>
-                    <div v-else-if="subE.type === 'table'" class="my-3 overflow-x-auto w-full border border-gray-200 rounded max-w-full">
-                      <table class="w-full min-w-full text-left text-xs divide-y divide-gray-200">
-                        <caption v-if="subE.caption" class="p-2 text-xs font-bold text-gray-800 bg-gray-50 text-left border-b border-gray-200">
-                          {{ subE.caption }}
-                        </caption>
-                        <thead class="bg-gray-50">
-                          <tr>
-                            <th
-                              v-for="(h, hIdx) in (subE.colLabels || [])"
-                              :key="hIdx"
-                              class="px-2.5 py-1.5 font-semibold text-gray-700 text-[11px] whitespace-nowrap"
-                              v-html="renderTableCell(h)"
-                            ></th>
-                          </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200 bg-white">
-                          <tr v-for="(r, rIdx) in (subE.rows || [])" :key="rIdx" class="hover:bg-gray-50/80">
-                            <td
-                              v-for="(c, cIdx) in r"
-                              :key="cIdx"
-                              class="px-2.5 py-1.5 text-gray-700 text-xs whitespace-normal align-top"
-                              v-html="renderTableCell(c)"
-                            ></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </template>
-                </div>
-              </template>
-            </div>
-          </template>
-        </li>
-      </ul>
+      <div
+        class="space-y-2 text-gray-700 leading-relaxed text-xs"
+        v-html="renderAnnotatedText(format5eEntries(selected.entries))"
+      ></div>
     </div>
   </div>
 </template>

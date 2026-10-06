@@ -3,6 +3,7 @@ import CollapsedComponent from './CollapsedComponent.vue'
 import { useCharacterStore } from '../stores/character'
 import { computed } from 'vue'
 import { renderAnnotatedText, clean5eToolsMarkup } from '../utils/textRenderer'
+import { IconStarFilled } from '@tabler/icons-vue'
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const KEY_TO_LABEL = {
@@ -237,11 +238,20 @@ const isExpertiseFeatureItem = (feat) => {
 }
 
 const combinedFeatures = computed(() => {
-  const classFeatures = (props.selected?.classFeature || []).map(f => ({ ...f, _fromClass: true }))
+  const activeSources = (characterStore.selectedSources && characterStore.selectedSources.length > 0)
+    ? characterStore.selectedSources.map(s => String(s).toUpperCase())
+    : (characterStore.edition === '2024' ? ['XPHB'] : ['PHB'])
+
+  const classFeatures = (props.selected?.classFeature || [])
+    .filter(f => !f.source || activeSources.includes(String(f.source).toUpperCase()))
+    .map(f => ({ ...f, _fromClass: true }))
+
   const scList = props.subClassFeatures !== null
     ? props.subClassFeatures
     : (characterStore.characterSubClass?.subClassFeature || [])
-  const subClassFeatures = scList.map(f => ({ ...f, _fromSubclass: true }))
+  const subClassFeatures = scList
+    .filter(f => !f.source || activeSources.includes(String(f.source).toUpperCase()))
+    .map(f => ({ ...f, _fromSubclass: true }))
 
   const allFeatures = []
 
@@ -399,7 +409,7 @@ const combinedFeatures = computed(() => {
                 v-for="skillKey in availableClassSkills"
                 :key="skillKey"
                 :class="[
-                  chosenClassSkills.includes(skillKey) ? 'bg-indigo-50 border-indigo-300 font-medium' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50',
+                  chosenClassSkills.includes(skillKey) ? 'bg-gray-100 border-gray-400 font-medium text-gray-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50',
                   'flex items-center gap-2 p-2 border rounded cursor-pointer text-xs transition'
                 ]"
               >
@@ -409,7 +419,7 @@ const combinedFeatures = computed(() => {
                   :checked="chosenClassSkills.includes(skillKey)"
                   :disabled="!chosenClassSkills.includes(skillKey) && chosenClassSkills.length >= classSkillConfig.count"
                   @change="emit('toggleClassSkill', skillKey)"
-                  class="rounded text-indigo-600 focus:ring-0 cursor-pointer"
+                  class="rounded text-gray-900 accent-gray-900 focus:ring-0 cursor-pointer"
                 />
                 <span>{{ getSkillLabel(skillKey) }}</span>
               </label>
@@ -483,7 +493,7 @@ const combinedFeatures = computed(() => {
             </span>
           </div>
 
-          <div v-if="allProficientSkills.length === 0" class="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+          <div v-if="allProficientSkills.length === 0" class="p-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700">
             Select your class skill proficiencies above in Core Proficiencies first.
           </div>
 
@@ -496,7 +506,7 @@ const combinedFeatures = computed(() => {
               v-for="skillKey in allProficientSkills"
               :key="skillKey"
               :class="[
-                chosenExpertiseSkills.includes(skillKey) ? 'bg-amber-50 border-amber-300 font-medium' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50',
+                chosenExpertiseSkills.includes(skillKey) ? 'bg-gray-100 border-gray-400 font-medium text-gray-900' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50',
                 'flex items-center gap-2 p-2 border rounded cursor-pointer text-xs transition'
               ]"
             >
@@ -506,9 +516,13 @@ const combinedFeatures = computed(() => {
                 :checked="chosenExpertiseSkills.includes(skillKey)"
                 :disabled="!chosenExpertiseSkills.includes(skillKey) && chosenExpertiseSkills.length >= expertiseConfig.count"
                 @change="emit('toggleExpertiseSkill', skillKey)"
-                class="rounded text-amber-600 focus:ring-0 cursor-pointer"
+                class="rounded text-gray-900 accent-gray-900 focus:ring-0 cursor-pointer"
               />
               <span>{{ getSkillLabel(skillKey) }}</span>
+              <IconStarFilled
+                v-if="chosenExpertiseSkills.includes(skillKey)"
+                class="w-3.5 h-3.5 text-gray-800 ml-auto shrink-0"
+              />
             </label>
           </div>
           <p v-if="expertiseError" class="text-xs text-red-600 font-medium">
@@ -523,14 +537,9 @@ const combinedFeatures = computed(() => {
           class="mt-3 pt-3 border-t border-gray-200 space-y-3"
         >
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <span class="text-xs font-bold text-gray-900">
-                Level {{ classFeature.level || 4 }} Choice:
-              </span>
-              <p class="text-[11px] text-gray-500">
-                Choose an Ability Score Improvement or select a Feat.
-              </p>
-            </div>
+            <span class="text-xs font-semibold text-gray-700">
+              Choose either Ability Increase or Feat:
+            </span>
             <!-- Mode Toggle: ASI vs Feat -->
             <div class="flex gap-1 bg-gray-100 p-0.5 rounded">
               <button
@@ -560,7 +569,7 @@ const combinedFeatures = computed(() => {
                   type="radio"
                   value="+2"
                   v-model="ensureAsiTier(classFeature.level || 4).asiMode"
-                  class="text-indigo-600 focus:ring-0"
+                  class="text-gray-800 focus:ring-0"
                 />
                 <span>+2 to one ability</span>
               </label>
@@ -569,7 +578,7 @@ const combinedFeatures = computed(() => {
                   type="radio"
                   value="+1_+1"
                   v-model="ensureAsiTier(classFeature.level || 4).asiMode"
-                  class="text-indigo-600 focus:ring-0"
+                  class="text-gray-800 focus:ring-0"
                 />
                 <span>+1 to two abilities</span>
               </label>
@@ -672,11 +681,6 @@ const combinedFeatures = computed(() => {
                 </option>
               </select>
             </div>
-          </div>
-
-          <!-- When neither is selected yet -->
-          <div v-else class="p-3 bg-gray-50 border border-dashed border-gray-300 rounded text-xs text-gray-500">
-            Choose either Ability Increase or Feat above.
           </div>
 
           <p

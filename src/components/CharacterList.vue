@@ -3,9 +3,14 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
+import { IconBook, IconExternalLink, IconEye, IconEdit, IconTrash } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 const { openCompendium } = useCompendiumNav()
+
+const openCompendiumWindow = () => {
+  window.open(`${window.location.origin}${window.location.pathname}?compendium=1`, '_blank')
+}
 
 const emit = defineEmits(['create', 'select', 'edit'])
 
@@ -80,15 +85,17 @@ onMounted(() => {
       <div class="flex items-center gap-2">
         <button
           type="button"
-          @click="openCompendium()"
+          @click="openCompendiumWindow"
           class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
         >
+          <IconBook class="w-4 h-4 text-gray-700" />
           <span>Compendium</span>
+          <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
         </button>
         <button
           type="button"
           @click="emit('create')"
-          class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer"
+          class="bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer"
         >
           Create Character
         </button>
@@ -102,7 +109,7 @@ onMounted(() => {
           type="text"
           v-model="searchQuery"
           placeholder="Search by name, class, species..."
-          class="w-full text-xs p-2 pl-3 bg-white border border-gray-300 rounded focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          class="w-full text-xs p-2 pl-3 bg-white border border-gray-300 rounded focus:outline-none focus:border-gray-900 focus:ring-1 focus:ring-gray-900"
         />
       </div>
 
@@ -151,7 +158,7 @@ onMounted(() => {
       <button
         type="button"
         @click="emit('create')"
-        class="mt-4 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded transition cursor-pointer"
+        class="mt-4 bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded transition cursor-pointer"
       >
         Create Character
       </button>
@@ -176,8 +183,7 @@ onMounted(() => {
               </span>
             </div>
             <span
-              class="text-[10px] font-semibold px-1.5 py-0.5 rounded border shrink-0"
-              :class="c.edition === '2024' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700'"
+              class="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-100 text-gray-700 shrink-0"
             >
               {{ c.edition === '2024' ? '2024' : '2014' }}
             </span>
@@ -188,28 +194,34 @@ onMounted(() => {
             <div><span class="text-gray-400">Background: </span>{{ c.background || '-' }}</div>
           </div>
 
-          <div class="flex items-center justify-end gap-1.5 pt-2 border-t border-gray-100" @click.stop>
+          <div class="flex items-center justify-end gap-1 pt-2 border-t border-gray-100" @click.stop>
             <button
               type="button"
               @click="emit('select', c.id)"
-              class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+              title="View Sheet"
+              aria-label="View Sheet"
+              class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
             >
-              View Sheet
+              <IconEye class="w-4 h-4" />
             </button>
             <button
               type="button"
               @click="emit('edit', c.id)"
-              class="bg-white hover:bg-gray-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-2.5 py-1 rounded text-xs font-medium cursor-pointer"
+              title="Edit"
+              aria-label="Edit"
+              class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
             >
-              Edit
+              <IconEdit class="w-4 h-4" />
             </button>
             <button
               type="button"
               :disabled="deletingId === c.id"
               @click="deleteCharacter(c.id, c.name, $event)"
-              class="bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-300 px-2 py-1 rounded text-xs cursor-pointer disabled:opacity-50"
+              title="Delete"
+              aria-label="Delete"
+              class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-red-600 transition cursor-pointer disabled:opacity-50"
             >
-              {{ deletingId === c.id ? 'Deleting...' : 'Delete' }}
+              <IconTrash class="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -241,8 +253,7 @@ onMounted(() => {
               </td>
               <td class="py-3 px-3">
                 <span
-                  class="text-[10px] font-semibold px-1.5 py-0.5 rounded border"
-                  :class="c.edition === '2024' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700'"
+                  class="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-100 text-gray-700 shrink-0"
                 >
                   {{ c.edition === '2024' ? '2024' : '2014' }}
                 </span>
@@ -262,28 +273,34 @@ onMounted(() => {
                 {{ c.background || '-' }}
               </td>
               <td class="py-3 px-3 text-right">
-                <div class="inline-flex items-center gap-1.5" @click.stop>
+                <div class="inline-flex items-center gap-1" @click.stop>
                   <button
                     type="button"
                     @click="emit('select', c.id)"
-                    class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer"
+                    title="View Sheet"
+                    aria-label="View Sheet"
+                    class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
                   >
-                    View Sheet
+                    <IconEye class="w-4 h-4" />
                   </button>
                   <button
                     type="button"
                     @click="emit('edit', c.id)"
-                    class="bg-white hover:bg-gray-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer"
+                    title="Edit"
+                    aria-label="Edit"
+                    class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
                   >
-                    Edit
+                    <IconEdit class="w-4 h-4" />
                   </button>
                   <button
                     type="button"
                     :disabled="deletingId === c.id"
                     @click="deleteCharacter(c.id, c.name, $event)"
-                    class="bg-white hover:bg-red-50 text-red-600 border border-gray-200 hover:border-red-300 px-2 py-1 rounded text-xs transition cursor-pointer disabled:opacity-50"
+                    title="Delete"
+                    aria-label="Delete"
+                    class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-red-600 transition cursor-pointer disabled:opacity-50"
                   >
-                    {{ deletingId === c.id ? 'Deleting...' : 'Delete' }}
+                    <IconTrash class="w-4 h-4" />
                   </button>
                 </div>
               </td>

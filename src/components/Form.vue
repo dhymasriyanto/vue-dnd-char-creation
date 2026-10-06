@@ -3,11 +3,13 @@ import axios from 'axios'
 import RaceSubRaceDetail from './RaceSubRaceDetail.vue'
 import ClassSubClassDetail from './ClassSubClassDetail.vue'
 import ClassSpellsPicker from './ClassSpellsPicker.vue'
+import FeatSpellsPicker from './FeatSpellsPicker.vue'
 import { computed, nextTick, onBeforeUpdate, onMounted, onUpdated, reactive, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useCharacterStore } from '../stores/character'
 import { useConfig } from '../config'
 import { renderAnnotatedText, clean5eToolsMarkup } from '../utils/textRenderer'
-import { IconArrowLeft } from '@tabler/icons-vue'
+import { IconArrowLeft, IconLock, IconX } from '@tabler/icons-vue'
 import {
   formatPrerequisitesText,
   getMulticlassProficiencies,
@@ -76,7 +78,7 @@ const SOURCE_OPTIONS_2014 = [
   { code: 'ERLW', label: "Eberron" }
 ]
 
-const selectedSources = ref(['XPHB'])
+const { selectedSources } = storeToRefs(characterStore)
 
 const currentSourceOptions = computed(() => {
   return selectedEdition.value === '2024' ? SOURCE_OPTIONS_2024 : SOURCE_OPTIONS_2014
@@ -99,7 +101,7 @@ const filteredRaces = computed(() => {
   const rList = Array.isArray(race.value) ? race.value : Object.values(race.value || {})
   return rList.filter(r => {
     const s = (r.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return selectedSources.value.includes(s)
+    return (selectedSources.value || []).includes(s)
   })
 })
 
@@ -107,7 +109,7 @@ const filteredSubRaces = computed(() => {
   const srList = Array.isArray(subRace.value) ? subRace.value : []
   return srList.filter(sr => {
     const s = (sr.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return selectedSources.value.includes(s)
+    return (selectedSources.value || []).includes(s)
   })
 })
 
@@ -125,14 +127,14 @@ const isSubraceRequired = computed(() => {
 const filteredBackgrounds = computed(() => {
   return backgrounds.value.filter(b => {
     const s = (b.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return selectedSources.value.includes(s)
+    return (selectedSources.value || []).includes(s)
   })
 })
 
 const filteredFeats = computed(() => {
   return availableFeats.value.filter(f => {
     const s = (f.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return selectedSources.value.includes(s)
+    return (selectedSources.value || []).includes(s)
   })
 })
 
@@ -157,7 +159,9 @@ const CLASS_SOURCES = {
 const filteredClasses = computed(() => {
   const res = {}
   for (const [key, val] of Object.entries(allClass.value || {})) {
-    const classSources = CLASS_SOURCES[key.toLowerCase()] || ['PHB', 'XPHB']
+    const kLower = key.toLowerCase()
+    if (selectedEdition.value === '2024' && kLower === 'artificer') continue
+    const classSources = CLASS_SOURCES[kLower] || (selectedEdition.value === '2024' ? ['XPHB'] : ['PHB'])
     const hasSource = classSources.some(s => selectedSources.value.includes(s))
     if (!hasSource) continue
     res[key] = val
@@ -1031,15 +1035,123 @@ const availableSubClasses = computed(() => {
   const arr = Array.isArray(lists) ? lists : (typeof lists === 'object' ? Object.values(lists) : [])
   return arr.filter(sc => {
     const s = (sc.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return selectedSources.value.includes(s)
+    return (selectedSources.value || []).includes(s)
   })
 })
 
 const selectedSubClassKey = ref('')
 const selectedSubClassItem = ref(null)
 
-const classSubTab = ref('features') // 'features' | 'spells'
+const classSubTab = ref('features') // 'features' | 'spells' | 'featSpells'
 const chosenSpells = ref([])
+const featChosenSpells = ref([])
+
+const SPELL_GRANTING_FEATS_CONFIG = [
+  {
+    match: /magic initiate/i,
+    name: 'Magic Initiate',
+    cantrips: 2,
+    spells: 1,
+    maxLevel: 1,
+    desc: 'Choose 2 cantrips and one 1st-level spell'
+  },
+  {
+    match: /fey touched/i,
+    name: 'Fey Touched',
+    fixed: ['Misty Step'],
+    cantrips: 0,
+    spells: 1,
+    maxLevel: 1,
+    schools: ['D', 'E'],
+    desc: 'Grants Misty Step and one 1st-level Divination or Enchantment spell'
+  },
+  {
+    match: /shadow touched/i,
+    name: 'Shadow Touched',
+    fixed: ['Invisibility'],
+    cantrips: 0,
+    spells: 1,
+    maxLevel: 1,
+    schools: ['I', 'N'],
+    desc: 'Grants Invisibility and one 1st-level Illusion or Necromancy spell'
+  },
+  {
+    match: /ritual caster/i,
+    name: 'Ritual Caster',
+    cantrips: 0,
+    spells: 2,
+    maxLevel: 1,
+    isRitual: true,
+    desc: 'Choose two 1st-level ritual spells'
+  },
+  {
+    match: /spell sniper/i,
+    name: 'Spell Sniper',
+    cantrips: 1,
+    spells: 0,
+    maxLevel: 0,
+    desc: 'Choose one attack cantrip'
+  },
+  {
+    match: /artificer initiate/i,
+    name: 'Artificer Initiate',
+    cantrips: 1,
+    spells: 1,
+    maxLevel: 1,
+    className: 'Artificer',
+    desc: 'Choose one cantrip and one 1st-level spell from the Artificer spell list'
+  },
+  {
+    match: /telekinetic/i,
+    name: 'Telekinetic',
+    fixed: ['Mage Hand'],
+    cantrips: 0,
+    spells: 0,
+    maxLevel: 0,
+    desc: 'Grants the Mage Hand cantrip'
+  },
+  {
+    match: /telepathic/i,
+    name: 'Telepathic',
+    fixed: ['Detect Thoughts'],
+    cantrips: 0,
+    spells: 0,
+    maxLevel: 2,
+    desc: 'Grants Detect Thoughts'
+  }
+]
+
+const detectedFeatSpellSources = computed(() => {
+  const sources = []
+  const bg = selectedBackgroundObj.value
+  const bgDetails = parseBackgroundDetails(bg)
+  if (bgDetails?.featName) {
+    const fDef = SPELL_GRANTING_FEATS_CONFIG.find(f => f.match.test(bgDetails.featName))
+    if (fDef) {
+      sources.push({
+        sourceType: 'background',
+        sourceLabel: `Background (${bg?.name || 'Origin'}) Feat`,
+        featName: bgDetails.featName,
+        config: fDef
+      })
+    }
+  }
+  for (const item of allUnlockedAsiList.value) {
+    const ch = item.choice
+    if (ch && ch.type === 'feat' && ch.featName) {
+      const fDef = SPELL_GRANTING_FEATS_CONFIG.find(f => f.match.test(ch.featName))
+      if (fDef) {
+        sources.push({
+          sourceType: 'asi',
+          sourceLabel: `${item.className} Level ${item.tier} Feat`,
+          featName: ch.featName,
+          config: fDef
+        })
+      }
+    }
+  }
+  return sources
+})
 
 const computedProficiencyBonus = computed(() => {
   return Math.floor((Number(totalCharacterLevel.value || 1) - 1) / 4) + 2
@@ -2097,6 +2209,70 @@ const computedTotalWeight = computed(() => {
   }, 0)
 })
 
+const formStrScore = computed(() => Number(strength.value) || 10)
+const computedCarryCapacity = computed(() => formStrScore.value * 15)
+const formEncumberedThreshold = computed(() => formStrScore.value * 5)
+const formHeavilyEncumberedThreshold = computed(() => formStrScore.value * 10)
+
+const formWeightPercent = computed(() => {
+  const cap = computedCarryCapacity.value || 1
+  return Math.min(100, Math.max(0, (computedTotalWeight.value / cap) * 100))
+})
+
+const formWeightStatus = computed(() => {
+  const wt = computedTotalWeight.value
+  const max = computedCarryCapacity.value
+  const heavy = formHeavilyEncumberedThreshold.value
+  const enc = formEncumberedThreshold.value
+
+  if (wt > max) return 'over'
+  if (wt > heavy) return 'heavy'
+  if (wt > enc) return 'encumbered'
+  return 'safe'
+})
+
+const formWeightStatusLabel = computed(() => {
+  switch (formWeightStatus.value) {
+    case 'over':
+      return 'Over Capacity'
+    case 'heavy':
+      return 'Heavily Encumbered'
+    case 'encumbered':
+      return 'Encumbered'
+    case 'safe':
+    default:
+      return 'Normal'
+  }
+})
+
+const formWeightBarColor = computed(() => {
+  switch (formWeightStatus.value) {
+    case 'over':
+      return 'bg-red-800'
+    case 'heavy':
+      return 'bg-amber-800'
+    case 'encumbered':
+      return 'bg-gray-700'
+    case 'safe':
+    default:
+      return 'bg-gray-600'
+  }
+})
+
+const formWeightStatusTextColor = computed(() => {
+  switch (formWeightStatus.value) {
+    case 'over':
+      return 'text-red-700'
+    case 'heavy':
+      return 'text-amber-700'
+    case 'encumbered':
+      return 'text-gray-800'
+    case 'safe':
+    default:
+      return 'text-gray-600'
+  }
+})
+
 const savedTreasure = reactive({ pp: 0, gp: 50, ep: 0, sp: 0, cp: 0 })
 
 const backgroundStartingGold = computed(() => {
@@ -2559,7 +2735,8 @@ const parseBackgroundDetails = (bg) => {
   if (bg.feats && bg.feats.length > 0) {
     const f = bg.feats[0]
     const raw = typeof f === 'string' ? f : Object.keys(f)[0]
-    featName = raw.split('|')[0].replace(/;/g, ' - ').replace(/\b\w/g, l => l.toUpperCase())
+    const base = raw.split('|')[0].split(';')[0].trim()
+    featName = base.replace(/\b\w/g, l => l.toUpperCase())
   }
 
   let listSkills = ''
@@ -2964,9 +3141,21 @@ const loadCharacterForEdit = async (data) => {
     // Spells
     const spList = data.spells || data.character_spells || []
     if (Array.isArray(spList) && spList.length > 0) {
-      chosenSpells.value = JSON.parse(JSON.stringify(spList))
+      const featSps = spList.filter(s => s.sourceFeat || s.is_feat_spell)
+      const classSps = spList.filter(s => !s.sourceFeat && !s.is_feat_spell)
+      if (featSps.length > 0) {
+        featChosenSpells.value = JSON.parse(JSON.stringify(featSps))
+        chosenSpells.value = JSON.parse(JSON.stringify(classSps))
+      } else if (!isSpellcasterClass.value && spList.length > 0) {
+        featChosenSpells.value = JSON.parse(JSON.stringify(spList))
+        chosenSpells.value = []
+      } else {
+        chosenSpells.value = JSON.parse(JSON.stringify(spList))
+        featChosenSpells.value = []
+      }
     } else {
       chosenSpells.value = []
+      featChosenSpells.value = []
     }
   }
 
@@ -3071,6 +3260,7 @@ const changeEdition = async (newEdition) => {
   characterClass.value = {}
   characterSubClass.value = {}
   chosenSpells.value = []
+  featChosenSpells.value = []
   classSubTab.value = 'features'
   delete errors.classSpells
   characterStore.characterSubClass = {}
@@ -3495,6 +3685,11 @@ const validateStep = (stepId, shouldScroll = true) => {
     if (isSpellcasterClass.value) {
       delete errors.classSpells
     }
+
+    // Check ASI / Feat tier choices
+    if (!validateAllAsiTiers()) {
+      isValid = false
+    }
   } else if (stepId === 'background') {
     if (!characterBackground.value || !selectedBackgroundObj.value?.name) {
       errors.characterBackground = 'Please select a background'
@@ -3774,7 +3969,10 @@ const submitForm = async () => {
         level: Number(classLevel.value),
         class: characterClass.value,
         sub_class: selectedSubClassItem.value || characterStore.characterSubClass || null,
-        spells: chosenSpells.value || []
+        spells: [
+          ...(chosenSpells.value || []),
+          ...(featChosenSpells.value || [])
+        ]
       }
     ]
 
@@ -3792,7 +3990,8 @@ const submitForm = async () => {
 
     const allSpells = [
       ...(chosenSpells.value || []),
-      ...multiclasses.value.flatMap(mc => mc.chosenSpells || [])
+      ...multiclasses.value.flatMap(mc => mc.chosenSpells || []),
+      ...(featChosenSpells.value || [])
     ]
 
     const payload = {
@@ -3872,10 +4071,11 @@ const submitForm = async () => {
         <button
           type="button"
           @click="emit('back')"
-          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer mb-2 sm:mb-0 flex items-center gap-1.5"
+          class="text-xs bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 font-medium transition cursor-pointer mb-2 sm:mb-0 flex items-center justify-center"
+          title="Back to Character List"
+          aria-label="Back to Character List"
         >
-          <IconArrowLeft class="w-3.5 h-3.5" />
-          <span>Character List</span>
+          <IconArrowLeft class="w-4 h-4" />
         </button>
       </div>
 
@@ -3887,7 +4087,7 @@ const submitForm = async () => {
             :disabled="!isFirstStep"
             @click="changeEdition('2024')"
             :class="[
-              selectedEdition === '2024' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:text-black',
+              selectedEdition === '2024' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-700 hover:text-black',
               !isFirstStep ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
             ]"
             class="px-3 py-1 text-xs rounded font-medium transition"
@@ -3899,7 +4099,7 @@ const submitForm = async () => {
             :disabled="!isFirstStep"
             @click="changeEdition('2014')"
             :class="[
-              selectedEdition === '2014' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-700 hover:text-black',
+              selectedEdition === '2014' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-700 hover:text-black',
               !isFirstStep ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
             ]"
             class="px-3 py-1 text-xs rounded font-medium transition"
@@ -3911,11 +4111,12 @@ const submitForm = async () => {
     </div>
 
     <!-- Source Books Toolbar (Disabled outside first step) -->
-    <div class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs">
+    <div class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs" :class="!isFirstStep ? 'bg-gray-100/70 border-gray-200' : ''">
       <div class="flex items-center justify-between mb-1.5">
-        <span class="font-semibold text-gray-700">Sources:</span>
-        <span v-if="!isFirstStep" class="text-[10px] text-gray-400 italic">Active sources (locked after step 1)</span>
-        <span v-else class="text-[10px] text-gray-500">Core/SRD default</span>
+        <div class="flex items-center gap-1.5 font-semibold text-gray-700">
+          <span>Sources:</span>
+        </div>
+        <span v-if="isFirstStep" class="text-[10px] text-gray-500">Core/SRD default</span>
       </div>
       <div class="flex flex-wrap gap-1.5">
         <button
@@ -3925,8 +4126,8 @@ const submitForm = async () => {
           :disabled="!isFirstStep"
           @click="toggleSource(src.code)"
           :class="[
-            !isFirstStep ? 'cursor-not-allowed opacity-75' : 'cursor-pointer',
-            selectedSources.includes(src.code) ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-semibold shadow-xs' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'
+            !isFirstStep ? 'cursor-not-allowed opacity-80' : 'cursor-pointer',
+            (selectedSources || []).includes(src.code) ? 'bg-gray-200 border-gray-400 text-gray-900 font-semibold shadow-xs' : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
           ]"
           class="px-2 py-0.5 rounded border text-[11px] transition"
         >
@@ -3953,7 +4154,7 @@ const submitForm = async () => {
     </div>
 
     <!-- Tab Navigation -->
-    <div class="flex border-b border-gray-200 mb-6 overflow-x-auto whitespace-nowrap scrollbar-thin">
+    <div class="flex items-center justify-between border-b border-gray-200 mb-6 overflow-x-auto no-scrollbar gap-1 sm:gap-2 pb-0.5">
       <button
         v-for="tab in activeSteps"
         :key="tab.id"
@@ -3961,9 +4162,9 @@ const submitForm = async () => {
         @click="goToStep(tab.id)"
         :class="[
           currentTab === tab.id
-            ? 'border-indigo-600 text-indigo-600 font-bold bg-indigo-50/40'
-            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium',
-          'flex-1 min-w-[70px] sm:min-w-0 text-center py-2 px-2 border-b-2 text-xs sm:text-sm transition cursor-pointer rounded-t'
+            ? 'border-gray-900 text-gray-900 font-bold'
+            : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 font-medium',
+          'flex-1 text-center py-2.5 px-1 sm:px-3 border-b-2 text-xs sm:text-sm transition cursor-pointer whitespace-nowrap'
         ]"
       >
         {{ tab.label }}
@@ -4151,6 +4352,23 @@ const submitForm = async () => {
           {{ errors.bgTools }}
         </p>
       </div>
+
+      <!-- Origin Feat Spell Notification -->
+      <div v-if="detectedFeatSpellSources.some(s => s.sourceType === 'background')" class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs flex items-center justify-between gap-2">
+        <div>
+          <span class="font-bold text-gray-900 block">Origin Feat Grants Spells</span>
+          <span class="text-gray-600 text-[11px]">
+            Your background feat grants spells! Configure and choose them in the Class tab.
+          </span>
+        </div>
+        <button
+          type="button"
+          @click="currentTab = 'class'; classSubTab = 'featSpells'"
+          class="px-2.5 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded font-bold text-xs cursor-pointer shrink-0 transition"
+        >
+          Pick Feat Spells ({{ featChosenSpells.length }}) &rarr;
+        </button>
+      </div>
     </div>
 
     <!-- TAB 2: Race / Species -->
@@ -4247,7 +4465,7 @@ const submitForm = async () => {
           v-if="totalCharacterLevel < 20 && Object.keys(availableClassesForMulticlass).length > 0"
           type="button"
           @click="addMulticlass"
-          class="text-xs font-semibold px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded transition cursor-pointer flex items-center gap-1"
+          class="text-xs font-semibold px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 rounded transition cursor-pointer flex items-center gap-1"
         >
           <span>+ Add Class</span>
         </button>
@@ -4286,34 +4504,50 @@ const submitForm = async () => {
           </div>
         </div>
 
-        <!-- Sub-tabs for Class Features vs Spells (Only if Spellcaster) -->
-        <div v-if="isSpellcasterClass" class="flex border-b border-gray-200 mb-3">
+        <!-- Sub-tabs for Class Features vs Spells vs Feat Spells -->
+        <div v-if="isSpellcasterClass || detectedFeatSpellSources.length > 0" class="flex border-b border-gray-200 mb-3">
           <button
             type="button"
             @click="classSubTab = 'features'"
-            :class="classSubTab === 'features' ? 'border-b-2 border-indigo-600 text-indigo-600 font-bold bg-indigo-50/40' : 'text-gray-500 hover:text-gray-700 font-medium'"
+            :class="classSubTab === 'features' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
             class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t"
           >
             Class Features
           </button>
           <button
+            v-if="isSpellcasterClass"
             type="button"
             @click="classSubTab = 'spells'"
-            :class="classSubTab === 'spells' ? 'border-b-2 border-indigo-600 text-indigo-600 font-bold bg-indigo-50/40' : 'text-gray-500 hover:text-gray-700 font-medium'"
+            :class="classSubTab === 'spells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
             class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
           >
             <span>Spells & Magic</span>
             <span
               v-if="chosenSpells.length > 0"
-              class="px-1.5 py-0.2 text-[10px] bg-indigo-100 text-indigo-700 rounded-full font-mono font-bold"
+              class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200"
             >
               {{ chosenSpells.length }}
+            </span>
+          </button>
+          <button
+            v-if="detectedFeatSpellSources.length > 0"
+            type="button"
+            @click="classSubTab = 'featSpells'"
+            :class="classSubTab === 'featSpells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
+            class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
+          >
+            <span>Feat Spells</span>
+            <span
+              v-if="featChosenSpells.length > 0"
+              class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200"
+            >
+              {{ featChosenSpells.length }}
             </span>
           </button>
         </div>
 
         <!-- Features view -->
-        <div v-show="!isSpellcasterClass || classSubTab === 'features'">
+        <div v-show="classSubTab === 'features' || (!isSpellcasterClass && classSubTab !== 'featSpells')">
           <ClassSubClassDetail
             :selected="characterClass"
             :classLevel="Number(classLevel)"
@@ -4363,6 +4597,18 @@ const submitForm = async () => {
             @close="classSubTab = 'features'"
           />
         </div>
+
+        <!-- Feat Spells view -->
+        <div v-if="detectedFeatSpellSources.length > 0 && classSubTab === 'featSpells'">
+          <FeatSpellsPicker
+            :edition="selectedEdition"
+            :featSources="detectedFeatSpellSources"
+            :abilityScores="{ strength, dexterity, constitution, intelligence, wisdom, charisma }"
+            :proficiencyBonus="computedProficiencyBonus"
+            v-model="featChosenSpells"
+            @close="classSubTab = 'features'"
+          />
+        </div>
       </div>
 
       <!-- Secondary Multiclass Collapsible Cards -->
@@ -4388,10 +4634,10 @@ const submitForm = async () => {
             >
               <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
             </svg>
-            <span class="text-xs font-bold uppercase tracking-wider text-indigo-700">
+            <span class="text-xs font-bold uppercase tracking-wider text-gray-900">
               Class {{ mcIdx + 2 }}: {{ mc.characterClass?.class?.name || (mc.classSelected ? (mc.classSelected.charAt(0).toUpperCase() + mc.classSelected.slice(1)) : 'Secondary Class') }}
             </span>
-            <span v-if="mc.classSelected" class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <span v-if="mc.classSelected" class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-gray-100 text-gray-700 border border-gray-200">
               Level {{ mc.classLevel }}
             </span>
           </div>
@@ -4524,7 +4770,7 @@ const submitForm = async () => {
                       isSkillPriorGranted(skKey, mc)
                         ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
                         : (mc.chosenSkills || []).includes(skKey)
-                          ? 'border-indigo-600 bg-indigo-50 text-indigo-700 font-semibold ring-1 ring-indigo-600'
+                          ? 'border-gray-800 bg-gray-100 text-gray-900 font-semibold ring-1 ring-gray-800'
                           : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50',
                       'px-2 py-1 border rounded text-xs transition cursor-pointer'
                     ]"
@@ -4548,7 +4794,7 @@ const submitForm = async () => {
                 <button
                   type="button"
                   @click="mc.classSubTab = 'features'"
-                  :class="mc.classSubTab === 'features' ? 'border-b-2 border-indigo-600 text-indigo-600 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
+                  :class="mc.classSubTab === 'features' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
                   class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t"
                 >
                   Features
@@ -4556,11 +4802,11 @@ const submitForm = async () => {
                 <button
                   type="button"
                   @click="mc.classSubTab = 'spells'"
-                  :class="mc.classSubTab === 'spells' ? 'border-b-2 border-indigo-600 text-indigo-600 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
+                  :class="mc.classSubTab === 'spells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
                   class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
                 >
                   <span>Spells</span>
-                  <span v-if="mc.chosenSpells?.length > 0" class="px-1.5 py-0.2 text-[10px] bg-indigo-100 text-indigo-700 rounded-full font-mono font-bold">
+                  <span v-if="mc.chosenSpells?.length > 0" class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200">
                     {{ mc.chosenSpells.length }}
                   </span>
                 </button>
@@ -4958,11 +5204,11 @@ const submitForm = async () => {
           <div v-if="item.choice.type === 'asi'" class="space-y-2 pt-1">
             <div class="flex items-center gap-4">
               <label class="flex items-center gap-1 cursor-pointer">
-                <input type="radio" value="+2" v-model="item.choice.asiMode" class="text-indigo-600 focus:ring-0" />
+                <input type="radio" value="+2" v-model="item.choice.asiMode" class="text-gray-900 focus:ring-0" />
                 <span>+2 to one ability</span>
               </label>
               <label class="flex items-center gap-1 cursor-pointer">
-                <input type="radio" value="+1_+1" v-model="item.choice.asiMode" class="text-indigo-600 focus:ring-0" />
+                <input type="radio" value="+1_+1" v-model="item.choice.asiMode" class="text-gray-900 focus:ring-0" />
                 <span>+1 to two abilities</span>
               </label>
             </div>
@@ -5082,7 +5328,7 @@ const submitForm = async () => {
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label
             :class="[
-              equipmentChoiceMode === 'package' ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' : 'border-gray-200 bg-white hover:border-gray-300',
+              equipmentChoiceMode === 'package' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
               'p-3 border rounded cursor-pointer transition text-xs block'
             ]"
           >
@@ -5103,7 +5349,7 @@ const submitForm = async () => {
 
           <label
             :class="[
-              equipmentChoiceMode === 'gold' ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' : 'border-gray-200 bg-white hover:border-gray-300',
+              equipmentChoiceMode === 'gold' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
               'p-3 border rounded cursor-pointer transition text-xs block'
             ]"
           >
@@ -5154,7 +5400,7 @@ const submitForm = async () => {
                 v-for="opt in ch.options"
                 :key="opt.key"
                 :class="[
-                  chosenClassEquipmentChoices[ch.id] === opt.key ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' : 'border-gray-200 bg-white hover:border-gray-300',
+                  chosenClassEquipmentChoices[ch.id] === opt.key ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
                   'p-2.5 border rounded cursor-pointer transition text-xs block'
                 ]"
               >
@@ -5199,7 +5445,7 @@ const submitForm = async () => {
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <label
                 :class="[
-                  chosenBgEquipmentChoices[ch.id] === 'a' ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' : 'border-gray-200 bg-white hover:border-gray-300',
+                  chosenBgEquipmentChoices[ch.id] === 'a' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
                   'p-2.5 border rounded cursor-pointer transition text-xs block'
                 ]"
               >
@@ -5216,7 +5462,7 @@ const submitForm = async () => {
 
               <label
                 :class="[
-                  chosenBgEquipmentChoices[ch.id] === 'b' ? 'border-indigo-600 bg-indigo-50/60 ring-1 ring-indigo-600' : 'border-gray-200 bg-white hover:border-gray-300',
+                  chosenBgEquipmentChoices[ch.id] === 'b' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
                   'p-2.5 border rounded cursor-pointer transition text-xs block'
                 ]"
               >
@@ -5237,16 +5483,16 @@ const submitForm = async () => {
         <!-- Background Items Chips -->
         <div
           v-if="selectedBackgroundObj && (parseBackgroundDetails(selectedBackgroundObj)?.bgStartingItems || []).length > 0"
-          class="p-2.5 bg-indigo-50/40 border border-indigo-100 rounded text-xs"
+          class="p-2.5 bg-gray-50 border border-gray-200 rounded text-xs"
         >
-          <div class="font-semibold text-indigo-900 mb-1">
+          <div class="font-semibold text-gray-900 mb-1">
             Items from {{ selectedBackgroundObj.name }}:
           </div>
           <div class="flex flex-wrap gap-1">
             <span
               v-for="(itName, itIdx) in parseBackgroundDetails(selectedBackgroundObj).bgStartingItems"
               :key="itIdx"
-              class="px-2 py-0.5 bg-white border border-indigo-200 text-indigo-800 rounded text-[11px]"
+              class="px-2 py-0.5 bg-white border border-gray-200 text-gray-800 rounded text-[11px]"
             >
               {{ itName }}
             </span>
@@ -5286,18 +5532,48 @@ const submitForm = async () => {
         </div>
       </div>
 
+      <!-- Weight / Encumbrance Bar Widget -->
+      <div class="p-3 bg-gray-50 border border-gray-200 space-y-2 mb-4">
+        <div class="flex items-center justify-between text-xs font-semibold text-gray-700">
+          <span>Weight / Carrying Capacity</span>
+          <span class="text-[11px] font-normal text-gray-500">{{ Math.round((computedTotalWeight / (computedCarryCapacity || 1)) * 100) }}%</span>
+        </div>
+
+        <div class="relative w-full bg-gray-200 h-6 overflow-hidden border border-gray-300">
+          <div
+            class="h-full transition-all duration-300"
+            :class="formWeightBarColor"
+            :style="{ width: `${formWeightPercent}%` }"
+          ></div>
+          <div
+            class="absolute inset-0 flex items-center justify-center text-xs font-bold pointer-events-none select-none tracking-tight"
+            :class="formWeightPercent > 55 ? 'text-white drop-shadow-xs' : 'text-gray-900'"
+          >
+            {{ computedTotalWeight.toFixed(1) }} / {{ computedCarryCapacity }} lbs
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="text-gray-500">
+            Status: <span class="font-bold" :class="formWeightStatusTextColor">{{ formWeightStatusLabel }}</span>
+          </span>
+          <span class="text-gray-500">
+            Max: <strong class="text-gray-800">{{ computedCarryCapacity }} lbs</strong>
+          </span>
+        </div>
+      </div>
+
       <!-- Inventory Items Table (Shared for both Package and Gold) -->
       <div class="border border-gray-200 rounded overflow-hidden">
         <div class="bg-gray-50 px-3 py-2 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
             <span class="text-xs font-semibold text-gray-800">Inventory Items ({{ userEquipmentList.length }})</span>
-            <span class="text-[11px] font-mono text-gray-500 ml-2">Total Weight: {{ computedTotalWeight.toFixed(1) }} lb</span>
           </div>
           <div class="flex items-center gap-1.5">
             <button
               type="button"
               @click="openWizardCompendium"
-              class="bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer"
+              class="bg-gray-900 hover:bg-black text-white text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer"
             >
               + Add from Compendium
             </button>
@@ -5334,7 +5610,7 @@ const submitForm = async () => {
           >
             <div class="flex items-center gap-2 flex-1 min-w-0 w-full sm:w-auto">
               <span class="font-medium text-gray-900 truncate">{{ item.name }}</span>
-              <span v-if="item.is_armor" class="text-[10px] px-1 py-0.2 bg-blue-50 text-blue-700 border border-blue-200 rounded shrink-0">Armor</span>
+              <span v-if="item.is_armor" class="text-[10px] px-1 py-0.2 bg-gray-100 text-gray-800 border border-gray-200 rounded shrink-0">Armor</span>
             </div>
 
             <div class="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-gray-100">
@@ -5342,7 +5618,7 @@ const submitForm = async () => {
               <button
                 type="button"
                 @click="toggleWizardItemStatus(idx)"
-                :class="item.status === 'equipped' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold' : 'bg-gray-50 text-gray-600 border-gray-200'"
+                :class="item.status === 'equipped' ? 'bg-gray-900 text-white border-gray-900 font-bold' : 'bg-gray-50 text-gray-600 border-gray-200'"
                 class="px-2 py-0.5 text-[10px] rounded border transition cursor-pointer capitalize"
                 title="Toggle Equipped / Inventory"
               >
@@ -5376,7 +5652,7 @@ const submitForm = async () => {
                 class="text-gray-400 hover:text-red-600 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer"
                 title="Remove Item"
               >
-                ×
+                <IconX class="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -5395,9 +5671,9 @@ const submitForm = async () => {
           <button
             type="button"
             @click="isWizardCompendiumOpen = false"
-            class="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none p-1 cursor-pointer"
+            class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer"
           >
-            ×
+            <IconX class="w-4 h-4" />
           </button>
         </div>
 
@@ -5407,7 +5683,7 @@ const submitForm = async () => {
             v-model="wizardCompendiumSearch"
             @keyup.enter="searchWizardCompendium(false)"
             placeholder="Search weapon, armor, pack, gear..."
-            class="w-full sm:flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-indigo-500"
+            class="w-full sm:flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
           />
           <div class="flex gap-2 w-full sm:w-auto">
             <select
@@ -5422,7 +5698,7 @@ const submitForm = async () => {
             <button
               type="button"
               @click="searchWizardCompendium(false)"
-              class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded text-xs font-medium cursor-pointer shrink-0"
+              class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded text-xs font-medium cursor-pointer shrink-0"
             >
               Search
             </button>
@@ -5457,7 +5733,7 @@ const submitForm = async () => {
               <button
                 type="button"
                 @click="addWizardItemFromCompendium(it)"
-                class="bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 hover:border-indigo-300 px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                class="bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 hover:border-gray-400 px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
               >
                 Add
               </button>
@@ -5468,7 +5744,7 @@ const submitForm = async () => {
                 type="button"
                 :disabled="wizardCompendiumLoadingMore"
                 @click="searchWizardCompendium(true)"
-                class="text-xs text-indigo-600 hover:text-indigo-800 font-medium py-1 px-3 border border-indigo-200 rounded hover:bg-indigo-50 cursor-pointer"
+                class="text-xs text-gray-800 hover:text-black font-medium py-1 px-3 border border-gray-300 rounded hover:bg-gray-50 cursor-pointer"
               >
                 {{ wizardCompendiumLoadingMore ? 'Loading more...' : 'Load more items' }}
               </button>
@@ -5504,11 +5780,12 @@ const submitForm = async () => {
       <div v-else>
         <button
           type="button"
-          class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer transition text-xs font-medium flex items-center gap-1.5"
+          class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 p-2 rounded cursor-pointer transition text-xs font-medium flex items-center justify-center"
           @click="emit('back')"
+          title="Back to Character List"
+          aria-label="Back to Character List"
         >
-          <IconArrowLeft class="w-3.5 h-3.5" />
-          <span>Character List</span>
+          <IconArrowLeft class="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -5516,7 +5793,7 @@ const submitForm = async () => {
       <div v-if="!isLastStep">
         <button
           type="button"
-          class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded cursor-pointer transition text-xs font-medium"
+          class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded cursor-pointer transition text-xs font-medium"
           @click="nextStep"
         >
           Next
@@ -5526,7 +5803,7 @@ const submitForm = async () => {
         <button
           type="button"
           :disabled="isSubmitting"
-          class="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded cursor-pointer disabled:opacity-50 transition text-xs font-medium"
+          class="bg-gray-900 hover:bg-black text-white px-5 py-2 rounded cursor-pointer disabled:opacity-50 transition text-xs font-semibold shadow-xs"
           @click="submitForm"
         >
           {{ isSubmitting ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Submit & View Sheet') }}

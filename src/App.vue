@@ -18,10 +18,17 @@ onMounted(() => {
   if (params.get('compendium') === '1' || params.has('compendium')) {
     const tab = params.get('tab') || 'all'
     const search = params.get('search') || ''
+    const queryObj = {}
+    for (const [key, value] of params.entries()) {
+      if (!['compendium', 'tab', 'search'].includes(key)) {
+        queryObj[key] = value
+      }
+    }
     openCompendium({
       category: tab,
       search,
-      item: search ? { name: search } : null
+      item: search ? { name: search } : null,
+      params: queryObj
     })
   }
 })
@@ -97,7 +104,7 @@ const onCharacterSaved = (charData) => {
     <template v-else>
       <div v-if="isLoadingDetail" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-50 flex items-center justify-center">
         <div class="bg-white border border-gray-200 shadow-md rounded px-6 py-4 text-center">
-          <div class="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+          <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
           <p class="text-xs text-gray-600">Loading character sheet...</p>
         </div>
       </div>

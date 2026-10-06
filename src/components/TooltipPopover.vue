@@ -1,13 +1,15 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import { BUILTIN_RULES, findBuiltinRule, formatPrerequisite, format5eEntries, renderAnnotatedText } from '../utils/textRenderer'
+import { formatPrerequisite, format5eEntries, renderAnnotatedText } from '../utils/textRenderer'
 import { useConfig } from '../config'
+import { useCharacterStore } from '../stores/character'
 import { useCompendiumModal } from '../composables/useCompendiumModal'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
-import { IconExternalLink } from '@tabler/icons-vue'
+import { IconExternalLink, IconX } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
+const characterStore = useCharacterStore()
 const { openCompendiumModal } = useCompendiumModal()
 const { openCompendium } = useCompendiumNav()
 
@@ -17,6 +19,7 @@ const popoverBadge = ref('')
 const popoverSubtitle = ref('')
 const popoverEntries = ref([])
 const popoverStats = ref([])
+const popoverCompendiumUrl = ref('')
 const isLoading = ref(false)
 
 const popoverX = ref(0)
@@ -28,11 +31,8 @@ const cache = new Map()
 let hoverTimeout = null
 let closeTimeout = null
 let currentAnchor = null
-
-const formatRuleKey = (str) => {
-  if (typeof str !== 'string') return ''
-  return str.toLowerCase().trim().replace(/[\s-]/g, '_')
-}
+let isOverAnchor = false
+let isOverPopover = false
 
 const showTooltip = async (targetEl) => {
   if (!targetEl) return
@@ -40,38 +40,57 @@ const showTooltip = async (targetEl) => {
 
   const tag = (targetEl.getAttribute('data-tag') || '').toLowerCase().trim()
   const rawTarget = targetEl.getAttribute('data-target') || ''
-  const source = targetEl.getAttribute('data-source') || ''
+  let source = (targetEl.getAttribute('data-source') || '').trim()
   const display = targetEl.getAttribute('data-display') || rawTarget
 
-  const found = findBuiltinRule(rawTarget, display)
+  const containerEdition = targetEl.closest?.('[data-edition]')?.getAttribute('data-edition')
+  const edition = containerEdition || characterStore.edition || '2024'
+
+  if (!source) {
+    const containerSource = targetEl.closest?.('[data-source]')?.getAttribute('data-source')
+    if (containerSource && containerSource !== 'all') {
+      source = containerSource
+    } else if (characterStore.selectedSources && characterStore.selectedSources.length > 0) {
+      source = characterStore.selectedSources[0]
+    } else {
+      source = edition === '2024' ? 'XPHB' : 'PHB'
+    }
+  }
+
+  let lookupTag = tag
+  if (tag === 'filter') {
+    const filterCat = (targetEl.getAttribute('data-filter-category') || 'rule').toLowerCase().trim()
+    if (filterCat === 'spells') lookupTag = 'spell'
+    else if (filterCat === 'items') lookupTag = 'item'
+    else if (filterCat === 'feats') lookupTag = 'feat'
+    else lookupTag = 'rule'
+  }
 
   popoverTitle.value = display || rawTarget
-  popoverBadge.value = tag.toUpperCase()
+  popoverBadge.value = lookupTag.toUpperCase()
   popoverSubtitle.value = source ? `Source: ${source.toUpperCase()}` : ''
   popoverEntries.value = []
   popoverStats.value = []
 
-  if (found) {
-    const builtin = found.rule
-    isLoading.value = false
-    popoverTitle.value = builtin.name || display || rawTarget
-    popoverBadge.value = (builtin.badge || builtin.type || tag).toUpperCase()
-    popoverSubtitle.value = builtin.type ? builtin.type.toUpperCase() : ''
-    popoverEntries.value = builtin.entries || []
-    updatePosition(targetEl)
-    isVisible.value = true
-    return
-  }
+  let category = 'all'
+  if (lookupTag === 'spell' || tag === 'spell') category = 'spells'
+  else if (lookupTag === 'item' || tag === 'item') category = 'items'
+  else if (lookupTag === 'feat' || tag === 'feat') category = 'feats'
+  else if (['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(lookupTag) || ['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(tag)) category = 'rules'
+  else if (['optfeature', 'optionalfeature'].includes(lookupTag) || ['optfeature', 'optionalfeature'].includes(tag)) category = 'optionalfeatures'
+  else if (['monster', 'creature', 'bestiary'].includes(lookupTag) || ['monster', 'creature', 'bestiary'].includes(tag)) category = 'monsters'
+
+  const filterQuery = targetEl.getAttribute('data-filter-query') || ''
+  updateCompendiumUrl(rawTarget || display, category, edition, source, filterQuery)
 
   // Position calculation
   updatePosition(targetEl)
   isVisible.value = true
 
   // Network lookup with cache
-  const cacheKey = `${tag}:${rawTarget.toLowerCase()}:${source.toLowerCase()}`
+  const cacheKey = `${lookupTag}:${rawTarget.toLowerCase()}:${source.toLowerCase()}:${edition}`
   if (cache.has(cacheKey)) {
     applyData(cache.get(cacheKey))
-    updatePosition(targetEl)
     return
   }
 
@@ -79,9 +98,10 @@ const showTooltip = async (targetEl) => {
   try {
     const res = await axios.get(`${API_URL}/compendium/lookup`, {
       params: {
-        type: tag,
+        type: lookupTag,
         name: rawTarget,
-        source: source
+        source: source,
+        edition: edition
       }
     })
 
@@ -99,7 +119,6 @@ const showTooltip = async (targetEl) => {
   } finally {
     if (currentAnchor === targetEl) {
       isLoading.value = false
-      updatePosition(targetEl)
     }
   }
 }
@@ -108,6 +127,14 @@ const applyData = (data) => {
   isLoading.value = false
   popoverTitle.value = data.name || popoverTitle.value
   popoverBadge.value = (data.school || data.itemType || data.type || popoverBadge.value).toUpperCase()
+
+  if (data.name && popoverCompendiumUrl.value) {
+    try {
+      const urlObj = new URL(popoverCompendiumUrl.value, window.location.origin)
+      urlObj.searchParams.set('search', data.name)
+      popoverCompendiumUrl.value = urlObj.toString()
+    } catch (_) {}
+  }
 
   const sub = []
   if (data.level) sub.push(data.level)
@@ -125,14 +152,8 @@ const applyData = (data) => {
   if (data.prerequisite) stats.push({ label: 'Prerequisite', value: formatPrerequisite(data.prerequisite) })
   popoverStats.value = stats
 
-  if (data.entries) {
-    if (typeof data.entries === 'object' && !Array.isArray(data.entries)) {
-      popoverEntries.value = [format5eEntries(data.entries)]
-    } else if (Array.isArray(data.entries)) {
-      popoverEntries.value = data.entries.map(e => typeof e === 'object' ? format5eEntries(e) : String(e))
-    } else {
-      popoverEntries.value = [String(data.entries)]
-    }
+  if (data.entries && (Array.isArray(data.entries) ? data.entries.length > 0 : true)) {
+    popoverEntries.value = [format5eEntries(data.entries)]
   } else {
     popoverEntries.value = []
   }
@@ -168,11 +189,23 @@ const hideTooltip = () => {
   isVisible.value = false
   currentAnchor = null
   isLoading.value = false
+  isOverAnchor = false
+  isOverPopover = false
+}
+
+const scheduleClose = () => {
+  if (closeTimeout) clearTimeout(closeTimeout)
+  closeTimeout = setTimeout(() => {
+    if (!isOverAnchor && !isOverPopover) {
+      hideTooltip()
+    }
+  }, 900)
 }
 
 const onGlobalMouseOver = (e) => {
   const popoverEl = e.target.closest('.dnd-tooltip-popover')
   if (popoverEl) {
+    isOverPopover = true
     if (closeTimeout) {
       clearTimeout(closeTimeout)
       closeTimeout = null
@@ -182,9 +215,7 @@ const onGlobalMouseOver = (e) => {
 
   const refEl = e.target.closest('.dnd-tag-ref')
   if (refEl) {
-    if (refEl.classList.contains('dnd-filter-link') || refEl.getAttribute('data-tag') === 'filter') {
-      return
-    }
+    isOverAnchor = true
     if (closeTimeout) {
       clearTimeout(closeTimeout)
       closeTimeout = null
@@ -194,20 +225,25 @@ const onGlobalMouseOver = (e) => {
     clearTimeout(hoverTimeout)
     hoverTimeout = setTimeout(() => {
       showTooltip(refEl)
-    }, 100)
+    }, 120)
   }
 }
 
 const onGlobalMouseOut = (e) => {
+  const popoverEl = e.target.closest('.dnd-tooltip-popover')
+  if (popoverEl) {
+    if (e.relatedTarget && (popoverEl.contains(e.relatedTarget) || (currentAnchor && currentAnchor.contains(e.relatedTarget)))) return
+    isOverPopover = false
+    scheduleClose()
+    return
+  }
+
   const refEl = e.target.closest('.dnd-tag-ref')
   if (refEl) {
-    if (e.relatedTarget && (refEl.contains(e.relatedTarget) || e.relatedTarget.closest?.('.dnd-tooltip-popover'))) {
-      return
-    }
+    if (e.relatedTarget && (refEl.contains(e.relatedTarget) || (e.relatedTarget.closest && e.relatedTarget.closest('.dnd-tooltip-popover')))) return
+    isOverAnchor = false
     clearTimeout(hoverTimeout)
-    closeTimeout = setTimeout(() => {
-      hideTooltip()
-    }, 250)
+    scheduleClose()
   }
 }
 
@@ -225,6 +261,26 @@ const parseFilterParams = (queryStr) => {
   return params
 }
 
+const updateCompendiumUrl = (target, category, edition, source, filterQuery = '') => {
+  const params = new URLSearchParams()
+  params.set('compendium', '1')
+  params.set('tab', category || 'all')
+  if (target) params.set('search', target)
+  if (edition) params.set('edition', edition)
+  if (source && source !== 'all') params.set('source', source)
+
+  if (filterQuery) {
+    const filterParams = parseFilterParams(filterQuery)
+    for (const [k, v] of Object.entries(filterParams)) {
+      if (v !== true && v !== false) params.set(k, String(v))
+    }
+  }
+
+  const origin = window.location.origin || ''
+  const pathname = window.location.pathname || '/'
+  popoverCompendiumUrl.value = `${origin}${pathname}?${params.toString()}`
+}
+
 const openFilterModalFromElement = (el) => {
   const category = (el.getAttribute('data-filter-category') || 'spells').toLowerCase()
   const queryStr = el.getAttribute('data-filter-query') || ''
@@ -238,29 +294,15 @@ const openFilterModalFromElement = (el) => {
   })
 }
 
-const openInCompendiumFromPopover = () => {
-  if (!currentAnchor) return
-  const tag = (currentAnchor.getAttribute('data-tag') || '').toLowerCase().trim()
-  const rawTarget = currentAnchor.getAttribute('data-target') || popoverTitle.value
-  const isFilter = currentAnchor.classList.contains('dnd-filter-link') || tag === 'filter'
-
-  hideTooltip()
-
-  if (isFilter) {
-    openFilterModalFromElement(currentAnchor)
-    return
+const onOpenInCompendium = (e) => {
+  if (popoverCompendiumUrl.value) {
+    try {
+      window.open(popoverCompendiumUrl.value, '_blank', 'noopener,noreferrer')
+    } catch (_) {}
   }
-
-  let category = 'all'
-  if (tag === 'spell') category = 'spells'
-  else if (tag === 'item') category = 'items'
-  else if (tag === 'feat') category = 'feats'
-  else if (['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(tag)) category = 'rules'
-  else if (['optfeature', 'optionalfeature'].includes(tag)) category = 'optionalfeatures'
-  else if (['monster', 'creature', 'bestiary'].includes(tag)) category = 'monsters'
-
-  const url = `${window.location.origin}${window.location.pathname}?compendium=1&tab=${encodeURIComponent(category)}&search=${encodeURIComponent(rawTarget)}`
-  window.open(url, '_blank')
+  setTimeout(() => {
+    hideTooltip()
+  }, 150)
 }
 
 const onGlobalClick = (e) => {
@@ -287,28 +329,12 @@ const onGlobalClick = (e) => {
     return
   }
 
-  if (!popoverEl && isVisible.value) {
-    hideTooltip()
+  	if (!popoverEl && isVisible.value) {
+  		hideTooltip()
+  	}
   }
-}
 
-const onPopoverMouseEnter = () => {
-  if (closeTimeout) {
-    clearTimeout(closeTimeout)
-    closeTimeout = null
-  }
-}
-
-const onPopoverMouseLeave = (e) => {
-  if (e?.relatedTarget && (currentAnchor?.contains(e.relatedTarget) || e.relatedTarget.closest?.('.dnd-tag-ref'))) {
-    return
-  }
-  closeTimeout = setTimeout(() => {
-    hideTooltip()
-  }, 200)
-}
-
-onMounted(() => {
+  onMounted(() => {
   document.addEventListener('mouseover', onGlobalMouseOver)
   document.addEventListener('mouseout', onGlobalMouseOut)
   document.addEventListener('click', onGlobalClick)
@@ -332,8 +358,6 @@ onBeforeUnmount(() => {
       top: popoverY !== null ? `${popoverY}px` : 'auto',
       bottom: popoverBottom !== null ? `${popoverBottom}px` : 'auto'
     }"
-    @mouseenter="onPopoverMouseEnter"
-    @mouseleave="onPopoverMouseLeave"
   >
     <!-- Header -->
     <div class="flex items-start justify-between gap-2 border-b border-gray-100 pb-1.5 mb-2">
@@ -342,7 +366,7 @@ onBeforeUnmount(() => {
           <span>{{ popoverTitle }}</span>
           <span
             v-if="popoverBadge"
-            class="text-[10px] font-semibold font-mono px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase"
+            class="text-[10px] font-semibold font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 border border-gray-200 uppercase"
           >
             {{ popoverBadge }}
           </span>
@@ -354,16 +378,16 @@ onBeforeUnmount(() => {
       <button
         type="button"
         @click="hideTooltip"
-        class="text-gray-400 hover:text-gray-700 text-base leading-none p-1 rounded hover:bg-gray-100"
+        class="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100 transition-colors"
         aria-label="Close"
       >
-        &times;
+        <IconX class="w-3.5 h-3.5" />
       </button>
     </div>
 
     <!-- Loading State -->
     <div v-if="isLoading" class="py-4 text-center text-gray-500 flex items-center justify-center gap-2">
-      <div class="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+      <div class="w-3.5 h-3.5 border-2 border-gray-800 border-t-transparent rounded-full animate-spin"></div>
       <span class="text-[11px]">Loading rule details...</span>
     </div>
 
@@ -388,14 +412,16 @@ onBeforeUnmount(() => {
       <!-- Action button for compendium -->
       <div class="mt-2 pt-1.5 border-t border-gray-100 flex items-center justify-between">
         <span class="text-[10px] text-gray-400">Click outside to dismiss</span>
-        <button
-          type="button"
-          @click="openInCompendiumFromPopover"
-          class="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+        <a
+          :href="popoverCompendiumUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click.stop="onOpenInCompendium"
+          class="text-[11px] font-semibold text-gray-800 hover:text-black hover:underline cursor-pointer flex items-center gap-1 select-none"
         >
           <span>Open in compendium</span>
           <IconExternalLink class="w-3.5 h-3.5" />
-        </button>
+        </a>
       </div>
     </div>
   </div>
@@ -404,5 +430,21 @@ onBeforeUnmount(() => {
 <style scoped>
 .dnd-tooltip-popover {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+}
+:deep(ul) {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+:deep(li) {
+  margin-top: 0.125rem;
+  margin-bottom: 0.125rem;
+}
+:deep(p) {
+  margin-bottom: 0.35rem;
+}
+:deep(p:last-child) {
+  margin-bottom: 0;
 }
 </style>
