@@ -1,10 +1,15 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import { BUILTIN_RULES, findBuiltinRule } from '../utils/textRenderer'
+import { BUILTIN_RULES, findBuiltinRule, formatPrerequisite, format5eEntries, renderAnnotatedText } from '../utils/textRenderer'
 import { useConfig } from '../config'
+import { useCompendiumModal } from '../composables/useCompendiumModal'
+import { useCompendiumNav } from '../composables/useCompendiumNav'
+import { IconExternalLink } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
+const { openCompendiumModal } = useCompendiumModal()
+const { openCompendium } = useCompendiumNav()
 
 const isVisible = ref(false)
 const popoverTitle = ref('')
@@ -15,7 +20,8 @@ const popoverStats = ref([])
 const isLoading = ref(false)
 
 const popoverX = ref(0)
-const popoverY = ref(0)
+const popoverY = ref(null)
+const popoverBottom = ref(null)
 const popoverPlacement = ref('top') // 'top' | 'bottom'
 
 const cache = new Map()
@@ -116,39 +122,46 @@ const applyData = (data) => {
   if (data.components) stats.push({ label: 'Components', value: data.components })
   if (data.weight) stats.push({ label: 'Weight', value: `${data.weight} lb` })
   if (data.value) stats.push({ label: 'Value', value: data.value })
-  if (data.prerequisite) stats.push({ label: 'Prerequisite', value: data.prerequisite })
+  if (data.prerequisite) stats.push({ label: 'Prerequisite', value: formatPrerequisite(data.prerequisite) })
   popoverStats.value = stats
 
-  popoverEntries.value = Array.isArray(data.entries) ? data.entries : (data.entries ? [data.entries] : [])
+  if (data.entries) {
+    if (typeof data.entries === 'object' && !Array.isArray(data.entries)) {
+      popoverEntries.value = [format5eEntries(data.entries)]
+    } else if (Array.isArray(data.entries)) {
+      popoverEntries.value = data.entries.map(e => typeof e === 'object' ? format5eEntries(e) : String(e))
+    } else {
+      popoverEntries.value = [String(data.entries)]
+    }
+  } else {
+    popoverEntries.value = []
+  }
 }
 
 const fallbackDisplay = (target, tag) => {
   isLoading.value = false
-  isVisible.value = false
+  popoverEntries.value = ['No detailed compendium entry found for this term.']
 }
 
 const updatePosition = (el) => {
   if (!el) return
   const rect = el.getBoundingClientRect()
   const popoverWidth = Math.min(320, window.innerWidth - 24)
-  const estimatedHeight = 180
 
   let left = rect.left + rect.width / 2 - popoverWidth / 2
-  // Clamping within window viewport
   left = Math.max(12, Math.min(left, window.innerWidth - popoverWidth - 12))
 
-  let top = rect.top - estimatedHeight - 8
-  let placement = 'top'
-
-  // If not enough room on top, place below
-  if (top < 12) {
-    top = rect.bottom + 8
-    placement = 'bottom'
+  if (rect.top > 210) {
+    popoverPlacement.value = 'top'
+    popoverY.value = null
+    popoverBottom.value = Math.max(12, Math.round(window.innerHeight - rect.top + 8))
+  } else {
+    popoverPlacement.value = 'bottom'
+    popoverY.value = Math.round(rect.bottom + 8)
+    popoverBottom.value = null
   }
 
   popoverX.value = Math.round(left)
-  popoverY.value = Math.round(top)
-  popoverPlacement.value = placement
 }
 
 const hideTooltip = () => {
@@ -158,8 +171,20 @@ const hideTooltip = () => {
 }
 
 const onGlobalMouseOver = (e) => {
+  const popoverEl = e.target.closest('.dnd-tooltip-popover')
+  if (popoverEl) {
+    if (closeTimeout) {
+      clearTimeout(closeTimeout)
+      closeTimeout = null
+    }
+    return
+  }
+
   const refEl = e.target.closest('.dnd-tag-ref')
   if (refEl) {
+    if (refEl.classList.contains('dnd-filter-link') || refEl.getAttribute('data-tag') === 'filter') {
+      return
+    }
     if (closeTimeout) {
       clearTimeout(closeTimeout)
       closeTimeout = null
@@ -169,25 +194,90 @@ const onGlobalMouseOver = (e) => {
     clearTimeout(hoverTimeout)
     hoverTimeout = setTimeout(() => {
       showTooltip(refEl)
-    }, 120)
+    }, 100)
   }
 }
 
 const onGlobalMouseOut = (e) => {
   const refEl = e.target.closest('.dnd-tag-ref')
   if (refEl) {
+    if (e.relatedTarget && (refEl.contains(e.relatedTarget) || e.relatedTarget.closest?.('.dnd-tooltip-popover'))) {
+      return
+    }
     clearTimeout(hoverTimeout)
     closeTimeout = setTimeout(() => {
       hideTooltip()
-    }, 150)
+    }, 250)
   }
+}
+
+const parseFilterParams = (queryStr) => {
+  const params = {}
+  if (!queryStr) return params
+  const pairs = queryStr.split('&')
+  for (const pair of pairs) {
+    if (!pair) continue
+    const [k, v] = pair.split('=')
+    if (k) {
+      params[k.trim()] = v ? decodeURIComponent(v.trim()) : true
+    }
+  }
+  return params
+}
+
+const openFilterModalFromElement = (el) => {
+  const category = (el.getAttribute('data-filter-category') || 'spells').toLowerCase()
+  const queryStr = el.getAttribute('data-filter-query') || ''
+  const display = el.getAttribute('data-display') || el.innerText || 'Compendium List'
+  const params = parseFilterParams(queryStr)
+
+  openCompendiumModal({
+    title: display,
+    category,
+    params
+  })
+}
+
+const openInCompendiumFromPopover = () => {
+  if (!currentAnchor) return
+  const tag = (currentAnchor.getAttribute('data-tag') || '').toLowerCase().trim()
+  const rawTarget = currentAnchor.getAttribute('data-target') || popoverTitle.value
+  const isFilter = currentAnchor.classList.contains('dnd-filter-link') || tag === 'filter'
+
+  hideTooltip()
+
+  if (isFilter) {
+    openFilterModalFromElement(currentAnchor)
+    return
+  }
+
+  let category = 'all'
+  if (tag === 'spell') category = 'spells'
+  else if (tag === 'item') category = 'items'
+  else if (tag === 'feat') category = 'feats'
+  else if (['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(tag)) category = 'rules'
+  else if (['optfeature', 'optionalfeature'].includes(tag)) category = 'optionalfeatures'
+  else if (['monster', 'creature', 'bestiary'].includes(tag)) category = 'monsters'
+
+  const url = `${window.location.origin}${window.location.pathname}?compendium=1&tab=${encodeURIComponent(category)}&search=${encodeURIComponent(rawTarget)}`
+  window.open(url, '_blank')
 }
 
 const onGlobalClick = (e) => {
   const refEl = e.target.closest('.dnd-tag-ref')
   const popoverEl = e.target.closest('.dnd-tooltip-popover')
+  const modalEl = e.target.closest('.dnd-compendium-modal')
+  if (modalEl) return
 
   if (refEl) {
+    const isFilterLink = refEl.classList.contains('dnd-filter-link') || refEl.getAttribute('data-tag') === 'filter'
+    if (isFilterLink) {
+      e.stopPropagation()
+      hideTooltip()
+      openFilterModalFromElement(refEl)
+      return
+    }
+
     e.stopPropagation()
     if (isVisible.value && currentAnchor === refEl) {
       hideTooltip()
@@ -209,10 +299,13 @@ const onPopoverMouseEnter = () => {
   }
 }
 
-const onPopoverMouseLeave = () => {
+const onPopoverMouseLeave = (e) => {
+  if (e?.relatedTarget && (currentAnchor?.contains(e.relatedTarget) || e.relatedTarget.closest?.('.dnd-tag-ref'))) {
+    return
+  }
   closeTimeout = setTimeout(() => {
     hideTooltip()
-  }, 150)
+  }, 200)
 }
 
 onMounted(() => {
@@ -236,7 +329,8 @@ onBeforeUnmount(() => {
     class="dnd-tooltip-popover fixed z-[9999] w-[320px] max-w-[calc(100vw-24px)] max-h-72 bg-white text-gray-800 border border-gray-200 rounded-md shadow-lg p-3 text-xs overflow-y-auto font-sans leading-relaxed pointer-events-auto"
     :style="{
       left: `${popoverX}px`,
-      top: `${popoverY}px`
+      top: popoverY !== null ? `${popoverY}px` : 'auto',
+      bottom: popoverBottom !== null ? `${popoverBottom}px` : 'auto'
     }"
     @mouseenter="onPopoverMouseEnter"
     @mouseleave="onPopoverMouseLeave"
@@ -285,12 +379,23 @@ onBeforeUnmount(() => {
 
       <!-- Description Entries -->
       <div v-if="popoverEntries.length > 0" class="space-y-1.5 text-gray-700">
-        <p v-for="(entry, idx) in popoverEntries" :key="idx" class="leading-relaxed">
-          {{ entry }}
-        </p>
+        <div v-for="(entry, idx) in popoverEntries" :key="idx" class="leading-relaxed" v-html="renderAnnotatedText(entry)"></div>
       </div>
       <div v-else class="text-gray-400 italic text-[11px]">
         No detailed description available.
+      </div>
+
+      <!-- Action button for compendium -->
+      <div class="mt-2 pt-1.5 border-t border-gray-100 flex items-center justify-between">
+        <span class="text-[10px] text-gray-400">Click outside to dismiss</span>
+        <button
+          type="button"
+          @click="openInCompendiumFromPopover"
+          class="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer flex items-center gap-1"
+        >
+          <span>Open in compendium</span>
+          <IconExternalLink class="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   </div>

@@ -1,40 +1,50 @@
 // Utility to parse 5eTools markup annotations into styled interactive HTML elements
 
 export const BUILTIN_RULES = {
-  // --- Rules & Resting ---
-  long_rest: {
-    name: 'Long Rest',
-    type: 'Rule',
-    badge: 'Resting',
+  // --- Core Rules & Mechanics ---
+  artisans_tools: {
+    name: "Artisan's Tools",
+    type: 'Item',
+    badge: 'Tool',
     entries: [
-      "A Long Rest is a period of extended downtime, at least 8 hours long, during which a character sleeps for at least 6 hours and performs no more than 2 hours of light activity.",
-      "At the end of a Long Rest, a character regains all lost Hit Points and half of their total number of Hit Dice. Spell slots and many abilities recharge."
+      "These special tools include the items needed to pursue a craft or trade. Proficiency with a set of artisan's tools lets you add your proficiency bonus to any ability checks you make using the tools in your craft.",
+      "Each type of artisan's tools requires a separate proficiency (e.g. Alchemist's Supplies, Smith's Tools, Tinker's Tools, Brewer's Supplies, Woodcarver's Tools)."
     ]
   },
-  short_rest: {
-    name: 'Short Rest',
-    type: 'Rule',
-    badge: 'Resting',
+  artisan_tools: {
+    name: "Artisan's Tools",
+    type: 'Item',
+    badge: 'Tool',
     entries: [
-      "A Short Rest is a period of downtime, at least 1 hour long, during which a character does nothing more strenuous than eating, drinking, reading, and tending to wounds.",
-      "A character can spend one or more Hit Dice at the end of a Short Rest to regain Hit Points."
+      "These special tools include the items needed to pursue a craft or trade. Proficiency with a set of artisan's tools lets you add your proficiency bonus to any ability checks you make using the tools in your craft.",
+      "Each type of artisan's tools requires a separate proficiency (e.g. Alchemist's Supplies, Smith's Tools, Tinker's Tools, Brewer's Supplies, Woodcarver's Tools)."
     ]
   },
-  resting: {
-    name: 'Resting',
-    type: 'Rule',
-    badge: 'General Rule',
+  artisan_tool: {
+    name: "Artisan's Tools",
+    type: 'Item',
+    badge: 'Tool',
     entries: [
-      "Adventurers can take short rests in the midst of an adventuring day and a long rest to end the day.",
-      "Short rests last at least 1 hour; long rests last at least 8 hours."
+      "These special tools include the items needed to pursue a craft or trade. Proficiency with a set of artisan's tools lets you add your proficiency bonus to any ability checks you make using the tools in your craft.",
+      "Each type of artisan's tools requires a separate proficiency (e.g. Alchemist's Supplies, Smith's Tools, Tinker's Tools, Brewer's Supplies, Woodcarver's Tools)."
     ]
   },
-  optional_class_features: {
-    name: 'Optional Class Features',
-    type: 'Variant Rule',
-    badge: 'Variant Rule',
+  artisans_tool: {
+    name: "Artisan's Tools",
+    type: 'Item',
+    badge: 'Tool',
     entries: [
-      "Optional class features are additional or replacement abilities you can gain beyond the standard features in the Player's Handbook, subject to DM approval (Tasha's Cauldron of Everything)."
+      "These special tools include the items needed to pursue a craft or trade. Proficiency with a set of artisan's tools lets you add your proficiency bonus to any ability checks you make using the tools in your craft.",
+      "Each type of artisan's tools requires a separate proficiency (e.g. Alchemist's Supplies, Smith's Tools, Tinker's Tools, Brewer's Supplies, Woodcarver's Tools)."
+    ]
+  },
+  thieves_tools: {
+    name: "Thieves' Tools",
+    type: 'Item',
+    badge: 'Tool',
+    entries: [
+      "This set of tools includes a small file, a set of lock picks, a small mirror mounted on a metal handle, a set of narrow-bladed scissors, and a pair of pliers.",
+      "Proficiency with these tools lets you add your proficiency bonus to any ability checks you make to disarm traps or open locks."
     ]
   },
   concentration: {
@@ -171,22 +181,6 @@ export const BUILTIN_RULES = {
       "A saving throw represents an attempt to resist or endure a harmful effect (such as a spell or dragon's breath). Roll a d20, add the ability modifier, and add your proficiency bonus if proficient in that save."
     ]
   },
-  feat: {
-    name: 'Feat',
-    type: 'Rule',
-    badge: 'Character Feature',
-    entries: [
-      "A feat represents an area of expertise or special prowess that gives a character capabilities beyond class features. Feats are gained at 1st level (Origin Feats in 2024 / backgrounds) and instead of Ability Score Improvements at certain class levels."
-    ]
-  },
-  feats: {
-    name: 'Feats',
-    type: 'Rule',
-    badge: 'Character Feature',
-    entries: [
-      "A feat represents an area of expertise or special prowess that gives a character capabilities beyond class features. Feats are gained at 1st level (Origin Feats in 2024 / backgrounds) and instead of Ability Score Improvements at certain class levels."
-    ]
-  },
   proficiency_bonus: {
     name: 'Proficiency Bonus',
     type: 'Rule',
@@ -217,6 +211,42 @@ export const BUILTIN_RULES = {
     badge: 'Health',
     entries: [
       "You have a number of Hit Dice equal to your total character level. During a Short Rest, you can spend Hit Dice to regain lost Hit Points. You regain half your total Hit Dice at the end of a Long Rest."
+    ]
+  },
+  short_rest: {
+    name: 'Short Rest',
+    type: 'Rule',
+    badge: 'Rest',
+    entries: [
+      "A Short Rest is a period of downtime, at least 1 hour long, during which a character does nothing more strenuous than eating, drinking, reading, and tending to wounds.",
+      "A character can spend one or more Hit Dice at the end of a Short Rest, up to the character's maximum number of Hit Dice, to regain Hit Points."
+    ]
+  },
+  short_rests: {
+    name: 'Short Rest',
+    type: 'Rule',
+    badge: 'Rest',
+    entries: [
+      "A Short Rest is a period of downtime, at least 1 hour long, during which a character does nothing more strenuous than eating, drinking, reading, and tending to wounds.",
+      "A character can spend one or more Hit Dice at the end of a Short Rest, up to the character's maximum number of Hit Dice, to regain Hit Points."
+    ]
+  },
+  long_rest: {
+    name: 'Long Rest',
+    type: 'Rule',
+    badge: 'Rest',
+    entries: [
+      "A Long Rest is a period of extended downtime, at least 8 hours long, during which a character sleeps or performs light activity (reading, talking, eating, or standing watch for no more than 2 hours).",
+      "At the end of a Long Rest, a character regains all lost Hit Points, all spent spell slots, and up to half of their total number of Hit Dice."
+    ]
+  },
+  long_rests: {
+    name: 'Long Rest',
+    type: 'Rule',
+    badge: 'Rest',
+    entries: [
+      "A Long Rest is a period of extended downtime, at least 8 hours long, during which a character sleeps or performs light activity (reading, talking, eating, or standing watch for no more than 2 hours).",
+      "At the end of a Long Rest, a character regains all lost Hit Points, all spent spell slots, and up to half of their total number of Hit Dice."
     ]
   },
 
@@ -250,7 +280,7 @@ export const BUILTIN_RULES = {
     type: 'Damage Type',
     badge: 'Damage',
     entries: [
-      "Red dragons breathe fire, and many spells, such as Fireball, conjure flames to deal fire damage."
+      "Red dragons breathe fire, and many spells conjure flames to deal fire damage."
     ]
   },
   force: {
@@ -258,7 +288,7 @@ export const BUILTIN_RULES = {
     type: 'Damage Type',
     badge: 'Damage',
     entries: [
-      "Force is pure magical energy focused into a damaging form. Most effects that deal force damage are spells, including Magic Missile and Eldritch Blast. Very few creatures have resistance or immunity to force damage."
+      "Force is pure magical energy focused into a damaging form. Most effects that deal force damage, including magic missile and spiritual weapon, are spells."
     ]
   },
   lightning: {
@@ -274,7 +304,7 @@ export const BUILTIN_RULES = {
     type: 'Damage Type',
     badge: 'Damage',
     entries: [
-      "Necrotic damage, dealt by certain undead and spells such as Chill Touch, withers matter and even the soul."
+      "Necrotic damage, dealt by certain undead and spells such as chill touch, withers matter and even the soul."
     ]
   },
   piercing: {
@@ -298,7 +328,7 @@ export const BUILTIN_RULES = {
     type: 'Damage Type',
     badge: 'Damage',
     entries: [
-      "Mental abilities such as a mind flayer's psionic blast deal psychic damage."
+      "Mental abilities such as a psionic blast or vicious mockery deal psychic damage."
     ]
   },
   radiant: {
@@ -306,7 +336,7 @@ export const BUILTIN_RULES = {
     type: 'Damage Type',
     badge: 'Damage',
     entries: [
-      "Radiant damage, dealt by a cleric's Flame Strike or an angel's smiting weapon, sears the flesh like fire and overloads the spirit with power."
+      "Radiant damage, dealt by a cleric's flame strike spell or an angel's smiting weapon, sears the flesh like fire and overloads the spirit with power."
     ]
   },
   slashing: {
@@ -323,490 +353,6 @@ export const BUILTIN_RULES = {
     badge: 'Damage',
     entries: [
       "A concussive burst of sound, such as the effect of the Thunderwave spell, deals thunder damage."
-    ]
-  },
-
-  // --- Class Spell Lists & Features ---
-  metamagic: {
-    name: 'Metamagic',
-    type: 'Class Feature',
-    badge: 'Sorcerer',
-    entries: [
-      "At 3rd level, a sorcerer gains the ability to twist spells to suit their needs using Sorcery Points.",
-      "Common Metamagic options include:",
-      "• Quickened Spell: Change casting time from 1 action to 1 bonus action (cost 2 sorcery points).",
-      "• Twinned Spell: Target a second creature in range with a spell that targets only one creature (cost = spell level, or 1 for cantrip).",
-      "• Subtle Spell: Cast without verbal or somatic components (cost 1 sorcery point).",
-      "• Heightened Spell: Give one target disadvantage on its first saving throw against the spell (cost 2 or 3 sorcery points).",
-      "• Careful Spell: Protect chosen allies from the spell's harmful effects (cost 1 sorcery point).",
-      "• Empowered Spell: Reroll damage dice up to your Charisma modifier (cost 1 sorcery point).",
-      "• Extended Spell: Double the duration of a spell with a duration of 1 minute or longer (cost 1 sorcery point).",
-      "• Distant Spell: Double the range of a spell, or make a touch spell reach 30 feet (cost 1 sorcery point)."
-    ]
-  },
-  metamagic_option: {
-    name: 'Metamagic Options',
-    type: 'Class Feature',
-    badge: 'Sorcerer',
-    entries: [
-      "Sorcerers customize their spells using Metamagic options powered by Sorcery Points.",
-      "Key options include Quickened Spell (cast as bonus action), Twinned Spell (target second creature), Subtle Spell (no verbal or somatic components), Heightened Spell (impose disadvantage on saves), and Empowered Spell (reroll damage dice)."
-    ]
-  },
-  sorcerer_spell_list: {
-    name: 'Sorcerer Spell List',
-    type: 'Spell List',
-    badge: 'Sorcerer Spells',
-    entries: [
-      "Sorcerers cast arcane spells powered by innate magic, using Charisma as their spellcasting ability modifier.",
-      "Their spell list emphasizes raw magical power, evocation, and reality-altering effects such as Chaos Bolt, Fireball, Shield, Invisibility, Haste, Polymorph, and Wish.",
-      "Spells can be prepared or selected in the Spells tab and altered with Metamagic."
-    ]
-  },
-  wizard_spell_list: {
-    name: 'Wizard Spell List',
-    type: 'Spell List',
-    badge: 'Wizard Spells',
-    entries: [
-      "Wizards study arcane magic systematically, using Intelligence as their spellcasting ability modifier.",
-      "The most expansive spell list in D&D, featuring ritual casting, defensive abjurations (Shield, Counterspell), battlefield control (Web, Wall of Force), and high evocation (Fireball, Chain Lightning, Meteor Swarm).",
-      "Wizards copy spells into a spellbook and prepare them each day."
-    ]
-  },
-  bard_spell_list: {
-    name: 'Bard Spell List',
-    type: 'Spell List',
-    badge: 'Bard Spells',
-    entries: [
-      "Bards weave music, poetry, and performance into spells, using Charisma as their spellcasting ability modifier.",
-      "Specializes in enchantment, illusion, healing, and control (Vicious Mockery, Dissonant Whispers, Healing Word, Hypnotic Pattern, Polymorph, Otto's Irresistible Dance).",
-      "Higher-level bards gain Magical Secrets to choose spells from any class list."
-    ]
-  },
-  cleric_spell_list: {
-    name: 'Cleric Spell List',
-    type: 'Spell List',
-    badge: 'Cleric Spells',
-    entries: [
-      "Clerics channel divine power from deities, using Wisdom as their spellcasting ability modifier.",
-      "Specializes in healing, radiant empowerment, restoration, and defensive wards (Bless, Cure Wounds, Spiritual Weapon, Spirit Guardians, Revivify, Heal).",
-      "Clerics prepare spells daily from the full cleric list alongside their domain spells."
-    ]
-  },
-  druid_spell_list: {
-    name: 'Druid Spell List',
-    type: 'Spell List',
-    badge: 'Druid Spells',
-    entries: [
-      "Druids revere nature and harness primal magic, using Wisdom as their spellcasting ability modifier.",
-      "Focuses on elemental manipulation, healing, animal summoning, and battlefield control (Entangle, Moonbeam, Spike Growth, Call Lightning, Conjure Animals).",
-      "Druids prepare spells daily from the full druid spell list."
-    ]
-  },
-  warlock_spell_list: {
-    name: 'Warlock Spell List',
-    type: 'Spell List',
-    badge: 'Warlock Spells',
-    entries: [
-      "Warlocks gain magic through pacts with otherworldly patrons, using Charisma as their spellcasting ability modifier.",
-      "Features Pact Magic: slots are limited but always cast at the highest spell level and refresh on a Short Rest (Eldritch Blast, Armor of Agathys, Hex, Hunger of Hadar, Synaptic Static).",
-      "Augmented by Eldritch Invocations."
-    ]
-  },
-  paladin_spell_list: {
-    name: 'Paladin Spell List',
-    type: 'Spell List',
-    badge: 'Paladin Spells',
-    entries: [
-      "Paladins manifest magic through holy vows, using Charisma as their spellcasting ability modifier.",
-      "Focuses on weapon smites, defensive auras, radiant energy, and support (Divine Smite, Wrathful Smite, Thunderous Smite, Shield of Faith, Aid, Find Steed).",
-      "Prepares spells daily starting at paladin level 2."
-    ]
-  },
-  ranger_spell_list: {
-    name: 'Ranger Spell List',
-    type: 'Spell List',
-    badge: 'Ranger Spells',
-    entries: [
-      "Rangers wield primal magic attuned to wilderness survival and combat, using Wisdom as their spellcasting ability modifier.",
-      "Focuses on hunting buffs, mobility, and archery enhancements (Hunter's Mark, Zephyr Strike, Pass Without Trace, Spike Growth, Conjure Volley).",
-      "Prepares or learns spells starting at ranger level 2."
-    ]
-  },
-  artificer_spell_list: {
-    name: 'Artificer Spell List',
-    type: 'Spell List',
-    badge: 'Artificer Spells',
-    entries: [
-      "Artificers channel magic through tools and invention, using Intelligence as their spellcasting ability modifier.",
-      "Focuses on utility, tool enhancements, defenses, and infused weaponry (Absorb Elements, Faerie Fire, Sanctuary, Heat Metal, Haste).",
-      "Prepares spells daily starting at artificer level 1."
-    ]
-  },
-
-  // --- Conditions ---
-  blinded: {
-    name: 'Blinded',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A blinded creature can't see and automatically fails any ability check that requires sight.",
-      "Attack rolls against the creature have advantage, and the creature's attack rolls have disadvantage."
-    ]
-  },
-  charmed: {
-    name: 'Charmed',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A charmed creature can't attack the charmer or target the charmer with harmful abilities or magical effects.",
-      "The charmer has advantage on any ability check to interact socially with the creature."
-    ]
-  },
-  deafened: {
-    name: 'Deafened',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A deafened creature can't hear and automatically fails any ability check that requires hearing."
-    ]
-  },
-  frightened: {
-    name: 'Frightened',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A frightened creature has disadvantage on ability checks and attack rolls while the source of its fear is within line of sight.",
-      "The creature can't willingly move closer to the source of its fear."
-    ]
-  },
-  grappled: {
-    name: 'Grappled',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A grappled creature's speed becomes 0, and it can't benefit from any bonus to its speed.",
-      "The condition ends if the grappler is incapacitated or moved away."
-    ]
-  },
-  incapacitated: {
-    name: 'Incapacitated',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "An incapacitated creature can't take actions, bonus actions, or reactions.",
-      "Concentration on spells is immediately broken."
-    ]
-  },
-  invisible: {
-    name: 'Invisible',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "An invisible creature is impossible to see without the aid of magic or a special sense.",
-      "Attack rolls against the creature have disadvantage, and the creature's attack rolls have advantage."
-    ]
-  },
-  paralyzed: {
-    name: 'Paralyzed',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A paralyzed creature is incapacitated and can't move or speak.",
-      "The creature automatically fails Strength and Dexterity saving throws.",
-      "Attack rolls against the creature have advantage. Any attack that hits is a critical hit if the attacker is within 5 feet."
-    ]
-  },
-  petrified: {
-    name: 'Petrified',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A petrified creature is transformed into a solid inanimate substance (usually stone).",
-      "Its weight increases by a factor of ten, and it ceases aging.",
-      "The creature is incapacitated, can't move or speak, and has resistance to all damage."
-    ]
-  },
-  poisoned: {
-    name: 'Poisoned',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A poisoned creature has disadvantage on attack rolls and ability checks."
-    ]
-  },
-  prone: {
-    name: 'Prone',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A prone creature's only movement option is to crawl, unless it stands up.",
-      "The creature has disadvantage on attack rolls.",
-      "An attack roll against the creature has advantage if the attacker is within 5 feet; otherwise disadvantage."
-    ]
-  },
-  restrained: {
-    name: 'Restrained',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A restrained creature's speed becomes 0.",
-      "Attack rolls against the creature have advantage, and the creature's attack rolls have disadvantage.",
-      "The creature has disadvantage on Dexterity saving throws."
-    ]
-  },
-  stunned: {
-    name: 'Stunned',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "A stunned creature is incapacitated, can't move, and can speak only falteringly.",
-      "The creature automatically fails Strength and Dexterity saving throws.",
-      "Attack rolls against the creature have advantage."
-    ]
-  },
-  unconscious: {
-    name: 'Unconscious',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "An unconscious creature is incapacitated, can't move or speak, and is unaware of its surroundings.",
-      "The creature drops whatever it's holding and falls prone.",
-      "Automatically fails Strength and Dexterity saving throws. Attacks within 5 ft are critical hits."
-    ]
-  },
-  exhaustion: {
-    name: 'Exhaustion',
-    type: 'Condition',
-    badge: 'Condition',
-    entries: [
-      "Exhaustion is measured in six cumulative levels. Level 1: Disadvantage on ability checks; Level 2: Speed halved; Level 3: Disadvantage on attack rolls and saving throws; Level 4: HP max halved; Level 5: Speed 0; Level 6: Death."
-    ]
-  },
-
-  // --- Skills ---
-  athletics: {
-    name: 'Athletics',
-    type: 'Skill',
-    badge: 'Strength Skill',
-    entries: [
-      "Covers difficult situations encountered while climbing, jumping, or swimming. Also used for grappling or shoving creatures in combat."
-    ]
-  },
-  acrobatics: {
-    name: 'Acrobatics',
-    type: 'Skill',
-    badge: 'Dexterity Skill',
-    entries: [
-      "Covers staying on your feet in a tricky situation, such as walking across a sheet of ice, balancing on a tightrope, or doing acrobatic stunts."
-    ]
-  },
-  sleight_of_hand: {
-    name: 'Sleight of Hand',
-    type: 'Skill',
-    badge: 'Dexterity Skill',
-    entries: [
-      "Covers acts of manual trickery, such as planting something on someone else, concealing an object on your person, or pickpocketing."
-    ]
-  },
-  stealth: {
-    name: 'Stealth',
-    type: 'Skill',
-    badge: 'Dexterity Skill',
-    entries: [
-      "Make a Dexterity (Stealth) check when you attempt to conceal yourself from enemies, slink past guards, or slip away without being seen or heard."
-    ]
-  },
-  arcana: {
-    name: 'Arcana',
-    type: 'Skill',
-    badge: 'Intelligence Skill',
-    entries: [
-      "Measures your ability to recall lore about spells, magic items, eldritch symbols, magical traditions, the planes of existence, and their inhabitants."
-    ]
-  },
-  history: {
-    name: 'History',
-    type: 'Skill',
-    badge: 'Intelligence Skill',
-    entries: [
-      "Measures your ability to recall lore about historical events, legendary people, ancient kingdoms, past disputes, and wars."
-    ]
-  },
-  investigation: {
-    name: 'Investigation',
-    type: 'Skill',
-    badge: 'Intelligence Skill',
-    entries: [
-      "Looking around for clues and making deductions based on those clues. Finding hidden items, deciphering codes, or deducing how an object functions."
-    ]
-  },
-  nature: {
-    name: 'Nature',
-    type: 'Skill',
-    badge: 'Intelligence Skill',
-    entries: [
-      "Measures your ability to recall lore about terrain, plants and animals, weather, and natural cycles."
-    ]
-  },
-  religion: {
-    name: 'Religion',
-    type: 'Skill',
-    badge: 'Intelligence Skill',
-    entries: [
-      "Measures your ability to recall lore about deities, rites and prayers, religious hierarchies, holy symbols, and the practices of secret cults."
-    ]
-  },
-  animal_handling: {
-    name: 'Animal Handling',
-    type: 'Skill',
-    badge: 'Wisdom Skill',
-    entries: [
-      "Used to calm down a domesticated animal, keep a mount from getting spooked, or intuit an animal's intentions."
-    ]
-  },
-  insight: {
-    name: 'Insight',
-    type: 'Skill',
-    badge: 'Wisdom Skill',
-    entries: [
-      "Determines whether you can determine the true intentions of a creature, such as searching out a lie or predicting someone's next move."
-    ]
-  },
-  medicine: {
-    name: 'Medicine',
-    type: 'Skill',
-    badge: 'Wisdom Skill',
-    entries: [
-      "Lets you try to stabilize a dying companion or diagnose an illness."
-    ]
-  },
-  perception: {
-    name: 'Perception',
-    type: 'Skill',
-    badge: 'Wisdom Skill',
-    entries: [
-      "Lets you spot, hear, or otherwise detect the presence of something. Measures your general awareness of your surroundings."
-    ]
-  },
-  survival: {
-    name: 'Survival',
-    type: 'Skill',
-    badge: 'Wisdom Skill',
-    entries: [
-      "Follow tracks, hunt wild game, guide your group through frozen wastelands, identify signs of owlbears nearby, predict weather, or avoid quicksand."
-    ]
-  },
-  deception: {
-    name: 'Deception',
-    type: 'Skill',
-    badge: 'Charisma Skill',
-    entries: [
-      "Determines whether you can convincingly hide the truth, either verbally or through your actions (fast-talking, conning, using a disguise)."
-    ]
-  },
-  intimidation: {
-    name: 'Intimidation',
-    type: 'Skill',
-    badge: 'Charisma Skill',
-    entries: [
-      "Influencing someone through overt threats, hostile actions, and physical presence."
-    ]
-  },
-  performance: {
-    name: 'Performance',
-    type: 'Skill',
-    badge: 'Charisma Skill',
-    entries: [
-      "Delighting an audience with music, dance, acting, storytelling, or some other form of entertainment."
-    ]
-  },
-  persuasion: {
-    name: 'Persuasion',
-    type: 'Skill',
-    badge: 'Charisma Skill',
-    entries: [
-      "Influencing someone or a group of people with tact, social graces, or good nature (acting in good faith, fostering friendships, bargaining)."
-    ]
-  },
-
-  // --- Senses ---
-  darkvision: {
-    name: 'Darkvision',
-    type: 'Sense',
-    badge: 'Sense',
-    entries: [
-      "Within a specified range, you can see in dim light as if it were bright light, and in darkness as if it were dim light (cannot discern color in darkness, only shades of gray)."
-    ]
-  },
-  blindsight: {
-    name: 'Blindsight',
-    type: 'Sense',
-    badge: 'Sense',
-    entries: [
-      "A creature with blindsight can perceive its surroundings without relying on sight, within a specific radius."
-    ]
-  },
-  tremorsense: {
-    name: 'Tremorsense',
-    type: 'Sense',
-    badge: 'Sense',
-    entries: [
-      "Detect and pinpoint the origin of vibrations within a specific radius, provided that the creature and the source of vibrations are in contact with the same ground."
-    ]
-  },
-  truesight: {
-    name: 'Truesight',
-    type: 'Sense',
-    badge: 'Sense',
-    entries: [
-      "A creature with truesight can see in normal and magical darkness, see invisible creatures and objects, automatically detect visual illusions, and perceive the original form of a shapechanger."
-    ]
-  },
-
-  // --- Actions ---
-  dash: {
-    name: 'Dash',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: ["You gain extra movement for the current turn equal to your speed, after applying any modifiers."]
-  },
-  disengage: {
-    name: 'Disengage',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: ["Your movement doesn't provoke opportunity attacks for the rest of the turn."]
-  },
-  dodge: {
-    name: 'Dodge',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: [
-      "Until the start of your next turn, any attack roll made against you has disadvantage if you can see the attacker, and you make Dexterity saving throws with advantage."
-    ]
-  },
-  help: {
-    name: 'Help',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: [
-      "You can lend your aid to another creature in the completion of a task, or feint to distract a target giving an ally advantage on their next attack roll."
-    ]
-  },
-  hide: {
-    name: 'Hide',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: [
-      "Make a Dexterity (Stealth) check in an attempt to hide, following the rules for hiding."
-    ]
-  },
-  ready: {
-    name: 'Ready',
-    type: 'Action',
-    badge: 'Combat Action',
-    entries: [
-      "You decide what perceivable circumstance will trigger your reaction, and the action you will take in response."
     ]
   }
 }
@@ -833,14 +379,14 @@ export const findBuiltinRule = (target, display) => {
   const candidates = [
     k1,
     k2,
-    `${k1}_spell_list`,
-    `${k2}_spell_list`,
-    k1.replace(/_option$/, ''),
-    k2.replace(/_option$/, ''),
-    k1.replace(/_options$/, ''),
-    k2.replace(/_options$/, ''),
     k1.replace(/_damage$/, ''),
-    k2.replace(/_damage$/, '')
+    k2.replace(/_damage$/, ''),
+    k1.replace(/s_tool$/, '_tool'),
+    k2.replace(/s_tool$/, '_tool'),
+    k1.replace(/_tools$/, '_tool'),
+    k2.replace(/_tools$/, '_tool'),
+    k1.endsWith('s') ? k1.slice(0, -1) : k1 + 's',
+    k2.endsWith('s') ? k2.slice(0, -1) : k2 + 's'
   ].filter(Boolean)
 
   for (const key of candidates) {
@@ -902,12 +448,10 @@ export const renderAnnotatedText = (text) => {
       }
 
       if (lowerTag === 'filter') {
-        const found = findBuiltinRule(target, displayText)
-        if (found) {
-          return `<span class="dnd-tag-ref text-blue-600 font-medium underline decoration-blue-300 decoration-dotted hover:text-indigo-700 hover:decoration-indigo-500 cursor-pointer" data-tag="rule" data-target="${escapeHtml(found.key)}" data-source="${escapeHtml(source)}" data-display="${escapeHtml(displayText)}">${displayText}</span>`
-        }
-        // Generic uninformative filter query: render clean styled text without link/popover
-        return `<span class="text-indigo-600 font-medium">${displayText}</span>`
+        const category = (parts[1] || '').toLowerCase().trim() || 'spells'
+        const queryParams = parts.slice(2).join('&')
+
+        return `<span class="dnd-tag-ref dnd-filter-link text-blue-600 font-medium underline decoration-blue-300 decoration-dotted hover:text-indigo-700 hover:decoration-indigo-500 cursor-pointer" data-tag="filter" data-filter-category="${escapeHtml(category)}" data-filter-query="${escapeHtml(queryParams)}" data-target="${escapeHtml(target)}" data-source="${escapeHtml(source)}" data-display="${escapeHtml(displayText)}">${displayText}</span>`
       }
 
       const refTags = [
@@ -943,4 +487,175 @@ export const renderTableCell = (cell) => {
     if (Array.isArray(cell)) return cell.map(renderTableCell).join(', ')
   }
   return renderAnnotatedText(String(cell))
+}
+
+export function formatPrerequisite(prereq) {
+  if (!prereq) return null
+  if (typeof prereq === 'string') {
+    try {
+      const parsed = JSON.parse(prereq)
+      if (typeof parsed === 'object' && parsed !== null) {
+        return formatPrerequisite(parsed)
+      }
+    } catch (_) {}
+    return prereq
+  }
+  if (!Array.isArray(prereq)) prereq = [prereq]
+
+  const ordinal = (n) => {
+    const s = ['th', 'st', 'nd', 'rd']
+    const v = n % 100
+    return n + (s[(v - 20) % 10] || s[v] || s[0])
+  }
+
+  const cleanItem = (str) => {
+    if (typeof str !== 'string') return ''
+    return str.split('|')[0].replace(/#c$/, ' cantrip').trim()
+  }
+
+  const parts = []
+  for (const p of prereq) {
+    if (!p) continue
+    if (typeof p === 'string') {
+      parts.push(cleanItem(p))
+      continue
+    }
+
+    const sub = []
+
+    if (p.level != null) {
+      if (typeof p.level === 'number') {
+        sub.push(`${ordinal(p.level)} Level`)
+      } else if (typeof p.level === 'object') {
+        const lvl = p.level.level ? `${ordinal(p.level.level)}-level` : ''
+        const cls = p.level.class?.name || ''
+        const subcls = p.level.subclass?.name ? ` (${p.level.subclass.name})` : ''
+        sub.push(`${lvl} ${cls}${subcls}`.trim())
+      }
+    }
+
+    if (p.ability && Array.isArray(p.ability)) {
+      const abNames = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' }
+      const abParts = []
+      for (const abObj of p.ability) {
+        const pairs = Object.entries(abObj).map(([k, val]) => `${abNames[k.toLowerCase()] || k.toUpperCase()} ${val}`)
+        if (pairs.length) abParts.push(pairs.join(' or '))
+      }
+      if (abParts.length) sub.push(`${abParts.join(', ')} or higher`)
+    }
+
+    if (p.race && Array.isArray(p.race)) {
+      const rNames = p.race.map(r => {
+        let name = r.name || ''
+        name = name.charAt(0).toUpperCase() + name.slice(1)
+        if (r.subrace) name += ` (${r.subrace.charAt(0).toUpperCase() + r.subrace.slice(1)})`
+        return name
+      })
+      if (rNames.length) sub.push(rNames.join(' or '))
+    }
+
+    if (p.spell && Array.isArray(p.spell)) {
+      const spNames = p.spell.map(sp => {
+        if (typeof sp === 'string') {
+          const isCantrip = sp.endsWith('#c')
+          const name = sp.replace(/#c$/, '').split('|')[0]
+          const title = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          return isCantrip ? `${title} cantrip` : title
+        }
+        if (typeof sp === 'object' && sp !== null) {
+          return sp.entry || sp.entrySummary || 'a Spell'
+        }
+        return String(sp)
+      })
+      if (spNames.length) sub.push(spNames.join(' or '))
+    }
+
+    if (p.feat && Array.isArray(p.feat)) {
+      const fNames = p.feat.map(f => {
+        const raw = String(f).split('|')[0]
+        return raw.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+      })
+      if (fNames.length) sub.push(fNames.join(' or '))
+    }
+
+    if (p.proficiency && Array.isArray(p.proficiency)) {
+      const profs = p.proficiency.map(pr => {
+        if (pr.armor) return `Proficiency with ${pr.armor} armor`
+        if (pr.weapon) return `Proficiency with ${pr.weapon} weapons`
+        return Object.entries(pr).map(([k, v]) => `Proficiency with ${v} ${k}`).join(', ')
+      })
+      if (profs.length) sub.push(profs.join(', '))
+    }
+
+    if (p.spellcasting || p.spellcastingFeature || p.spellcasting2020) {
+      sub.push('Spellcasting or Pact Magic feature')
+    }
+
+    if (p.pact) sub.push(`Pact of the ${p.pact}`)
+    if (p.patron) sub.push(`${p.patron} patron`)
+    if (p.feature && Array.isArray(p.feature)) sub.push(p.feature.join(', '))
+    if (p.item && Array.isArray(p.item)) sub.push(p.item.join(' or '))
+    if (p.background && Array.isArray(p.background)) sub.push(p.background.map(b => b.name).filter(Boolean).join(' or '))
+    if (p.campaign && Array.isArray(p.campaign)) sub.push(`${p.campaign.join('/')} campaign`)
+    if (p.other) sub.push(p.other)
+    if (p.otherSummary) sub.push(typeof p.otherSummary === 'object' ? (p.otherSummary.entry || p.otherSummary.entrySummary || '') : p.otherSummary)
+
+    if (sub.length) parts.push(sub.join(', '))
+  }
+
+  return parts.filter(Boolean).join('; ')
+}
+
+export function format5eEntries(entries) {
+  if (!entries) return ''
+  if (typeof entries === 'string') return `<p class="mb-2 leading-relaxed">${entries}</p>`
+  if (Array.isArray(entries)) {
+    return entries.map(e => format5eEntries(e)).filter(Boolean).join('')
+  }
+  if (typeof entries === 'object' && entries !== null) {
+    if (entries.type === 'list' && Array.isArray(entries.items)) {
+      const lis = entries.items.map(it => {
+        if (typeof it === 'string') return `<li>${it}</li>`
+        if (typeof it === 'object' && it !== null) {
+          const title = it.name ? `<strong class="text-gray-900">${it.name}: </strong>` : ''
+          const body = it.entry !== undefined ? String(it.entry) : (it.entries ? format5eEntries(it.entries) : '')
+          return `<li>${title}${body}</li>`
+        }
+        return `<li>${String(it)}</li>`
+      }).join('')
+      return `<ul class="list-disc pl-4 space-y-1 my-2">${lis}</ul>`
+    }
+    if (entries.type === 'item') {
+      const title = entries.name ? `<strong class="text-gray-900">${entries.name}: </strong>` : ''
+      const body = entries.entry !== undefined ? String(entries.entry) : (entries.entries ? format5eEntries(entries.entries) : '')
+      return `<p class="mb-2 leading-relaxed">${title}${body}</p>`
+    }
+    if (entries.type === 'entries' || entries.type === 'inset') {
+      const header = entries.name ? `<h4 class="font-bold text-gray-900 text-xs mt-2.5 mb-1">${entries.name}</h4>` : ''
+      return header + format5eEntries(entries.entries)
+    }
+    if (entries.type === 'table') {
+      let html = '<div class="my-2.5 overflow-x-auto w-full border border-gray-200 rounded"><table class="w-full min-w-full text-left text-xs divide-y divide-gray-200">'
+      if (entries.caption) {
+        html += `<caption class="p-2 text-xs font-bold text-gray-800 bg-gray-50 text-left border-b border-gray-200">${entries.caption}</caption>`
+      }
+      if (Array.isArray(entries.colLabels) && entries.colLabels.length) {
+        html += '<thead class="bg-gray-50"><tr>' + entries.colLabels.map(c => `<th class="px-2.5 py-1.5 font-semibold text-gray-700">${c}</th>`).join('') + '</tr></thead>'
+      }
+      if (Array.isArray(entries.rows)) {
+        html += '<tbody class="divide-y divide-gray-100 bg-white">' + entries.rows.map(r => '<tr class="hover:bg-gray-50/70">' + (Array.isArray(r) ? r.map(c => `<td class="px-2.5 py-1.5 text-gray-700">${typeof c === 'object' ? (c.entry || c.roll?.exact || '') : c}</td>`).join('') : '') + '</tr>').join('') + '</tbody>'
+      }
+      html += '</table></div>'
+      return html
+    }
+    if (entries.entries) {
+      const header = entries.name ? `<strong class="font-bold text-gray-900">${entries.name}: </strong>` : ''
+      return `<div class="mt-1.5">${header}${format5eEntries(entries.entries)}</div>`
+    }
+    if (entries.entry) {
+      const header = entries.name ? `<strong class="font-bold text-gray-900">${entries.name}: </strong>` : ''
+      return `<p class="mb-2 leading-relaxed">${header}${String(entries.entry)}</p>`
+    }
+  }
+  return `<p class="mb-2 leading-relaxed">${String(entries)}</p>`
 }

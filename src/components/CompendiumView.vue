@@ -1,0 +1,1078 @@
+<script setup>
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import axios from 'axios'
+import { useConfig } from '../config'
+import { useCharacterStore } from '../stores/character'
+import { useCompendiumNav } from '../composables/useCompendiumNav'
+import { renderAnnotatedText, formatPrerequisite, format5eEntries } from '../utils/textRenderer'
+import { IconArrowLeft } from '@tabler/icons-vue'
+
+const API_URL = useConfig().API_URL
+const characterStore = useCharacterStore()
+const {
+  isCompendiumOpen,
+  compendiumCategory,
+  compendiumSearch,
+  compendiumParams,
+  compendiumSelectedItem,
+  closeCompendium
+} = useCompendiumNav()
+
+const currentEdition = ref(characterStore.edition || '2024')
+const activeTab = ref('spells') // 'all' | 'spells' | 'items' | 'monsters' | 'feats' | 'rules' | 'optionalfeatures'
+const searchQuery = ref('')
+const isLoading = ref(false)
+const rawList = ref([])
+const selectedItem = ref(null)
+
+// Specific sub-filters
+const sourceFilter = ref('all')
+const spellLevelFilter = ref('all')
+const spellClassFilter = ref('all')
+const itemTypeFilter = ref('all')
+const monsterCrFilter = ref('all')
+const monsterTypeFilter = ref('all')
+const featCategoryFilter = ref('all')
+const ruleCategoryFilter = ref('all')
+
+const displayedLimit = ref(40)
+const displayedList = computed(() => {
+  return rawList.value.slice(0, displayedLimit.value)
+})
+
+const onListScroll = (e) => {
+  const el = e.target
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
+    if (displayedLimit.value < rawList.value.length) {
+      displayedLimit.value = Math.min(displayedLimit.value + 40, rawList.value.length)
+    }
+  }
+}
+
+const isItemSelected = (item) => {
+  if (!selectedItem.value || !item) return false
+  if (selectedItem.value === item) return true
+  if (selectedItem.value.id && item.id) {
+    return String(selectedItem.value.id) === String(item.id)
+  }
+  return (
+    selectedItem.value.name === item.name &&
+    (selectedItem.value.source || '') === (item.source || '') &&
+    (selectedItem.value.edition || '') === (item.edition || '')
+  )
+}
+
+const sourceOptions2024 = [
+  { label: 'All Sources', value: 'all' },
+  { label: "XPHB (Player's Handbook 2024)", value: 'XPHB' },
+  { label: "XDMG (DM Guide 2024)", value: 'XDMG' },
+  { label: "XMM (Monster Manual 2024)", value: 'XMM' },
+  { label: 'TCE (Tasha)', value: 'TCE' }
+]
+
+const sourceOptions2014 = [
+  { label: 'All Sources', value: 'all' },
+  { label: "PHB (Player's Handbook 2014)", value: 'PHB' },
+  { label: 'DMG (Dungeon Master)', value: 'DMG' },
+  { label: 'MM (Monster Manual)', value: 'MM' },
+  { label: 'XGE (Xanathar)', value: 'XGE' },
+  { label: 'TCE (Tasha)', value: 'TCE' },
+  { label: 'SCAG (Sword Coast)', value: 'SCAG' },
+  { label: 'VGM (Volo)', value: 'VGM' },
+  { label: 'MTF (Mordenkainen)', value: 'MTF' },
+  { label: 'MPMM (Multiverse)', value: 'MPMM' },
+  { label: 'ERLW (Eberron)', value: 'ERLW' }
+]
+
+const currentSourceOptions = computed(() => {
+  return currentEdition.value === '2024' ? sourceOptions2024 : sourceOptions2014
+})
+
+const monsterCrList = [
+  { label: 'All CRs', value: 'all' },
+  { label: 'CR 0', value: '0' },
+  { label: 'CR 1/8', value: '1/8' },
+  { label: 'CR 1/4', value: '1/4' },
+  { label: 'CR 1/2', value: '1/2' },
+  { label: 'CR 1', value: '1' },
+  { label: 'CR 2', value: '2' },
+  { label: 'CR 3', value: '3' },
+  { label: 'CR 4', value: '4' },
+  { label: 'CR 5', value: '5' },
+  { label: 'CR 6', value: '6' },
+  { label: 'CR 7', value: '7' },
+  { label: 'CR 8', value: '8' },
+  { label: 'CR 9', value: '9' },
+  { label: 'CR 10', value: '10' },
+  { label: 'CR 11-15', value: '11' },
+  { label: 'CR 16-20', value: '16' },
+  { label: 'CR 20+', value: '20' }
+]
+
+const monsterTypeList = [
+  { label: 'All Creature Types', value: 'all' },
+  { label: 'Aberration', value: 'aberration' },
+  { label: 'Beast', value: 'beast' },
+  { label: 'Celestial', value: 'celestial' },
+  { label: 'Construct', value: 'construct' },
+  { label: 'Dragon', value: 'dragon' },
+  { label: 'Elemental', value: 'elemental' },
+  { label: 'Fey', value: 'fey' },
+  { label: 'Fiend', value: 'fiend' },
+  { label: 'Giant', value: 'giant' },
+  { label: 'Humanoid', value: 'humanoid' },
+  { label: 'Monstrosity', value: 'monstrosity' },
+  { label: 'Ooze', value: 'ooze' },
+  { label: 'Plant', value: 'plant' },
+  { label: 'Undead', value: 'undead' }
+]
+
+const spellLevelPills = [
+  { label: 'All', value: 'all' },
+  { label: 'Cantrip', value: 0 },
+  { label: '1st', value: 1 },
+  { label: '2nd', value: 2 },
+  { label: '3rd', value: 3 },
+  { label: '4th', value: 4 },
+  { label: '5th', value: 5 },
+  { label: '6th', value: 6 },
+  { label: '7th', value: 7 },
+  { label: '8th', value: 8 },
+  { label: '9th', value: 9 }
+]
+
+const spellClasses = [
+  { label: 'All Classes', value: 'all' },
+  { label: 'Artificer', value: 'artificer' },
+  { label: 'Bard', value: 'bard' },
+  { label: 'Cleric', value: 'cleric' },
+  { label: 'Druid', value: 'druid' },
+  { label: 'Paladin', value: 'paladin' },
+  { label: 'Ranger', value: 'ranger' },
+  { label: 'Sorcerer', value: 'sorcerer' },
+  { label: 'Warlock', value: 'warlock' },
+  { label: 'Wizard', value: 'wizard' }
+]
+
+const itemTypes = [
+  { label: 'All Items', value: 'all' },
+  { label: 'Weapons', value: 'weapon' },
+  { label: 'Armor & Shields', value: 'armor' },
+  { label: 'Tools & Kits', value: 'tool' },
+  { label: 'Adventuring Gear', value: 'gear' }
+]
+
+const featCategories = [
+  { label: 'All Feats', value: 'all' },
+  { label: 'Origin', value: 'O' },
+  { label: 'General', value: 'G' },
+  { label: 'Fighting Style', value: 'FS' },
+  { label: 'Epic Boon', value: 'EB' }
+]
+
+const ruleCategories = [
+  { label: 'All Rules', value: 'all' },
+  { label: 'Rules & Glossary', value: 'rule' },
+  { label: 'Actions', value: 'action' },
+  { label: 'Conditions & Status', value: 'condition' },
+  { label: 'Skills', value: 'skill' },
+  { label: 'Senses', value: 'sense' }
+]
+
+const normalizeKey = (s) => (s || '').toLowerCase().replace(/['’]/g, '').trim()
+
+const initFromNavState = () => {
+  if (compendiumCategory.value) {
+    activeTab.value = compendiumCategory.value
+  }
+  if (compendiumSearch.value) {
+    searchQuery.value = compendiumSearch.value
+  } else {
+    searchQuery.value = ''
+  }
+
+  // Handle passed filter params (e.g. from class spell lists: { class: 'cleric' })
+  if (compendiumParams.value) {
+    if (compendiumParams.value.class) {
+      spellClassFilter.value = compendiumParams.value.class.toLowerCase()
+    } else {
+      spellClassFilter.value = 'all'
+    }
+
+    if (compendiumParams.value.level !== undefined && compendiumParams.value.level !== null && compendiumParams.value.level !== '') {
+      const lvl = Number(compendiumParams.value.level)
+      spellLevelFilter.value = isNaN(lvl) ? 'all' : lvl
+    } else {
+      spellLevelFilter.value = 'all'
+    }
+  }
+
+  fetchData()
+}
+
+let searchDebounceTimeout = null
+const onSearchInput = () => {
+  clearTimeout(searchDebounceTimeout)
+  searchDebounceTimeout = setTimeout(() => {
+    fetchData()
+  }, 220)
+}
+
+const clearSearch = () => {
+  searchQuery.value = ''
+  fetchData()
+}
+
+const setTab = (tab) => {
+  activeTab.value = tab
+  selectedItem.value = null
+  displayedLimit.value = 40
+  fetchData()
+}
+
+const fetchData = async () => {
+  isLoading.value = true
+  displayedLimit.value = 40
+  const edition = currentEdition.value
+  const q = searchQuery.value.trim()
+  const src = sourceFilter.value !== 'all' ? sourceFilter.value : null
+
+  try {
+    if (activeTab.value === 'spells') {
+      const params = { edition, limit: 250 }
+      if (q) params.search = q
+      if (src) params.source = src
+      if (spellClassFilter.value !== 'all') params.className = spellClassFilter.value
+      if (spellLevelFilter.value !== 'all') params.level = spellLevelFilter.value
+
+      const res = await axios.get(`${API_URL}/compendium/spells`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'spells' }))
+    } else if (activeTab.value === 'items') {
+      const params = { edition, limit: 250 }
+      if (q) params.search = q
+      if (src) params.source = src
+      if (itemTypeFilter.value !== 'all') params.type = itemTypeFilter.value
+
+      const res = await axios.get(`${API_URL}/compendium/items`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'items' }))
+    } else if (activeTab.value === 'monsters') {
+      const params = { edition, limit: 120 }
+      if (q) params.search = q
+      if (src) params.source = src
+      if (monsterCrFilter.value !== 'all') params.cr = monsterCrFilter.value
+      if (monsterTypeFilter.value !== 'all') params.type = monsterTypeFilter.value
+
+      const res = await axios.get(`${API_URL}/compendium/monsters`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'monsters' }))
+    } else if (activeTab.value === 'feats') {
+      const params = { edition, limit: 200 }
+      if (q) params.search = q
+      if (src) params.source = src
+      if (featCategoryFilter.value !== 'all') params.category = featCategoryFilter.value
+
+      const res = await axios.get(`${API_URL}/compendium/feats`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'feats' }))
+    } else if (activeTab.value === 'rules') {
+      const params = { edition }
+      if (q) params.search = q
+      if (src) params.source = src
+      if (ruleCategoryFilter.value !== 'all') params.category = ruleCategoryFilter.value
+
+      const res = await axios.get(`${API_URL}/compendium/rules`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'rules' }))
+    } else if (activeTab.value === 'optionalfeatures') {
+      const params = { edition }
+      if (q) params.search = q
+      if (src) params.source = src
+
+      const res = await axios.get(`${API_URL}/compendium/optionalfeatures`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      rawList.value = list.map(item => ({ ...item, _category: 'optionalfeatures' }))
+    } else if (activeTab.value === 'all') {
+      const baseParams = { edition, search: q }
+      if (src) baseParams.source = src
+      const [spellsRes, itemsRes, monstersRes, featsRes, rulesRes] = await Promise.all([
+        axios.get(`${API_URL}/compendium/spells`, { params: { ...baseParams, limit: 50 } }),
+        axios.get(`${API_URL}/compendium/items`, { params: { ...baseParams, limit: 50 } }),
+        axios.get(`${API_URL}/compendium/monsters`, { params: { ...baseParams, limit: 40 } }),
+        axios.get(`${API_URL}/compendium/feats`, { params: { ...baseParams, limit: 30 } }),
+        axios.get(`${API_URL}/compendium/rules`, { params: { ...baseParams, limit: 40 } })
+      ])
+
+      const spells = (Array.isArray(spellsRes.data?.data) ? spellsRes.data.data : []).map(i => ({ ...i, _category: 'spells' }))
+      const items = (Array.isArray(itemsRes.data?.data) ? itemsRes.data.data : []).map(i => ({ ...i, _category: 'items' }))
+      const monsters = (Array.isArray(monstersRes.data?.data) ? monstersRes.data.data : []).map(i => ({ ...i, _category: 'monsters' }))
+      const feats = (Array.isArray(featsRes.data?.data) ? featsRes.data.data : []).map(i => ({ ...i, _category: 'feats' }))
+      const rules = (Array.isArray(rulesRes.data?.data) ? rulesRes.data.data : []).map(i => ({ ...i, _category: 'rules' }))
+
+      rawList.value = [...spells, ...items, ...monsters, ...feats, ...rules]
+    }
+
+    if (src) {
+      const srcUpper = src.toUpperCase()
+      rawList.value = rawList.value.filter(item => {
+        if (!item.source) return true
+        return item.source.toUpperCase() === srcUpper
+      })
+    }
+
+    // Auto-select initial or matching item
+    if (compendiumSelectedItem.value) {
+      const match = rawList.value.find(i => normalizeKey(i.name) === normalizeKey(compendiumSelectedItem.value.name || compendiumSelectedItem.value))
+      selectedItem.value = match || rawList.value[0] || null
+    } else if (searchQuery.value && rawList.value.length > 0) {
+      const match = rawList.value.find(i => normalizeKey(i.name) === normalizeKey(searchQuery.value))
+      selectedItem.value = match || rawList.value[0]
+    } else if (!selectedItem.value && rawList.value.length > 0) {
+      selectedItem.value = rawList.value[0]
+    }
+  } catch (err) {
+    console.error('Failed to fetch compendium data:', err)
+    rawList.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(isCompendiumOpen, (isOpen) => {
+  if (isOpen) {
+    initFromNavState()
+  }
+})
+
+watch(currentEdition, () => {
+  fetchData()
+})
+
+const formatSpellLevel = (level) => {
+  const lvl = Number(level)
+  if (lvl === 0) return 'Cantrip'
+  if (lvl === 1) return '1st Level'
+  if (lvl === 2) return '2nd Level'
+  if (lvl === 3) return '3rd Level'
+  return `${lvl}th Level`
+}
+
+const formatEntries = (entries) => {
+  return format5eEntries(entries)
+}
+
+const FEATURE_TYPE_NAMES = {
+  EI: 'Eldritch Invocation',
+  MM: 'Metamagic',
+  MV: 'Maneuver',
+  'MV:B': 'Maneuver',
+  AI: 'Artificer Infusion',
+  AS: 'Arcane Shot',
+  FS: 'Fighting Style',
+  'FS:F': 'Fighting Style',
+  'FS:B': 'Fighting Style',
+  'FS:R': 'Fighting Style',
+  'FS:P': 'Fighting Style',
+  RN: 'Rune',
+  PB: 'Pact Boon',
+  OR: 'Onomancy Resonant',
+  ED: 'Elemental Discipline'
+}
+
+const formatFeatureType = (ft) => {
+  if (!ft) return 'Optional Feature'
+  const list = Array.isArray(ft) ? ft : [ft]
+  const names = list.map(t => FEATURE_TYPE_NAMES[String(t).toUpperCase()] || String(t))
+  return names.join(', ')
+}
+
+const getItemBadge = (item) => {
+  if (!item) return ''
+  if (item._category === 'monsters' || item.cr !== undefined) {
+    return `CR ${item.cr ?? '—'}`
+  }
+  const featType = item.featureType || item.feature_type
+  if (item._category === 'optionalfeatures' || featType) {
+    return formatFeatureType(featType)
+  }
+  if (item._category === 'spells' || item.level !== undefined) {
+    return formatSpellLevel(item.level)
+  }
+  if (item._category === 'items' || item.itemType || item.damageDice || item.ac) {
+    return item.itemType || item.type || 'Item'
+  }
+  if (item._category === 'feats') {
+    const catMap = { O: 'Origin Feat', G: 'General Feat', FS: 'Fighting Style Feat', EB: 'Epic Boon Feat' }
+    return catMap[item.category] || (item.category ? `${item.category} Feat` : 'Feat')
+  }
+  if (featType) {
+    return formatFeatureType(featType)
+  }
+  if (item._category === 'optionalfeatures' || item._category === 'optfeatures') {
+    return 'Feature'
+  }
+  if (item.prerequisite && item._category !== 'rules') {
+    return 'Feat'
+  }
+  return item.type || item.category || 'Rule'
+}
+
+const SIZE_NAMES = {
+  T: 'Tiny',
+  S: 'Small',
+  M: 'Medium',
+  L: 'Large',
+  H: 'Huge',
+  G: 'Gargantuan'
+}
+
+const formatMonsterSize = (sz) => {
+  if (!sz) return 'Medium'
+  const list = Array.isArray(sz) ? sz : [sz]
+  return list.map(s => SIZE_NAMES[String(s).toUpperCase()] || s).join('/')
+}
+
+const formatMonsterType = (t) => {
+  if (!t) return 'humanoid'
+  if (typeof t === 'string') return t
+  if (typeof t === 'object') {
+    const base = t.type || 'creature'
+    const tags = Array.isArray(t.tags) ? ` (${t.tags.join(', ')})` : ''
+    return `${base}${tags}`
+  }
+  return String(t)
+}
+
+const formatMonsterAlignment = (al) => {
+  if (!al) return 'unaligned'
+  if (Array.isArray(al)) {
+    const map = { U: 'unaligned', A: 'any alignment', L: 'lawful', C: 'chaotic', G: 'good', E: 'evil', N: 'neutral' }
+    return al.map(a => map[a] || a).join(' ')
+  }
+  return String(al)
+}
+
+const formatMonsterAc = (ac) => {
+  if (!ac) return '10'
+  if (Array.isArray(ac)) {
+    return ac.map(a => {
+      if (typeof a === 'object') {
+        const from = Array.isArray(a.from) ? ` (${a.from.join(', ')})` : ''
+        return `${a.ac}${from}`
+      }
+      return String(a)
+    }).join(', ')
+  }
+  return String(ac)
+}
+
+const formatMonsterHp = (hp) => {
+  if (!hp) return '10'
+  if (typeof hp === 'object') {
+    const avg = hp.average || ''
+    const formula = hp.formula ? ` (${hp.formula})` : ''
+    return `${avg}${formula}`.trim() || '10'
+  }
+  return String(hp)
+}
+
+const formatMonsterSpeed = (spd) => {
+  if (!spd) return '30 ft.'
+  if (typeof spd === 'object') {
+    const parts = []
+    for (const [k, v] of Object.entries(spd)) {
+      if (typeof v === 'object' && v !== null) {
+        parts.push(`${k === 'walk' ? '' : `${k} `}${v.number || 30} ft.${v.condition ? ` ${v.condition}` : ''}`.trim())
+      } else if (typeof v === 'number' || typeof v === 'string') {
+        parts.push(`${k === 'walk' ? '' : `${k} `}${v}${typeof v === 'number' ? ' ft.' : ''}`.trim())
+      }
+    }
+    return parts.join(', ') || '30 ft.'
+  }
+  return String(spd)
+}
+
+const abMod = (val) => {
+  const n = Number(val) || 10
+  const m = Math.floor((n - 10) / 2)
+  return (m >= 0 ? '+' : '') + m
+}
+
+const formatMonsterSaves = (saves) => {
+  if (!saves || typeof saves !== 'object') return ''
+  return Object.entries(saves).map(([k, v]) => `${k.toUpperCase()} ${v}`).join(', ')
+}
+
+const formatMonsterSkills = (skills) => {
+  if (!skills || typeof skills !== 'object') return ''
+  return Object.entries(skills).map(([k, v]) => `${k.charAt(0).toUpperCase() + k.slice(1)} ${v}`).join(', ')
+}
+
+const XP_BY_CR = {
+  '0': '10', '1/8': '25', '1/4': '50', '1/2': '100',
+  '1': '200', '2': '450', '3': '700', '4': '1,100', '5': '1,800',
+  '6': '2,300', '7': '2,900', '8': '3,900', '9': '5,000', '10': '5,900',
+  '11': '7,200', '12': '8,400', '13': '10,000', '14': '11,500', '15': '13,000',
+  '16': '15,000', '17': '18,000', '18': '20,000', '19': '22,000', '20': '25,000',
+  '21': '33,000', '22': '41,000', '23': '50,000', '24': '62,000', '25': '75,000',
+  '26': '90,000', '27': '105,000', '28': '120,000', '29': '135,000', '30': '155,000'
+}
+
+const getMonsterXp = (cr) => {
+  return XP_BY_CR[String(cr)] || '—'
+}
+
+const onKeyDown = (e) => {
+  if (e.key === 'Escape' && isCompendiumOpen.value) {
+    closeCompendium()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+  if (isCompendiumOpen.value) {
+    initFromNavState()
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
+</script>
+
+<template>
+  <div v-if="isCompendiumOpen" class="min-h-screen bg-gray-100 flex flex-col text-xs text-gray-800">
+    <!-- Top Navigation Bar -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
+      <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+        <!-- Left: Back Button & Title -->
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            @click="closeCompendium"
+            class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <IconArrowLeft class="w-4 h-4" />
+            <span>Back</span>
+          </button>
+          <div>
+            <h1 class="text-base font-bold text-gray-900 flex items-center gap-2">
+              <span>Compendium Browser</span>
+            </h1>
+          </div>
+        </div>
+
+        <!-- Right: Edition Toggle & Close -->
+        <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
+            <span class="text-gray-500 font-medium">Edition:</span>
+            <div class="inline-flex rounded border border-gray-200 bg-gray-50 p-0.5">
+              <button
+                type="button"
+                @click="currentEdition = '2024'"
+                :class="[
+                  'px-2.5 py-1 text-xs font-semibold rounded transition cursor-pointer',
+                  currentEdition === '2024' ? 'bg-indigo-600 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                ]"
+              >
+                2024 (Revised)
+              </button>
+              <button
+                type="button"
+                @click="currentEdition = '2014'"
+                :class="[
+                  'px-2.5 py-1 text-xs font-semibold rounded transition cursor-pointer',
+                  currentEdition === '2014' ? 'bg-indigo-600 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                ]"
+              >
+                2014 (Legacy)
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            @click="closeCompendium"
+            class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold text-xs transition cursor-pointer border border-gray-200"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="max-w-7xl w-full mx-auto p-3 sm:p-5 flex-1 flex flex-col gap-4">
+      <!-- Toolbar: Tabs & Search -->
+      <div class="bg-white rounded border border-gray-200 p-3 sm:p-4 shadow-xs space-y-3">
+        <!-- Category Tabs -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-gray-100 no-scrollbar">
+          <button
+            type="button"
+            @click="setTab('all')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'all' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            @click="setTab('spells')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'spells' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Spells
+          </button>
+          <button
+            type="button"
+            @click="setTab('items')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'items' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Items & Equipment
+          </button>
+          <button
+            type="button"
+            @click="setTab('monsters')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'monsters' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Monsters & Bestiary
+          </button>
+          <button
+            type="button"
+            @click="setTab('feats')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'feats' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Feats
+          </button>
+          <button
+            type="button"
+            @click="setTab('rules')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'rules' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Rules & Glossary
+          </button>
+          <button
+            type="button"
+            @click="setTab('optionalfeatures')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'optionalfeatures' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            Optional Features
+          </button>
+        </div>
+
+        <!-- Search Bar & Filters -->
+        <div class="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+          <!-- Universal Search Input -->
+          <div class="relative flex-1">
+            <input
+              v-model="searchQuery"
+              @input="onSearchInput"
+              type="text"
+              placeholder="Search by name, rule, type, or property..."
+              class="w-full pl-8 pr-8 py-2 bg-gray-50 border border-gray-200 rounded focus:bg-white focus:border-indigo-500 focus:outline-none text-xs"
+            />
+            <svg class="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <button
+              v-if="searchQuery"
+              type="button"
+              @click="clearSearch"
+              class="absolute right-2.5 top-2 text-gray-400 hover:text-gray-700 text-sm font-bold"
+              aria-label="Clear search"
+            >
+              &times;
+            </button>
+          </div>
+
+          <!-- Source Filter Dropdown -->
+          <div class="flex items-center gap-1.5">
+            <select
+              v-model="sourceFilter"
+              @change="displayedLimit = 40; fetchData()"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="src in currentSourceOptions" :key="src.value" :value="src.value">
+                {{ src.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Spells Sub-filters: Class Dropdown -->
+          <div v-if="activeTab === 'spells'" class="flex items-center gap-2">
+            <select
+              v-model="spellClassFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="cls in spellClasses" :key="cls.value" :value="cls.value">
+                {{ cls.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Items Sub-filters -->
+          <div v-if="activeTab === 'items'" class="flex items-center gap-2">
+            <select
+              v-model="itemTypeFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="t in itemTypes" :key="t.value" :value="t.value">
+                {{ t.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Monsters Sub-filters: CR and Type -->
+          <div v-if="activeTab === 'monsters'" class="flex items-center gap-2 flex-wrap">
+            <select
+              v-model="monsterCrFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="cr in monsterCrList" :key="cr.value" :value="cr.value">
+                {{ cr.label }}
+              </option>
+            </select>
+            <select
+              v-model="monsterTypeFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="mt in monsterTypeList" :key="mt.value" :value="mt.value">
+                {{ mt.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Feats Sub-filters -->
+          <div v-if="activeTab === 'feats'" class="flex items-center gap-2">
+            <select
+              v-model="featCategoryFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="fc in featCategories" :key="fc.value" :value="fc.value">
+                {{ fc.label }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Rules Sub-filters -->
+          <div v-if="activeTab === 'rules'" class="flex items-center gap-2">
+            <select
+              v-model="ruleCategoryFilter"
+              @change="fetchData"
+              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option v-for="rc in ruleCategories" :key="rc.value" :value="rc.value">
+                {{ rc.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Spell Level Pills -->
+        <div
+          v-if="activeTab === 'spells'"
+          class="flex items-center gap-1 overflow-x-auto pb-1 text-[11px] no-scrollbar pt-1"
+        >
+          <span class="text-gray-400 font-medium mr-1">Level:</span>
+          <button
+            v-for="pill in spellLevelPills"
+            :key="pill.value"
+            type="button"
+            @click="spellLevelFilter = pill.value; fetchData()"
+            :class="[
+              'px-2 py-0.5 rounded transition cursor-pointer whitespace-nowrap',
+              spellLevelFilter === pill.value
+                ? 'bg-indigo-600 text-white font-semibold'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            ]"
+          >
+            {{ pill.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Two-Column Master / Detail View -->
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-4 flex-1">
+        <!-- Left Column: Results List (5 cols on md) -->
+        <div class="md:col-span-5 bg-white rounded border border-gray-200 shadow-xs flex flex-col h-[650px] overflow-hidden">
+          <div class="px-3 py-2 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
+            <span class="text-gray-500 font-medium">
+              Found <strong class="text-gray-800">{{ displayedList.length }}</strong><span v-if="displayedList.length < rawList.length"> of <strong class="text-gray-800">{{ rawList.length }}</strong></span> entries
+            </span>
+          </div>
+
+          <!-- Loading Spinner -->
+          <div v-if="isLoading" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500 space-y-2">
+            <div class="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-xs">Loading compendium entries...</p>
+          </div>
+
+          <!-- Empty State -->
+          <div v-else-if="rawList.length === 0" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400 space-y-1">
+            <svg class="w-8 h-8 text-gray-300 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <p class="font-medium text-gray-600">No matching entries found</p>
+            <p class="text-[11px]">Try adjusting your search query or filters.</p>
+          </div>
+
+          <!-- Results Scroll List -->
+          <div
+            v-else
+            class="flex-1 overflow-y-auto divide-y divide-gray-100"
+            @scroll="onListScroll"
+          >
+            <div
+              v-for="item in displayedList"
+              :key="item.id || `${item.name}-${item.source || ''}-${item.edition || ''}`"
+              @click="selectedItem = item"
+              :class="[
+                'p-3 cursor-pointer transition border-l-3',
+                isItemSelected(item)
+                  ? 'bg-indigo-50/50 border-l-indigo-600'
+                  : 'hover:bg-gray-50 border-l-transparent'
+              ]"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <h3 class="font-bold text-gray-900 leading-tight">
+                  {{ item.name }}
+                </h3>
+                <span
+                  v-if="item.source"
+                  class="text-[10px] font-mono px-1 py-0.2 rounded bg-gray-100 text-gray-500 shrink-0"
+                >
+                  {{ item.source }}
+                </span>
+              </div>
+              <div class="mt-1 flex items-center gap-1.5 text-[11px] text-gray-500 flex-wrap">
+                <span class="font-medium text-indigo-700 bg-indigo-50 px-1 rounded">
+                  {{ getItemBadge(item) }}
+                </span>
+                <span v-if="item.school">• {{ item.school }}</span>
+                <span v-if="item.damageDice || item.dmg1">• {{ item.damageDice || item.dmg1 }}</span>
+                <span v-if="item.time?.[0]">• {{ item.time[0].number }} {{ item.time[0].unit }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Detail Card (7 cols on md) -->
+        <div class="md:col-span-7 bg-white rounded border border-gray-200 shadow-xs p-4 sm:p-5 flex flex-col h-[650px] overflow-y-auto">
+          <div v-if="selectedItem" class="space-y-4">
+            <!-- Detail Header -->
+            <div class="border-b border-gray-200 pb-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h2 class="text-lg font-bold text-gray-900 leading-snug">
+                    {{ selectedItem.name }}
+                  </h2>
+                  <div class="flex items-center gap-2 mt-1 text-[11px] text-gray-500 flex-wrap">
+                    <span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold uppercase">
+                      {{ getItemBadge(selectedItem) }}
+                    </span>
+                    <span v-if="selectedItem.source">Source: <strong>{{ selectedItem.source }}</strong></span>
+                    <span v-if="selectedItem.page">p. {{ selectedItem.page }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Spell Stats Grid -->
+            <div
+              v-if="selectedItem._category === 'spells' || selectedItem.level !== undefined"
+              class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
+            >
+              <div>
+                <span class="text-gray-400 block font-medium">Casting Time</span>
+                <span class="font-semibold text-gray-800">
+                  {{ selectedItem.time?.[0] ? `${selectedItem.time[0].number} ${selectedItem.time[0].unit}` : (selectedItem.castingTime || '1 action') }}
+                </span>
+              </div>
+              <div>
+                <span class="text-gray-400 block font-medium">Range</span>
+                <span class="font-semibold text-gray-800">
+                  {{ selectedItem.range?.type || selectedItem.range || 'Self' }}
+                </span>
+              </div>
+              <div>
+                <span class="text-gray-400 block font-medium">Components</span>
+                <span class="font-semibold text-gray-800">
+                  {{ selectedItem.components ? (typeof selectedItem.components === 'string' ? selectedItem.components : 'V, S') : 'V, S' }}
+                </span>
+              </div>
+              <div>
+                <span class="text-gray-400 block font-medium">Duration</span>
+                <span class="font-semibold text-gray-800">
+                  {{ selectedItem.duration?.[0] ? `${selectedItem.duration[0].concentration ? 'Concentration, ' : ''}${selectedItem.duration[0].type || ''}` : (selectedItem.duration || 'Instantaneous') }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Item Stats Grid -->
+            <div
+              v-else-if="selectedItem._category === 'items' || selectedItem.itemType"
+              class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
+            >
+              <div>
+                <span class="text-gray-400 block font-medium">Type</span>
+                <span class="font-semibold text-gray-800 capitalize">{{ selectedItem.type || selectedItem.itemType || 'Equipment' }}</span>
+              </div>
+              <div v-if="selectedItem.damageDice || selectedItem.dmg1">
+                <span class="text-gray-400 block font-medium">Damage</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.damageDice || selectedItem.dmg1 }} {{ selectedItem.dmgType || '' }}</span>
+              </div>
+              <div v-if="selectedItem.ac || selectedItem.baseAc">
+                <span class="text-gray-400 block font-medium">AC</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.ac || selectedItem.baseAc }}</span>
+              </div>
+              <div v-if="selectedItem.weight">
+                <span class="text-gray-400 block font-medium">Weight</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.weight }} lb</span>
+              </div>
+              <div v-if="selectedItem.value || selectedItem.costCp">
+                <span class="text-gray-400 block font-medium">Cost</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.value ? `${selectedItem.value} cp` : '' }}</span>
+              </div>
+              <div v-if="selectedItem.mastery">
+                <span class="text-gray-400 block font-medium">Mastery</span>
+                <span class="font-semibold text-gray-800 capitalize">{{ selectedItem.mastery }}</span>
+              </div>
+            </div>
+
+            <!-- Feat / Feature Prerequisite -->
+            <div v-if="selectedItem.prerequisite" class="bg-amber-50 border border-amber-200 text-amber-900 p-2 rounded text-[11px]">
+              <strong>Prerequisite: </strong> {{ formatPrerequisite(selectedItem.prerequisite) }}
+            </div>
+
+            <!-- Monster Stat Block -->
+            <div
+              v-if="selectedItem._category === 'monsters' || selectedItem.cr !== undefined"
+              class="space-y-3 bg-amber-50/20 border border-amber-200/60 rounded-md p-3.5"
+            >
+              <!-- Monster Meta -->
+              <div class="italic text-gray-600 text-[11px] border-b border-gray-200 pb-2">
+                {{ formatMonsterSize(selectedItem.size) }} {{ formatMonsterType(selectedItem.type) }}, {{ formatMonsterAlignment(selectedItem.alignment) }}
+              </div>
+
+              <!-- AC, HP, Speed -->
+              <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
+                <div><strong class="text-amber-900">Armor Class:</strong> {{ formatMonsterAc(selectedItem.ac) }}</div>
+                <div><strong class="text-amber-900">Hit Points:</strong> {{ formatMonsterHp(selectedItem.hp) }}</div>
+                <div><strong class="text-amber-900">Speed:</strong> {{ formatMonsterSpeed(selectedItem.speed) }}</div>
+              </div>
+
+              <!-- Ability Scores Box -->
+              <div class="grid grid-cols-6 gap-1 bg-amber-100/50 p-2 rounded text-center border border-amber-200/60 text-[11px]">
+                <div v-for="ab in ['str', 'dex', 'con', 'int', 'wis', 'cha']" :key="ab">
+                  <div class="font-bold text-amber-900 uppercase text-[10px]">{{ ab }}</div>
+                  <div class="font-semibold text-gray-900">{{ selectedItem[ab] || 10 }} ({{ abMod(selectedItem[ab] || 10) }})</div>
+                </div>
+              </div>
+
+              <!-- Stats & Senses -->
+              <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
+                <div v-if="selectedItem.save && Object.keys(selectedItem.save).length"><strong class="text-amber-900">Saving Throws:</strong> {{ formatMonsterSaves(selectedItem.save) }}</div>
+                <div v-if="selectedItem.skill && Object.keys(selectedItem.skill).length"><strong class="text-amber-900">Skills:</strong> {{ formatMonsterSkills(selectedItem.skill) }}</div>
+                <div v-if="selectedItem.senses && (Array.isArray(selectedItem.senses) ? selectedItem.senses.length : selectedItem.senses)"><strong class="text-amber-900">Senses:</strong> {{ Array.isArray(selectedItem.senses) ? selectedItem.senses.join(', ') : selectedItem.senses }}</div>
+                <div v-if="selectedItem.languages && (Array.isArray(selectedItem.languages) ? selectedItem.languages.length : selectedItem.languages)"><strong class="text-amber-900">Languages:</strong> {{ Array.isArray(selectedItem.languages) ? selectedItem.languages.join(', ') : selectedItem.languages }}</div>
+                <div><strong class="text-amber-900">Challenge:</strong> {{ selectedItem.cr || '0' }} ({{ getMonsterXp(selectedItem.cr) }} XP)</div>
+              </div>
+
+              <!-- Traits -->
+              <div v-if="selectedItem.trait && selectedItem.trait.length" class="space-y-2 pt-1">
+                <div v-for="(tr, idx) in selectedItem.trait" :key="idx" class="text-[11px]">
+                  <strong class="text-amber-900">{{ tr.name }}.</strong>
+                  <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(tr.entries))"></span>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div v-if="selectedItem.action && selectedItem.action.length" class="space-y-2 pt-2 border-t border-gray-200">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Actions</h4>
+                <div v-for="(act, idx) in selectedItem.action" :key="idx" class="text-[11px]">
+                  <strong class="text-amber-900">{{ act.name }}.</strong>
+                  <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(act.entries))"></span>
+                </div>
+              </div>
+
+              <!-- Bonus Actions -->
+              <div v-if="selectedItem.bonus && selectedItem.bonus.length" class="space-y-2 pt-2 border-t border-gray-200">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Bonus Actions</h4>
+                <div v-for="(b, idx) in selectedItem.bonus" :key="idx" class="text-[11px]">
+                  <strong class="text-amber-900">{{ b.name }}.</strong>
+                  <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(b.entries))"></span>
+                </div>
+              </div>
+
+              <!-- Reactions -->
+              <div v-if="selectedItem.reaction && selectedItem.reaction.length" class="space-y-2 pt-2 border-t border-gray-200">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Reactions</h4>
+                <div v-for="(r, idx) in selectedItem.reaction" :key="idx" class="text-[11px]">
+                  <strong class="text-amber-900">{{ r.name }}.</strong>
+                  <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(r.entries))"></span>
+                </div>
+              </div>
+
+              <!-- Legendary Actions -->
+              <div v-if="selectedItem.legendary && selectedItem.legendary.length" class="space-y-2 pt-2 border-t border-gray-200">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-amber-900 border-b border-amber-200 pb-0.5">Legendary Actions</h4>
+                <div v-for="(la, idx) in selectedItem.legendary" :key="idx" class="text-[11px]">
+                  <strong class="text-amber-900">{{ la.name }}.</strong>
+                  <span class="text-gray-800 ml-1" v-html="renderAnnotatedText(formatEntries(la.entries))"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Description Body -->
+            <div class="prose-xs leading-relaxed text-gray-800 space-y-2 pt-1">
+              <div v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+            </div>
+
+            <!-- At Higher Levels -->
+            <div v-if="selectedItem.entriesHigherLevel" class="pt-3 border-t border-gray-200">
+              <h4 class="font-bold text-gray-900 text-xs mb-1">Using Higher-Level Slots</h4>
+              <div class="prose-xs text-gray-700" v-html="renderAnnotatedText(formatEntries(selectedItem.entriesHigherLevel))"></div>
+            </div>
+          </div>
+
+          <!-- Empty Detail Placeholder -->
+          <div v-else class="flex-1 flex flex-col items-center justify-center text-center text-gray-400 space-y-2">
+            <svg class="w-10 h-10 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <p class="font-semibold text-gray-600">Select an entry from the list</p>
+            <p class="text-[11px]">Click any entry on the left to inspect full stats, rules, and notes.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+</style>

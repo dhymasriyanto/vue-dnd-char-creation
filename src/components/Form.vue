@@ -7,6 +7,7 @@ import { computed, nextTick, onBeforeUpdate, onMounted, onUpdated, reactive, ref
 import { useCharacterStore } from '../stores/character'
 import { useConfig } from '../config'
 import { renderAnnotatedText, clean5eToolsMarkup } from '../utils/textRenderer'
+import { IconArrowLeft } from '@tabler/icons-vue'
 import {
   formatPrerequisitesText,
   getMulticlassProficiencies,
@@ -82,6 +83,7 @@ const currentSourceOptions = computed(() => {
 })
 
 const toggleSource = (code) => {
+  if (!isFirstStep.value) return
   const idx = selectedSources.value.indexOf(code)
   if (idx >= 0) {
     if (selectedSources.value.length > 1) {
@@ -134,12 +136,30 @@ const filteredFeats = computed(() => {
   })
 })
 
+const CLASS_SOURCES = {
+  artificer: ['TCE', 'ERLW'],
+  barbarian: ['PHB', 'XPHB'],
+  bard: ['PHB', 'XPHB'],
+  cleric: ['PHB', 'XPHB'],
+  druid: ['PHB', 'XPHB'],
+  fighter: ['PHB', 'XPHB'],
+  monk: ['PHB', 'XPHB'],
+  paladin: ['PHB', 'XPHB'],
+  ranger: ['PHB', 'XPHB'],
+  rogue: ['PHB', 'XPHB'],
+  sorcerer: ['PHB', 'XPHB'],
+  warlock: ['PHB', 'XPHB'],
+  wizard: ['PHB', 'XPHB'],
+  sidekick: ['TCE'],
+  mystic: ['UA']
+}
+
 const filteredClasses = computed(() => {
   const res = {}
   for (const [key, val] of Object.entries(allClass.value || {})) {
-    if (selectedEdition.value === '2024') {
-      if (key === 'artificer' && !selectedSources.value.includes('TCE')) continue
-    }
+    const classSources = CLASS_SOURCES[key.toLowerCase()] || ['PHB', 'XPHB']
+    const hasSource = classSources.some(s => selectedSources.value.includes(s))
+    if (!hasSource) continue
     res[key] = val
   }
   return res
@@ -3149,6 +3169,12 @@ watch(selectedSources, (newSources) => {
       subRace.value = []
     }
   }
+  if (classSelected.value && !filteredClasses.value[classSelected.value]) {
+    classSelected.value = ''
+    characterClass.value = {}
+    characterSubClass.value = {}
+    subClass.value = []
+  }
 }, { deep: true })
 
 watch(raceChosenLanguages, (val) => {
@@ -3846,9 +3872,10 @@ const submitForm = async () => {
         <button
           type="button"
           @click="emit('back')"
-          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer mb-2 sm:mb-0"
+          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer mb-2 sm:mb-0 flex items-center gap-1.5"
         >
-          Character List
+          <IconArrowLeft class="w-3.5 h-3.5" />
+          <span>Character List</span>
         </button>
       </div>
 
@@ -3883,20 +3910,25 @@ const submitForm = async () => {
       </div>
     </div>
 
-    <!-- Source Books Filter Toolbar (Only visible on initial tab) -->
-    <div v-if="isFirstStep" class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs">
+    <!-- Source Books Toolbar (Disabled outside first step) -->
+    <div class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs">
       <div class="flex items-center justify-between mb-1.5">
         <span class="font-semibold text-gray-700">Sources:</span>
-        <span class="text-[10px] text-gray-500">Core/SRD default</span>
+        <span v-if="!isFirstStep" class="text-[10px] text-gray-400 italic">Active sources (locked after step 1)</span>
+        <span v-else class="text-[10px] text-gray-500">Core/SRD default</span>
       </div>
       <div class="flex flex-wrap gap-1.5">
         <button
           v-for="src in currentSourceOptions"
           :key="src.code"
           type="button"
+          :disabled="!isFirstStep"
           @click="toggleSource(src.code)"
-          :class="selectedSources.includes(src.code) ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-semibold shadow-xs' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'"
-          class="px-2 py-0.5 rounded border text-[11px] transition cursor-pointer"
+          :class="[
+            !isFirstStep ? 'cursor-not-allowed opacity-75' : 'cursor-pointer',
+            selectedSources.includes(src.code) ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-semibold shadow-xs' : 'bg-white border-gray-200 text-gray-500 hover:text-gray-800'
+          ]"
+          class="px-2 py-0.5 rounded border text-[11px] transition"
         >
           <span class="font-bold">{{ src.code }}</span>
           <span class="hidden sm:inline text-[10px] ml-1 opacity-75">({{ src.label.split('(')[0].trim() }})</span>
@@ -4328,6 +4360,7 @@ const submitForm = async () => {
             :proficiencyBonus="computedProficiencyBonus"
             :error="errors.classSpells"
             v-model="chosenSpells"
+            @close="classSubTab = 'features'"
           />
         </div>
       </div>
@@ -4426,7 +4459,7 @@ const submitForm = async () => {
                     : 'text-red-600 font-semibold'"
                   class="text-[11px]"
                 >
-                  {{ getMcPrereqStatus(mc).met ? '✓ Prerequisite Met' : 'Prerequisite Not Met' }}
+                  {{ getMcPrereqStatus(mc).met ? 'Prerequisite Met' : 'Prerequisite Not Met' }}
                 </span>
                 <span
                   v-else
@@ -4582,6 +4615,7 @@ const submitForm = async () => {
                   :proficiencyBonus="computedProficiencyBonus"
                   :error="''"
                   v-model="mc.chosenSpells"
+                  @close="mc.classSubTab = 'features'"
                 />
               </div>
             </template>
@@ -5470,10 +5504,11 @@ const submitForm = async () => {
       <div v-else>
         <button
           type="button"
-          class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer transition text-xs font-medium"
+          class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer transition text-xs font-medium flex items-center gap-1.5"
           @click="emit('back')"
         >
-          Character List
+          <IconArrowLeft class="w-3.5 h-3.5" />
+          <span>Character List</span>
         </button>
       </div>
     </div>

@@ -3,8 +3,11 @@ import { ref, computed, watch } from 'vue'
 import axios from 'axios'
 import { renderAnnotatedText, renderTableCell, clean5eToolsMarkup } from '../utils/textRenderer'
 import { useConfig } from '../config'
+import { useCompendiumNav } from '../composables/useCompendiumNav'
+import { IconArrowLeft } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
+const { openCompendium } = useCompendiumNav()
 
 const props = defineProps({
   character: {
@@ -829,10 +832,18 @@ watch(() => charSpells.value, (list) => {
       <div class="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          @click="emit('back')"
-          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer"
+          @click="openCompendium()"
+          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer flex items-center gap-1"
         >
-          Character List
+          <span>Compendium</span>
+        </button>
+        <button
+          type="button"
+          @click="emit('back')"
+          class="text-xs bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer flex items-center gap-1.5"
+        >
+          <IconArrowLeft class="w-3.5 h-3.5" />
+          <span>Character List</span>
         </button>
         <button
           type="button"
@@ -1813,7 +1824,7 @@ watch(() => charSpells.value, (list) => {
                   :class="expendedSlots[`${sl.level}_${sIdx}`] ? 'bg-gray-300 border-gray-400 text-gray-600 line-through' : 'bg-indigo-600 border-indigo-700 text-white'"
                   :title="expendedSlots[`${sl.level}_${sIdx}`] ? 'Slot expended (click to regain)' : 'Slot available (click to expend)'"
                 >
-                  <span v-if="expendedSlots[`${sl.level}_${sIdx}`]">✕</span>
+                  <span v-if="expendedSlots[`${sl.level}_${sIdx}`]">&times;</span>
                 </button>
               </div>
             </div>

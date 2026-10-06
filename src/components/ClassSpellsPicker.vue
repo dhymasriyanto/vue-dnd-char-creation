@@ -1,8 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { renderAnnotatedText } from '../utils/textRenderer'
+import { IconArrowLeft, IconArrowRight } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 
@@ -41,7 +42,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'change'])
+const emit = defineEmits(['update:modelValue', 'change', 'close'])
 
 const SCHOOL_NAMES = {
   A: 'Abjuration',
@@ -542,6 +543,20 @@ const autoSelectRecommended = () => {
 const clearAllSpells = () => {
   chosenSpells.value = []
 }
+
+const onKeyDown = (e) => {
+  if (e.key === 'Escape') {
+    emit('close')
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
 </script>
 
 <template>
@@ -555,7 +570,15 @@ const clearAllSpells = () => {
           </span>
           <span v-if="subclassName" class="text-gray-500 ml-1 font-medium">({{ subclassName }})</span>
         </div>
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            @click="emit('close')"
+            class="px-2.5 py-1 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+          >
+            <IconArrowLeft class="w-3.5 h-3.5" />
+            <span>Back to Features</span>
+          </button>
           <button
             type="button"
             @click="autoSelectRecommended"
@@ -837,6 +860,21 @@ const clearAllSpells = () => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Bottom Actions -->
+    <div class="flex items-center justify-between pt-3 border-t border-gray-200 bg-white p-3 rounded">
+      <span class="text-xs text-gray-500 font-medium">
+        {{ chosenSpells.length }} spells selected
+      </span>
+      <button
+        type="button"
+        @click="emit('close')"
+        class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
+      >
+        <span>Done / Back to Class Features</span>
+        <IconArrowRight class="w-4 h-4" />
+      </button>
     </div>
   </div>
 </template>

@@ -2,8 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
+import { useCompendiumNav } from '../composables/useCompendiumNav'
 
 const API_URL = useConfig().API_URL
+const { openCompendium } = useCompendiumNav()
 
 const emit = defineEmits(['create', 'select', 'edit'])
 
@@ -75,7 +77,14 @@ onMounted(() => {
           Select a character to view sheet or create a new one.
         </p>
       </div>
-      <div>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          @click="openCompendium()"
+          class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+        >
+          <span>Compendium</span>
+        </button>
         <button
           type="button"
           @click="emit('create')"
