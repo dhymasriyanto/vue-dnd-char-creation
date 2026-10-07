@@ -1,12 +1,22 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
-import { IconBook, IconExternalLink, IconEye, IconEdit, IconTrash } from '@tabler/icons-vue'
+import { useAuth } from '../composables/useAuth'
+import {
+  IconBook,
+  IconExternalLink,
+  IconEye,
+  IconEdit,
+  IconTrash,
+  IconUser,
+  IconLogout
+} from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 const { openCompendium } = useCompendiumNav()
+const { user, isAuthenticated, logout, openLoginModal } = useAuth()
 
 const openCompendiumWindow = () => {
   window.open(`${window.location.origin}${window.location.pathname}?compendium=1`, '_blank')
@@ -22,6 +32,11 @@ const editionFilter = ref('all') // 'all' | '2024' | '2014'
 const deletingId = ref(null)
 
 const fetchCharacters = async () => {
+  if (!isAuthenticated.value) {
+    characters.value = []
+    isLoading.value = false
+    return
+  }
   isLoading.value = true
   errorMessage.value = ''
   try {
@@ -34,6 +49,14 @@ const fetchCharacters = async () => {
     isLoading.value = false
   }
 }
+
+watch(isAuthenticated, (authenticated) => {
+  if (authenticated) {
+    fetchCharacters()
+  } else {
+    characters.value = []
+  }
+})
 
 const deleteCharacter = async (id, name, event) => {
   event.stopPropagation()
@@ -92,6 +115,39 @@ onMounted(() => {
           <span>Compendium</span>
           <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
         </button>
+
+        <!-- Auth Status / Sign In -->
+        <template v-if="!isAuthenticated">
+          <button
+            type="button"
+            @click="openLoginModal"
+            class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <IconUser class="w-4 h-4 text-gray-700" />
+            <span>Sign In</span>
+          </button>
+        </template>
+        <template v-else>
+          <div class="flex items-center gap-2 bg-gray-100 border border-gray-300 px-2.5 py-1.5 rounded text-xs">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span class="font-semibold text-gray-900">{{ user.username }}</span>
+            <span
+              v-if="user.auth_provider && user.auth_provider !== 'local'"
+              class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
+            >
+              {{ user.auth_provider }}
+            </span>
+            <button
+              type="button"
+              @click="logout"
+              title="Sign Out"
+              class="text-gray-400 hover:text-gray-800 transition cursor-pointer ml-0.5"
+            >
+              <IconLogout class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </template>
+
         <button
           type="button"
           @click="emit('create')"
@@ -113,31 +169,33 @@ onMounted(() => {
         />
       </div>
 
-      <div class="flex items-center gap-1 bg-gray-200 p-1 rounded">
-        <button
-          type="button"
-          @click="editionFilter = 'all'"
-          :class="editionFilter === 'all' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-          class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
-        >
-          All
-        </button>
-        <button
-          type="button"
-          @click="editionFilter = '2024'"
-          :class="editionFilter === '2024' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-          class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
-        >
-          2024
-        </button>
-        <button
-          type="button"
-          @click="editionFilter = '2014'"
-          :class="editionFilter === '2014' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-          class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
-        >
-          2014
-        </button>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 bg-gray-200 p-1 rounded">
+          <button
+            type="button"
+            @click="editionFilter = 'all'"
+            :class="editionFilter === 'all' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
+            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            @click="editionFilter = '2024'"
+            :class="editionFilter === '2024' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
+            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+          >
+            2024
+          </button>
+          <button
+            type="button"
+            @click="editionFilter = '2014'"
+            :class="editionFilter === '2014' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
+            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+          >
+            2014
+          </button>
+        </div>
       </div>
     </div>
 
