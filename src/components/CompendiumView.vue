@@ -102,7 +102,15 @@ const sourceOptions2024 = [
   { label: 'FTD (Fizban)', value: 'FTD' },
   { label: 'BGG (Bigby)', value: 'BGG' },
   { label: 'ERLW (Eberron)', value: 'ERLW' },
-  { label: 'SCAG (Sword Coast)', value: 'SCAG' }
+  { label: 'SCAG (Sword Coast)', value: 'SCAG' },
+  { label: 'GoS (Ghosts of Saltmarsh)', value: 'GoS' },
+  { label: 'AAG (Spelljammer)', value: 'AAG' },
+  { label: 'BGDIA (Descent into Avernus)', value: 'BGDIA' },
+  { label: 'AI (Acquisitions Inc.)', value: 'AI' },
+  { label: 'EGW (Wildemount)', value: 'EGW' },
+  { label: 'VRGR (Van Richten)', value: 'VRGR' },
+  { label: 'FRHoF (Heroes of Faerûn)', value: 'FRHoF' },
+  { label: 'EFA (Elemental Evil / Eberron)', value: 'EFA' }
 ]
 
 const sourceOptions2014 = [
@@ -116,7 +124,13 @@ const sourceOptions2014 = [
   { label: 'VGM (Volo)', value: 'VGM' },
   { label: 'MTF (Mordenkainen)', value: 'MTF' },
   { label: 'MPMM (Multiverse)', value: 'MPMM' },
-  { label: 'ERLW (Eberron)', value: 'ERLW' }
+  { label: 'ERLW (Eberron)', value: 'ERLW' },
+  { label: 'GoS (Ghosts of Saltmarsh)', value: 'GoS' },
+  { label: 'AAG (Spelljammer)', value: 'AAG' },
+  { label: 'BGDIA (Descent into Avernus)', value: 'BGDIA' },
+  { label: 'AI (Acquisitions Inc.)', value: 'AI' },
+  { label: 'EGW (Wildemount)', value: 'EGW' },
+  { label: 'VRGR (Van Richten)', value: 'VRGR' }
 ]
 
 const currentSourceOptions = computed(() => {
@@ -194,7 +208,11 @@ const itemTypes = [
   { label: 'Weapons', value: 'weapon' },
   { label: 'Armor & Shields', value: 'armor' },
   { label: 'Tools & Kits', value: 'tool' },
-  { label: 'Adventuring Gear', value: 'gear' }
+  { label: 'Adventuring Gear', value: 'gear' },
+  { label: 'Vehicles', value: 'vehicle' },
+  { label: 'Mounts', value: 'mount' },
+  { label: 'Wondrous Items', value: 'wondrous' },
+  { label: 'Consumables & Potions', value: 'consumable' }
 ]
 
 const featCategories = [
@@ -208,10 +226,15 @@ const featCategories = [
 const ruleCategories = [
   { label: 'All Rules', value: 'all' },
   { label: 'Rules & Glossary', value: 'rule' },
+  { label: 'Vehicles & Ships', value: 'vehicle' },
   { label: 'Actions', value: 'action' },
   { label: 'Conditions & Status', value: 'condition' },
   { label: 'Skills', value: 'skill' },
-  { label: 'Senses', value: 'sense' }
+  { label: 'Senses', value: 'sense' },
+  { label: 'Traps & Hazards', value: 'hazard' },
+  { label: 'Languages', value: 'language' },
+  { label: 'Diseases', value: 'disease' },
+  { label: 'Damage Types', value: 'damage type' }
 ]
 
 const normalizeKey = (s) => (s || '').toLowerCase().replace(/['’]/g, '').trim()
@@ -339,26 +362,61 @@ const fetchData = async () => {
       const list = Array.isArray(res.data?.data) ? res.data.data : []
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'optionalfeatures' }))
+    } else if (activeTab.value === 'backgrounds') {
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      if (q) params.search = q
+      if (src) params.source = src
+
+      const res = await axios.get(`${API_URL}/compendium/backgrounds`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
+      rawList.value = list.map(item => ({ ...item, _category: 'backgrounds' }))
+    } else if (activeTab.value === 'classes') {
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      if (q) params.search = q
+      if (src) params.source = src
+
+      const res = await axios.get(`${API_URL}/compendium/classes`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
+      rawList.value = list.map(item => ({ ...item, _category: 'classes' }))
+    } else if (activeTab.value === 'races') {
+      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      if (q) params.search = q
+      if (src) params.source = src
+
+      const res = await axios.get(`${API_URL}/compendium/races`, { params })
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      if (list.length < PAGE_SIZE) hasMore.value = false
+      rawList.value = list.map(item => ({ ...item, _category: 'races' }))
     } else if (activeTab.value === 'all') {
       allPage.value = 1
       const baseParams = { edition }
       if (q) baseParams.search = q
       if (src) baseParams.source = src
-      const [spellsRes, itemsRes, monstersRes, featsRes, rulesRes] = await Promise.all([
+      const [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes] = await Promise.all([
+        axios.get(`${API_URL}/compendium/classes`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/races`, { params: { ...baseParams, limit: 20, offset: 0 } }),
         axios.get(`${API_URL}/compendium/spells`, { params: { ...baseParams, limit: 20, offset: 0 } }),
         axios.get(`${API_URL}/compendium/items`, { params: { ...baseParams, limit: 20, offset: 0 } }),
         axios.get(`${API_URL}/compendium/monsters`, { params: { ...baseParams, limit: 20, offset: 0 } }),
         axios.get(`${API_URL}/compendium/feats`, { params: { ...baseParams, limit: 20, offset: 0 } }),
-        axios.get(`${API_URL}/compendium/rules`, { params: { ...baseParams, limit: 20, offset: 0 } })
+        axios.get(`${API_URL}/compendium/rules`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/optionalfeatures`, { params: { ...baseParams, limit: 20, offset: 0 } }),
+        axios.get(`${API_URL}/compendium/backgrounds`, { params: { ...baseParams, limit: 20, offset: 0 } })
       ])
 
+      const classes = (Array.isArray(classesRes.data?.data) ? classesRes.data.data : []).map(i => ({ ...i, _category: 'classes' }))
+      const races = (Array.isArray(racesRes.data?.data) ? racesRes.data.data : []).map(i => ({ ...i, _category: 'races' }))
       const spells = (Array.isArray(spellsRes.data?.data) ? spellsRes.data.data : []).map(i => ({ ...i, _category: 'spells' }))
       const items = (Array.isArray(itemsRes.data?.data) ? itemsRes.data.data : []).map(i => ({ ...i, _category: 'items' }))
       const monsters = (Array.isArray(monstersRes.data?.data) ? monstersRes.data.data : []).map(i => ({ ...i, _category: 'monsters' }))
       const feats = (Array.isArray(featsRes.data?.data) ? featsRes.data.data : []).map(i => ({ ...i, _category: 'feats' }))
       const rules = (Array.isArray(rulesRes.data?.data) ? rulesRes.data.data : []).map(i => ({ ...i, _category: 'rules' }))
+      const optFeatures = (Array.isArray(optRes.data?.data) ? optRes.data.data : []).map(i => ({ ...i, _category: 'optionalfeatures' }))
+      const backgrounds = (Array.isArray(bgRes.data?.data) ? bgRes.data.data : []).map(i => ({ ...i, _category: 'backgrounds' }))
 
-      const combined = [...spells, ...items, ...monsters, ...feats, ...rules]
+      const combined = [...classes, ...races, ...spells, ...items, ...monsters, ...feats, ...rules, ...optFeatures, ...backgrounds]
       if (combined.length < 20) {
         hasMore.value = false
       }
@@ -407,21 +465,29 @@ const fetchMore = async () => {
       if (q) baseParams.search = q
       if (src) baseParams.source = src
 
-      const [spellsRes, itemsRes, monstersRes, featsRes, rulesRes] = await Promise.all([
+      const [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes] = await Promise.all([
+        axios.get(`${API_URL}/compendium/classes`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/races`, { params: baseParams }),
         axios.get(`${API_URL}/compendium/spells`, { params: baseParams }),
         axios.get(`${API_URL}/compendium/items`, { params: baseParams }),
         axios.get(`${API_URL}/compendium/monsters`, { params: baseParams }),
         axios.get(`${API_URL}/compendium/feats`, { params: baseParams }),
-        axios.get(`${API_URL}/compendium/rules`, { params: baseParams })
+        axios.get(`${API_URL}/compendium/rules`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/optionalfeatures`, { params: baseParams }),
+        axios.get(`${API_URL}/compendium/backgrounds`, { params: baseParams })
       ])
 
+      const classes = (Array.isArray(classesRes.data?.data) ? classesRes.data.data : []).map(i => ({ ...i, _category: 'classes' }))
+      const races = (Array.isArray(racesRes.data?.data) ? racesRes.data.data : []).map(i => ({ ...i, _category: 'races' }))
       const spells = (Array.isArray(spellsRes.data?.data) ? spellsRes.data.data : []).map(i => ({ ...i, _category: 'spells' }))
       const items = (Array.isArray(itemsRes.data?.data) ? itemsRes.data.data : []).map(i => ({ ...i, _category: 'items' }))
       const monsters = (Array.isArray(monstersRes.data?.data) ? monstersRes.data.data : []).map(i => ({ ...i, _category: 'monsters' }))
       const feats = (Array.isArray(featsRes.data?.data) ? featsRes.data.data : []).map(i => ({ ...i, _category: 'feats' }))
       const rules = (Array.isArray(rulesRes.data?.data) ? rulesRes.data.data : []).map(i => ({ ...i, _category: 'rules' }))
+      const optFeatures = (Array.isArray(optRes.data?.data) ? optRes.data.data : []).map(i => ({ ...i, _category: 'optionalfeatures' }))
+      const backgrounds = (Array.isArray(bgRes.data?.data) ? bgRes.data.data : []).map(i => ({ ...i, _category: 'backgrounds' }))
 
-      const nextBatch = [...spells, ...items, ...monsters, ...feats, ...rules]
+      const nextBatch = [...classes, ...races, ...spells, ...items, ...monsters, ...feats, ...rules, ...optFeatures, ...backgrounds]
       if (nextBatch.length === 0) {
         hasMore.value = false
       } else {
@@ -436,7 +502,11 @@ const fetchMore = async () => {
     if (q) params.search = q
     if (src) params.source = src
 
-    if (activeTab.value === 'spells') {
+    if (activeTab.value === 'classes') {
+      endpoint = `${API_URL}/compendium/classes`
+    } else if (activeTab.value === 'races') {
+      endpoint = `${API_URL}/compendium/races`
+    } else if (activeTab.value === 'spells') {
       endpoint = `${API_URL}/compendium/spells`
       if (spellClassFilter.value !== 'all') params.className = spellClassFilter.value
       if (spellLevelFilter.value !== 'all') params.level = spellLevelFilter.value
@@ -455,6 +525,8 @@ const fetchMore = async () => {
       if (ruleCategoryFilter.value !== 'all') params.category = ruleCategoryFilter.value
     } else if (activeTab.value === 'optionalfeatures') {
       endpoint = `${API_URL}/compendium/optionalfeatures`
+    } else if (activeTab.value === 'backgrounds') {
+      endpoint = `${API_URL}/compendium/backgrounds`
     }
 
     if (!endpoint) return
@@ -499,11 +571,6 @@ const formatEntries = (entries) => {
   return format5eEntries(entries)
 }
 
-const isItemCategory = (item) => {
-  if (!item) return false
-  return item._category === 'items' || !!item.itemType || !!item.damageDice || !!item.dmg1 || Number(item.ac || item.baseAc) > 0 || (Array.isArray(item.property) && item.property.length > 0)
-}
-
 const FEATURE_TYPE_NAMES = {
   EI: 'Eldritch Invocation',
   MM: 'Metamagic',
@@ -529,8 +596,50 @@ const formatFeatureType = (ft) => {
   return names.join(', ')
 }
 
+const formatBackgroundAbility = (ability) => {
+  if (!ability) return '—'
+  if (Array.isArray(ability)) {
+    return ability.map(a => {
+      if (typeof a === 'string') return a.toUpperCase()
+      if (typeof a === 'object') {
+        return Object.entries(a).map(([k, v]) => `${k.toUpperCase()} +${v}`).join(', ')
+      }
+      return String(a)
+    }).join('; ')
+  }
+  return String(ability)
+}
+
+const formatProficiencies = (prof) => {
+  if (!prof) return '—'
+  if (Array.isArray(prof)) {
+    return prof.map(p => {
+      if (typeof p === 'string') return p
+      if (typeof p === 'object' && p.choose) {
+        return `Choose ${p.choose.count || 1} from ${(p.choose.from || []).join(', ')}`
+      }
+      return Object.keys(p).join(', ')
+    }).join(', ')
+  }
+  return String(prof)
+}
+
+const isItemCategory = (item) => {
+  if (!item) return false
+  return item._category === 'items' || !!item.itemType || !!item.crew || !!item.vehAc || !!item.damageDice || !!item.dmg1 || Number(item.ac || item.baseAc) > 0 || (Array.isArray(item.property) && item.property.length > 0)
+}
+
 const getItemBadge = (item) => {
   if (!item) return ''
+  if (item._category === 'classes') {
+    return 'Class'
+  }
+  if (item._category === 'races') {
+    return 'Species / Race'
+  }
+  if (item._category === 'backgrounds') {
+    return 'Background'
+  }
   if (item._category === 'monsters' || item.cr !== undefined) {
     return `CR ${item.cr ?? '—'}`
   }
@@ -541,8 +650,22 @@ const getItemBadge = (item) => {
   if (item._category === 'spells' || item.level !== undefined) {
     return formatSpellLevel(item.level)
   }
-  if (item._category === 'items' || item.itemType || item.damageDice || item.ac) {
+  if (item._category === 'items' || item.itemType || item.damageDice || item.ac || item.vehAc || item.vehHp || item.crew) {
+    const rawT = String(item.itemType || item.type || '').toLowerCase()
+    if (rawT === 'vehicle' || item.vehAc || item.vehHp || item.crew) return 'Vehicle'
+    if (rawT === 'mount') return 'Mount'
+    if (rawT === 'wondrous') return 'Wondrous Item'
+    if (rawT === 'consumable') return 'Consumable'
+    if (rawT === 'weapon') return 'Weapon'
+    if (rawT === 'armor') return 'Armor'
+    if (rawT === 'tool') return 'Tool'
+    if (rawT === 'gear') return 'Gear'
     return item.itemType || item.type || 'Item'
+  }
+  if (item._category === 'rules') {
+    const rawC = String(item.category || item.type || '').toLowerCase()
+    if (['ship', 'vehicle', 'spelljammer', 'elemental_airship', 'air', 'infwar'].includes(rawC) || item.vehAc || item.vehHp || item.crew) return 'Vehicle'
+    return item.category || item.type || 'Rule'
   }
   if (item._category === 'feats') {
     const catMap = { O: 'Origin Feat', G: 'General Feat', FS: 'Fighting Style Feat', EB: 'Epic Boon Feat' }
@@ -665,6 +788,29 @@ const getMonsterXp = (cr) => {
   return XP_BY_CR[String(cr)] || '—'
 }
 
+const formatRaceSpeed = (item) => {
+  if (!item) return '30 ft.'
+  const parts = []
+  if (item.speed) parts.push(`${item.speed} ft.`)
+  if (Number(item.flySpeed) > 0) parts.push(`fly ${item.flySpeed} ft.`)
+  if (Number(item.swimSpeed) > 0) parts.push(`swim ${item.swimSpeed} ft.`)
+  if (Number(item.climbSpeed) > 0) parts.push(`climb ${item.climbSpeed} ft.`)
+  return parts.join(', ') || '30 ft.'
+}
+
+const formatPrimaryAbility = (pa) => {
+  if (!pa) return '—'
+  if (Array.isArray(pa)) {
+    return pa.map(obj => {
+      if (typeof obj === 'object' && obj !== null) {
+        return Object.keys(obj).map(k => k.toUpperCase()).join(' or ')
+      }
+      return String(obj).toUpperCase()
+    }).join(' / ')
+  }
+  return String(pa)
+}
+
 const handleBack = () => {
   closeCompendium(true)
 }
@@ -771,6 +917,26 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
+            @click="setTab('classes')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'classes' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            ]"
+          >
+            Classes
+          </button>
+          <button
+            type="button"
+            @click="setTab('races')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'races' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            ]"
+          >
+            Species & Races
+          </button>
+          <button
+            type="button"
             @click="setTab('spells')"
             :class="[
               'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
@@ -808,6 +974,16 @@ onBeforeUnmount(() => {
             ]"
           >
             Feats
+          </button>
+          <button
+            type="button"
+            @click="setTab('backgrounds')"
+            :class="[
+              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
+              activeTab === 'backgrounds' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            ]"
+          >
+            Backgrounds
           </button>
           <button
             type="button"
@@ -1106,7 +1282,7 @@ onBeforeUnmount(() => {
 
             <!-- Item Stats Grid -->
             <div
-              v-else-if="selectedItem._category === 'items' || selectedItem.itemType"
+              v-else-if="selectedItem._category === 'items' || selectedItem.itemType || selectedItem.vehAc || selectedItem.vehHp || selectedItem.crew || selectedItem.speed"
               class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
             >
               <div>
@@ -1126,6 +1302,33 @@ onBeforeUnmount(() => {
                 <span class="text-gray-400 block font-medium">AC</span>
                 <span class="font-semibold text-gray-800">{{ selectedItem.ac || selectedItem.baseAc }}</span>
               </div>
+              <div v-if="selectedItem.vehAc || selectedItem.vehHp">
+                <span class="text-gray-400 block font-medium">Hull</span>
+                <span class="font-semibold text-gray-800">
+                  AC {{ selectedItem.vehAc || '—' }}, HP {{ selectedItem.vehHp || '—' }}
+                  <span v-if="selectedItem.vehDmgThresh" class="text-gray-500 font-normal">(DT {{ selectedItem.vehDmgThresh }})</span>
+                </span>
+              </div>
+              <div v-if="selectedItem.crew">
+                <span class="text-gray-400 block font-medium">Crew</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.crew }}</span>
+              </div>
+              <div v-if="selectedItem.capPassenger">
+                <span class="text-gray-400 block font-medium">Passengers</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.capPassenger }}</span>
+              </div>
+              <div v-if="selectedItem.capCargo">
+                <span class="text-gray-400 block font-medium">Cargo</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.capCargo }}</span>
+              </div>
+              <div v-if="selectedItem.speed">
+                <span class="text-gray-400 block font-medium">Speed</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.speed }}</span>
+              </div>
+              <div v-if="selectedItem.carryingCapacity">
+                <span class="text-gray-400 block font-medium">Capacity</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.carryingCapacity }}</span>
+              </div>
               <div v-if="selectedItem.weight">
                 <span class="text-gray-400 block font-medium">Weight</span>
                 <span class="font-semibold text-gray-800">{{ String(selectedItem.weight).includes('lb') ? selectedItem.weight : `${selectedItem.weight} lb` }}</span>
@@ -1143,6 +1346,131 @@ onBeforeUnmount(() => {
                 <span class="font-semibold text-gray-800">
                   {{ Array.isArray(selectedItem.properties || selectedItem.property) ? (selectedItem.properties || selectedItem.property).join(', ') : (selectedItem.properties || selectedItem.property) }}
                 </span>
+              </div>
+            </div>
+
+            <!-- Background Details -->
+            <div
+              v-else-if="selectedItem._category === 'backgrounds'"
+              class="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
+            >
+              <div v-if="selectedItem.ability && selectedItem.ability.length">
+                <span class="text-gray-400 block font-medium">Ability Scores</span>
+                <span class="font-semibold text-gray-800">{{ formatBackgroundAbility(selectedItem.ability) }}</span>
+              </div>
+              <div v-if="selectedItem.feats && selectedItem.feats.length">
+                <span class="text-gray-400 block font-medium">Feat</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.feats.map(f => String(f).split('|')[0]).join(', ') }}</span>
+              </div>
+              <div v-if="selectedItem.skillProficiencies && selectedItem.skillProficiencies.length">
+                <span class="text-gray-400 block font-medium">Skills</span>
+                <span class="font-semibold text-gray-800">{{ formatProficiencies(selectedItem.skillProficiencies) }}</span>
+              </div>
+              <div v-if="selectedItem.toolProficiencies && selectedItem.toolProficiencies.length">
+                <span class="text-gray-400 block font-medium">Tools</span>
+                <span class="font-semibold text-gray-800">{{ formatProficiencies(selectedItem.toolProficiencies) }}</span>
+              </div>
+              <div v-if="selectedItem.languageProficiencies && selectedItem.languageProficiencies.length">
+                <span class="text-gray-400 block font-medium">Languages</span>
+                <span class="font-semibold text-gray-800">{{ formatProficiencies(selectedItem.languageProficiencies) }}</span>
+              </div>
+            </div>
+
+            <!-- Class Details -->
+            <div
+              v-else-if="selectedItem._category === 'classes'"
+              class="space-y-3 bg-gray-50 p-3 rounded border border-gray-200 text-[11px]"
+            >
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <span class="text-gray-400 block font-medium">Hit Die</span>
+                  <span class="font-semibold text-gray-800">{{ selectedItem.hitDice ? `1${selectedItem.hitDice} per level` : '—' }}</span>
+                </div>
+                <div>
+                  <span class="text-gray-400 block font-medium">Primary Ability</span>
+                  <span class="font-semibold text-gray-800">{{ formatPrimaryAbility(selectedItem.primaryAbility) }}</span>
+                </div>
+                <div>
+                  <span class="text-gray-400 block font-medium">Saving Throws</span>
+                  <span class="font-semibold text-gray-800">{{ (selectedItem.savingThrows || []).map(s => s.toUpperCase()).join(', ') || '—' }}</span>
+                </div>
+                <div v-if="selectedItem.spellcastingAbility">
+                  <span class="text-gray-400 block font-medium">Spellcasting</span>
+                  <span class="font-semibold text-gray-800 uppercase">{{ selectedItem.spellcastingAbility }}</span>
+                </div>
+              </div>
+
+              <div class="space-y-1 pt-1 border-t border-gray-200">
+                <div v-if="selectedItem.armorProficiencies && selectedItem.armorProficiencies.length">
+                  <strong class="text-gray-700">Armor Training:</strong> {{ selectedItem.armorProficiencies.join(', ') }}
+                </div>
+                <div v-if="selectedItem.weaponProficiencies && selectedItem.weaponProficiencies.length">
+                  <strong class="text-gray-700">Weapon Proficiencies:</strong> {{ selectedItem.weaponProficiencies.join(', ') }}
+                </div>
+                <div v-if="selectedItem.toolProficiencies && selectedItem.toolProficiencies.length">
+                  <strong class="text-gray-700">Tool Proficiencies:</strong> {{ selectedItem.toolProficiencies.map(t => String(t).split('|')[0].replace(/\{@item ([^}]+)\}/g, '$1')).join(', ') }}
+                </div>
+              </div>
+
+              <div v-if="selectedItem.subclasses && selectedItem.subclasses.length" class="pt-2 border-t border-gray-200 space-y-1.5">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900">
+                  {{ selectedItem.subclassTitle || 'Subclasses' }} ({{ selectedItem.subclasses.length }})
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                  <span
+                    v-for="sc in selectedItem.subclasses"
+                    :key="sc.name + sc.source"
+                    class="px-2 py-1 bg-white border border-gray-200 rounded text-gray-800 font-medium text-[11px] shadow-xs flex items-center gap-1.5"
+                  >
+                    <span>{{ sc.name }}</span>
+                    <span v-if="sc.source" class="text-[9px] font-mono px-1 py-0.2 bg-gray-100 rounded text-gray-500">{{ sc.source }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Species / Race Details -->
+            <div
+              v-else-if="selectedItem._category === 'races'"
+              class="space-y-3 bg-gray-50 p-3 rounded border border-gray-200 text-[11px]"
+            >
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div>
+                  <span class="text-gray-400 block font-medium">Creature Type</span>
+                  <span class="font-semibold text-gray-800 capitalize">{{ (selectedItem.creatureTypes || []).join(', ') || 'Humanoid' }}</span>
+                </div>
+                <div>
+                  <span class="text-gray-400 block font-medium">Size</span>
+                  <span class="font-semibold text-gray-800">{{ (selectedItem.size || []).join(', ') || 'Medium' }}</span>
+                </div>
+                <div>
+                  <span class="text-gray-400 block font-medium">Speed</span>
+                  <span class="font-semibold text-gray-800">{{ formatRaceSpeed(selectedItem) }}</span>
+                </div>
+                <div>
+                  <span class="text-gray-400 block font-medium">Darkvision</span>
+                  <span class="font-semibold text-gray-800">{{ selectedItem.darkvision && Number(selectedItem.darkvision) > 0 ? `${selectedItem.darkvision} ft.` : 'None' }}</span>
+                </div>
+              </div>
+
+              <div v-if="selectedItem.traits && selectedItem.traits.length" class="pt-1 border-t border-gray-200">
+                <strong class="text-gray-700">Traits:</strong> {{ selectedItem.traits.join(', ') }}
+              </div>
+
+              <div v-if="selectedItem.subraces && selectedItem.subraces.length" class="pt-2 border-t border-gray-200 space-y-1.5">
+                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900">
+                  Subraces / Lineages ({{ selectedItem.subraces.length }})
+                </h4>
+                <div class="flex flex-wrap gap-1.5">
+                  <span
+                    v-for="sr in selectedItem.subraces"
+                    :key="sr.name + sr.source"
+                    class="px-2 py-1 bg-white border border-gray-200 rounded text-gray-800 font-medium text-[11px] shadow-xs flex items-center gap-1.5"
+                  >
+                    <span>{{ sr.name }}</span>
+                    <span v-if="sr.source" class="text-[9px] font-mono px-1 py-0.2 bg-gray-100 rounded text-gray-500">{{ sr.source }}</span>
+                  </span>
+                </div>
               </div>
             </div>
 

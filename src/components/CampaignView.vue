@@ -172,20 +172,29 @@ const stopPolling = () => {
   }
 }
 
-const selectCampaign = async (id, updateUrl = true) => {
+const selectCampaign = async (idOrCode, updateUrl = true) => {
   errorMessage.value = ''
-  selectedCampaignId.value = id
-  if (updateUrl && typeof window !== 'undefined') {
-    const url = new URL(window.location.origin + window.location.pathname)
-    url.searchParams.set('campaign', id)
-    window.history.pushState({ tab: 'campaign', campaign: id }, '', url.toString())
+  try {
+    const res = await axios.get(`${API_URL}/campaign/${idOrCode}`)
+    if (res.data?.data) {
+      campaignDetail.value = res.data.data
+      selectedCampaignId.value = res.data.data.id
+      const code = res.data.data.invite_code || idOrCode
+      if (updateUrl && typeof window !== 'undefined') {
+        const basePath = window.location.pathname.replace(/\/campaign.*$/i, '').replace(/\/$/, '')
+        const targetUrl = `${window.location.origin}${basePath}/campaign/${code}`
+        window.history.pushState({ tab: 'campaign', campaign: code }, '', targetUrl)
+      }
+      await Promise.all([
+        fetchMessages(),
+        fetchUserCharacters()
+      ])
+      startPolling()
+    }
+  } catch (err) {
+    console.error('Failed to select campaign', err)
+    errorMessage.value = err.response?.data?.message || 'Failed to load campaign'
   }
-  await Promise.all([
-    fetchCampaignDetail(id),
-    fetchMessages(),
-    fetchUserCharacters()
-  ])
-  startPolling()
 }
 
 const backToCampaignList = (updateUrl = true) => {
@@ -194,9 +203,9 @@ const backToCampaignList = (updateUrl = true) => {
   campaignDetail.value = null
   messages.value = []
   if (updateUrl && typeof window !== 'undefined') {
-    const url = new URL(window.location.origin + window.location.pathname)
-    url.searchParams.set('tab', 'campaign')
-    window.history.pushState({ tab: 'campaign' }, '', url.toString())
+    const basePath = window.location.pathname.replace(/\/campaign.*$/i, '').replace(/\/$/, '')
+    const targetUrl = `${window.location.origin}${basePath}/campaign`
+    window.history.pushState({ tab: 'campaign' }, '', targetUrl)
   }
   fetchCampaigns()
 }
@@ -365,7 +374,8 @@ const copyCode = (code) => {
 
 const copyLink = (code) => {
   if (!code) return
-  const link = `${window.location.origin}${window.location.pathname}?join=${code}`
+  const basePath = window.location.pathname.replace(/\/campaign.*$/i, '').replace(/\/$/, '')
+  const link = `${window.location.origin}${basePath}/campaign/${code}`
   navigator.clipboard.writeText(link).then(() => {
     copiedLink.value = true
     setTimeout(() => { copiedLink.value = false }, 2000)
@@ -378,15 +388,12 @@ onMounted(() => {
   fetchCampaigns()
   fetchUserCharacters()
 
-  // Auto-join from URL param ?join=CODE or ?campaign_code=CODE
-  const params = new URLSearchParams(window.location.search)
-  const joinCode = params.get('join') || params.get('campaign_code')
-  if (joinCode) {
-    openJoinModal(joinCode)
-  } else if (props.initialCampaignId) {
-    selectCampaign(props.initialCampaignId, false)
-  } else if (params.get('campaign')) {
-    selectCampaign(params.get('campaign'), false)
+  // Clean path-based campaign or prop
+  const pathMatch = window.location.pathname.match(/\/campaign\/([^/?#]+)/i)
+  const pathCode = pathMatch ? decodeURIComponent(pathMatch[1]) : null
+  const codeToOpen = props.initialCampaignId || pathCode
+  if (codeToOpen && !/^\d+$/.test(String(codeToOpen))) {
+    selectCampaign(codeToOpen, false)
   }
 })
 

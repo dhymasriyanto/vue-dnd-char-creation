@@ -254,7 +254,7 @@ const newHpPreview = computed(() => {
   return currentHp.value
 })
 
-const isInspired = ref(Boolean(vtt.value?.inspiration || char.value?.inspiration))
+const isInspired = ref(Boolean(props.character?.inspiration != null ? props.character.inspiration : props.character?.vtt?.inspiration))
 const activeCampaignId = ref(props.character?.campaign_id ? Number(props.character.campaign_id) : null)
 const campaignName = ref(vtt.value?.campaign_name || char.value?.campaign_name || '')
 const showCampaignModal = ref(false)
@@ -285,9 +285,9 @@ const copiedAvraeApiUrl = ref(false)
 
 const charKey = computed(() => char.value?.public_id || char.value?.id)
 
-const isPublicChar = ref(char.value?.is_public !== false)
+const isPublicChar = ref(Boolean(char.value?.is_public))
 watch(() => char.value?.is_public, (v) => {
-  isPublicChar.value = v !== false
+  isPublicChar.value = Boolean(v)
 })
 
 const isUpdatingVisibility = ref(false)
@@ -310,7 +310,7 @@ const toggleVisibility = async () => {
 }
 
 const resolvedPlayerName = computed(() => {
-  return char.value?.player_name || char.value?.owner_username || user.value?.username || user.value?.name || '—'
+  return user.value?.username || user.value?.name || char.value?.player_name || char.value?.owner_username || ''
 })
 
 const openExportModal = (tab = 'pdf') => {
@@ -422,8 +422,12 @@ watch(() => [char.value.hp, char.value.max_hp, char.value.temp_hp, char.value.ma
   tempHpInput.value = tempHp.value > 0 ? tempHp.value : ''
 })
 
-watch(() => [vtt.value?.inspiration, char.value?.inspiration], () => {
-  isInspired.value = Boolean(vtt.value?.inspiration || char.value?.inspiration)
+watch(() => [props.character?.inspiration, props.character?.vtt?.inspiration], ([cInsp, vInsp]) => {
+  if (cInsp !== undefined) {
+    isInspired.value = Boolean(cInsp)
+  } else if (vInsp !== undefined) {
+    isInspired.value = Boolean(vInsp)
+  }
 })
 
 watch(() => [vtt.value?.campaign_name, char.value?.campaign_name], () => {
@@ -540,10 +544,16 @@ const updateTempHp = () => {
 }
 
 const toggleInspiration = async () => {
-  isInspired.value = !isInspired.value
-  if (char.value) char.value.inspiration = isInspired.value
-  await saveVitals({ inspiration: isInspired.value })
-  showToast(isInspired.value ? 'Heroic Inspiration gained!' : 'Inspiration expended')
+  const nextVal = !isInspired.value
+  isInspired.value = nextVal
+  if (props.character) {
+    props.character.inspiration = nextVal
+    if (props.character.vtt) props.character.vtt.inspiration = nextVal
+  }
+  if (char.value) char.value.inspiration = nextVal
+  if (vtt.value) vtt.value.inspiration = nextVal
+  await saveVitals({ inspiration: nextVal })
+  showToast(nextVal ? 'Heroic Inspiration gained!' : 'Inspiration expended')
 }
 
 const userCampaigns = ref([])
@@ -943,26 +953,21 @@ const executeLongRest = async () => {
 }
 
 // Interactive Wealth / Currency state
-const treasure = computed(() => char.value.treasure || {})
-const currency = ref({
-  cp: Number(treasure.value.cp || 0),
-  sp: Number(treasure.value.sp || 0),
-  ep: Number(treasure.value.ep || 0),
-  gp: Number(treasure.value.gp || 0),
-  pp: Number(treasure.value.pp || 0)
-})
-
-watch(() => char.value.treasure, (newTr) => {
-  if (newTr) {
-    currency.value = {
-      cp: Number(newTr.cp || 0),
-      sp: Number(newTr.sp || 0),
-      ep: Number(newTr.ep || 0),
-      gp: Number(newTr.gp || 0),
-      pp: Number(newTr.pp || 0)
-    }
+const getInitialCurrency = () => {
+  const tr = props.character?.treasure || props.character?.treasures || char.value?.treasure || char.value?.treasures || {}
+  return {
+    cp: Number(tr.cp ?? 0),
+    sp: Number(tr.sp ?? 0),
+    ep: Number(tr.ep ?? 0),
+    gp: Number(tr.gp ?? 0),
+    pp: Number(tr.pp ?? 0)
   }
-}, { deep: true })
+}
+const currency = ref(getInitialCurrency())
+
+watch(() => [props.character?.treasure, props.character?.treasures, char.value?.treasure], () => {
+  currency.value = getInitialCurrency()
+}, { deep: true, immediate: true })
 
 const isSavingCurrency = ref(false)
 const currencySavedToast = ref(false)
@@ -7168,11 +7173,19 @@ watch(() => charSpells.value, (list) => {
         <!-- Metadata Grid -->
         <div class="grid grid-cols-3 gap-x-4 gap-y-1 text-[11px] border-l border-gray-300 pl-4">
           <div>
-            <div class="font-bold text-gray-900">{{ classSummary }}</div>
+            <input
+              type="text"
+              :value="classSummary"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Class & Level</div>
           </div>
           <div>
-            <div class="font-bold text-gray-900">{{ char.background || '—' }}</div>
+            <input
+              type="text"
+              :value="char.background || '—'"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Background</div>
           </div>
           <div>
@@ -7184,7 +7197,11 @@ watch(() => charSpells.value, (list) => {
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Player Name</div>
           </div>
           <div>
-            <div class="font-bold text-gray-900">{{ char.race?.name || (typeof char.race === 'string' ? char.race : '') || '—' }}</div>
+            <input
+              type="text"
+              :value="char.race?.name || (typeof char.race === 'string' ? char.race : '') || '—'"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Race</div>
           </div>
           <div>
@@ -7210,34 +7227,34 @@ watch(() => charSpells.value, (list) => {
     <!-- Core Vitals Summary Bar -->
     <div class="grid grid-cols-6 gap-2 mb-2.5 text-center">
       <!-- Armor Class with SVG Shield -->
-      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 flex flex-col items-center justify-center relative min-h-[56px]">
+      <div class="flex flex-col items-center justify-center relative min-h-[54px]">
         <svg
           class="absolute inset-0 w-full h-full p-0.5"
-          viewBox="0 0 100 88"
+          viewBox="0 0 100 95"
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
           <path
-            d="M 5 6 Q 50 10 95 6 C 96.5 42 85 66 50 84 C 15 66 3.5 42 5 6 Z"
+            d="M 6 5 Q 50 10 94 5 C 95 46 84 74 50 93 C 16 74 5 46 6 5 Z"
             fill="#ffffff"
             stroke="#1f2937"
             stroke-width="2.5"
             stroke-linejoin="round"
           />
           <path
-            d="M 11 12 Q 50 15.5 89 12 C 90 42 80 63 50 78 C 20 63 10 42 11 12 Z"
-            fill="none"
+            d="M 12 11 Q 50 15 88 11 C 89 44 79 69 50 85 C 21 69 11 44 12 11 Z"
+            fill="#f9fafb"
             stroke="#9ca3af"
             stroke-width="1.2"
             stroke-linejoin="round"
           />
         </svg>
-        <div class="relative z-10 flex flex-col items-center justify-center text-center">
-          <span class="text-[7.5px] font-bold text-gray-600 uppercase tracking-tight leading-none">ARMOR CLASS</span>
+        <div class="relative z-10 flex flex-col items-center justify-center text-center px-1">
+          <span class="text-[7.5px] font-black text-gray-700 uppercase tracking-wider leading-none">ARMOR CLASS</span>
           <input
             type="text"
             :value="vtt.combat?.armor_class || currentArmorClass || 10"
-            class="w-10 text-center font-black text-base text-gray-900 bg-transparent border-0 focus:outline-none p-0 leading-none mt-0.5"
+            class="w-10 text-center font-black text-base text-gray-900 bg-transparent border-0 focus:outline-none p-0 leading-none mt-1"
           />
         </div>
       </div>
@@ -7462,23 +7479,23 @@ watch(() => charSpells.value, (list) => {
           <div class="grid grid-cols-5 gap-1 mb-2 text-center text-[9px] font-bold">
             <div class="border border-gray-200 rounded p-1 bg-amber-50/50 flex items-center justify-center gap-0.5">
               <span>CP:</span>
-              <input type="text" :value="currency.cp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+              <input type="text" :value="currency.cp ?? char.treasure?.cp ?? 0" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
             </div>
             <div class="border border-gray-200 rounded p-1 bg-gray-50 flex items-center justify-center gap-0.5">
               <span>SP:</span>
-              <input type="text" :value="currency.sp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+              <input type="text" :value="currency.sp ?? char.treasure?.sp ?? 0" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
             </div>
             <div class="border border-gray-200 rounded p-1 bg-blue-50/50 flex items-center justify-center gap-0.5">
               <span>EP:</span>
-              <input type="text" :value="currency.ep" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+              <input type="text" :value="currency.ep ?? char.treasure?.ep ?? 0" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
             </div>
             <div class="border border-gray-200 rounded p-1 bg-yellow-50 flex items-center justify-center gap-0.5">
               <span>GP:</span>
-              <input type="text" :value="currency.gp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+              <input type="text" :value="currency.gp ?? char.treasure?.gp ?? 0" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
             </div>
             <div class="border border-gray-200 rounded p-1 bg-purple-50/50 flex items-center justify-center gap-0.5">
               <span>PP:</span>
-              <input type="text" :value="currency.pp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+              <input type="text" :value="currency.pp ?? char.treasure?.pp ?? 0" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
             </div>
           </div>
 
@@ -7592,21 +7609,21 @@ watch(() => charSpells.value, (list) => {
       </div>
     </div>
 
-    <!-- Features, Traits, Spells Section (Natural break-inside-avoid, no forced page break) -->
-    <div class="break-inside-avoid space-y-2 mt-2 pt-2 border-t border-gray-300">
+    <!-- Features, Traits, Spells Section (Natural flowing section to avoid awkward empty space on page 1) -->
+    <div class="space-y-2 mt-2 pt-2 border-t border-gray-300">
       <!-- Features & Traits -->
-      <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
+      <div class="border border-gray-800 rounded p-2 text-[10px]">
         <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Features & Traits</div>
         <div class="grid grid-cols-2 gap-3">
           <!-- Class & Subclass Features -->
           <div>
             <h4 class="font-bold text-gray-900 text-[10px] mb-1">Class Features</h4>
             <div class="space-y-1">
-              <div v-for="cf in (filteredClassFeatures || [])" :key="cf.name" class="border-b border-gray-100 pb-0.5">
+              <div v-for="cf in (filteredClassFeatures || [])" :key="cf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ cf.name }}</span>
                 <span v-if="cf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ cf.level }})</span>
               </div>
-              <div v-for="scf in (filteredSubClassFeatures || [])" :key="scf.name" class="border-b border-gray-100 pb-0.5">
+              <div v-for="scf in (filteredSubClassFeatures || [])" :key="scf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ scf.name }}</span>
                 <span v-if="scf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ scf.level }})</span>
               </div>
@@ -7617,14 +7634,14 @@ watch(() => charSpells.value, (list) => {
           <div>
             <h4 class="font-bold text-gray-900 text-[10px] mb-1">Racial Traits & Feats</h4>
             <div class="space-y-1">
-              <div v-for="tr in (char.trait || [])" :key="tr.name" class="border-b border-gray-100 pb-0.5">
+              <div v-for="tr in (char.trait || [])" :key="tr.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ tr.name }}</span>
               </div>
-              <div v-for="ft in (char.feat || [])" :key="ft.name" class="border-b border-gray-100 pb-0.5">
+              <div v-for="ft in (char.feat || [])" :key="ft.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ ft.name }}</span>
                 <span class="text-[9px] text-gray-500 ml-1">(Feat)</span>
               </div>
-              <div v-for="bf in (char.feature || [])" :key="bf.name" class="border-b border-gray-100 pb-0.5">
+              <div v-for="bf in (char.feature || [])" :key="bf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ bf.name }}</span>
                 <span class="text-[9px] text-gray-500 ml-1">(Background)</span>
               </div>
@@ -7711,11 +7728,12 @@ watch(() => charSpells.value, (list) => {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 6mm 8mm;
+    margin: 5mm 6mm;
   }
   body, html {
     background: white !important;
     color: #111827 !important;
+    font-size: 11px !important;
   }
   .printable-sheet {
     display: block !important;
@@ -7731,7 +7749,7 @@ watch(() => charSpells.value, (list) => {
     page-break-inside: avoid !important;
   }
   input {
-    border-color: #d1d5db !important;
+    border-color: #cbd5e1 !important;
     color: #111827 !important;
     -moz-appearance: textfield;
   }

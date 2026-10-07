@@ -76,9 +76,12 @@ const showTooltip = async (targetEl) => {
   if (lookupTag === 'spell' || tag === 'spell') category = 'spells'
   else if (lookupTag === 'item' || tag === 'item') category = 'items'
   else if (lookupTag === 'feat' || tag === 'feat') category = 'feats'
-  else if (['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(lookupTag) || ['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense'].includes(tag)) category = 'rules'
+  else if (['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense', 'vehicle', 'object', 'ship'].includes(lookupTag) || ['rule', 'variantrule', 'action', 'condition', 'status', 'skill', 'sense', 'vehicle', 'object', 'ship'].includes(tag)) category = 'rules'
   else if (['optfeature', 'optionalfeature'].includes(lookupTag) || ['optfeature', 'optionalfeature'].includes(tag)) category = 'optionalfeatures'
   else if (['monster', 'creature', 'bestiary'].includes(lookupTag) || ['monster', 'creature', 'bestiary'].includes(tag)) category = 'monsters'
+  else if (['race', 'subrace'].includes(lookupTag) || ['race', 'subrace'].includes(tag)) category = 'races'
+  else if (['class', 'subclass', 'classfeature', 'subclassfeature'].includes(lookupTag) || ['class', 'subclass', 'classfeature', 'subclassfeature'].includes(tag)) category = 'classes'
+  else if (['background'].includes(lookupTag) || ['background'].includes(tag)) category = 'backgrounds'
 
   const filterQuery = targetEl.getAttribute('data-filter-query') || ''
   updateCompendiumUrl(rawTarget || display, category, edition, source, filterQuery)

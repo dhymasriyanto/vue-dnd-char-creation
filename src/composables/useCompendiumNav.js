@@ -15,29 +15,26 @@ export function useCompendiumNav() {
     isCompendiumOpen.value = true
 
     if (updateUrl && typeof window !== 'undefined') {
-      const url = new URL(window.location.origin + window.location.pathname)
-      url.searchParams.set('compendium', '1')
+      const basePath = window.location.pathname.replace(/\/compendium.*$/i, '').replace(/\/character\/.*$/i, '').replace(/\/campaign\/.*$/i, '').replace(/\/$/, '')
+      let targetPath = `${basePath}/compendium`
       if (category && category !== 'all') {
-        url.searchParams.set('tab', category)
+        targetPath += `/${category.toLowerCase()}`
+        const itemName = item?.name || search
+        if (itemName) {
+          const slug = String(itemName).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+          if (slug) targetPath += `/${slug}`
+        }
       }
-      if (search) {
-        url.searchParams.set('search', search)
-      }
-      window.history.pushState({ view: 'compendium', fromApp: true }, '', url.toString())
+      window.history.pushState({ view: 'compendium', fromApp: true }, '', `${window.location.origin}${targetPath}`)
     }
   }
 
   const closeCompendium = (updateUrl = false) => {
     isCompendiumOpen.value = false
     if (updateUrl && typeof window !== 'undefined') {
-      const p = new URLSearchParams(window.location.search)
-      if (p.has('compendium')) {
-        if (window.history.length > 1) {
-          window.history.back()
-        } else {
-          const url = new URL(window.location.origin + window.location.pathname)
-          window.history.replaceState({ view: 'list' }, '', url.toString())
-        }
+      if (window.location.pathname.includes('/compendium')) {
+        const cleanPath = window.location.pathname.replace(/\/compendium.*$/i, '') || '/'
+        window.history.pushState({ view: 'list' }, '', `${window.location.origin}${cleanPath}`)
       }
     }
   }

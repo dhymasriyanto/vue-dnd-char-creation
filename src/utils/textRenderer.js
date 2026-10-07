@@ -90,7 +90,7 @@ export const renderAnnotatedText = (text) => {
         'spell', 'item', 'feat', 'condition', 'skill', 'sense', 'action',
         'race', 'subrace', 'class', 'background',
         'variantrule', 'rule', 'optfeature', 'optionalfeature', 'classfeature', 'subclassfeature',
-        'monster', 'creature', 'hazard', 'status', 'deity'
+        'monster', 'creature', 'hazard', 'status', 'deity', 'vehicle', 'object', 'ship'
       ]
       if (refTags.includes(lowerTag)) {
         return `<span class="dnd-tag-ref text-gray-900 font-bold underline decoration-gray-400 decoration-dotted hover:text-black hover:decoration-gray-700 cursor-pointer" data-tag="${lowerTag}" data-target="${escapeHtml(target)}" data-source="${escapeHtml(source)}" data-display="${escapeHtml(displayText)}">${displayText}</span>`

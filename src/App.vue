@@ -36,27 +36,37 @@ const campaignRoomId = ref(null)
 const isMobileNavOpen = ref(false)
 
 const getCleanBasePath = () => {
-  return window.location.pathname.replace(/\/character\/[^/]+/i, '').replace(/\/$/, '')
+  return window.location.pathname
+    .replace(/\/character\/[^/]+/i, '')
+    .replace(/\/campaign(?:\/[^/]+)?/i, '')
+    .replace(/\/compendium(?:\/[^/]+(?:\/[^/]+)?)?/i, '')
+    .replace(/\/$/, '')
 }
 
 const syncStateFromUrl = () => {
   const p = new URLSearchParams(window.location.search)
+  const pathname = window.location.pathname
 
-  // 1. Compendium view
-  if (p.get('compendium') === '1' || p.has('compendium')) {
-    const category = p.get('category') || p.get('tab') || 'all'
-    const search = p.get('search') || ''
-    const queryObj = {}
-    for (const [key, value] of p.entries()) {
-      if (!['compendium', 'tab', 'category', 'search'].includes(key)) {
-        queryObj[key] = value
-      }
-    }
+  // Strip query parameters (?character=..., ?campaign=..., ?compendium=...) if present
+  if (p.has('character') || p.has('campaign') || p.has('compendium') || p.has('id')) {
+    p.delete('character')
+    p.delete('campaign')
+    p.delete('compendium')
+    p.delete('id')
+    const cleanSearch = p.toString() ? `?${p.toString()}` : ''
+    window.history.replaceState(window.history.state, '', `${pathname}${cleanSearch}`)
+  }
+
+  // 1. Compendium view via clean URL (/compendium or /compendium/:category or /compendium/:category/:slug)
+  const compMatch = pathname.match(/\/compendium(?:\/([^/?#]+))?(?:\/([^/?#]+))?/i)
+  if (compMatch) {
+    const category = compMatch[1] ? decodeURIComponent(compMatch[1]) : 'all'
+    const itemSlug = compMatch[2] ? decodeURIComponent(compMatch[2]) : ''
+    const itemName = itemSlug ? itemSlug.replace(/-/g, ' ') : ''
     openCompendium({
       category,
-      search,
-      item: search ? { name: search } : null,
-      params: queryObj,
+      search: itemName,
+      item: itemName ? { name: itemName } : null,
       updateUrl: false
     })
     return
@@ -65,15 +75,18 @@ const syncStateFromUrl = () => {
   // If not compendium URL, ensure compendium is closed
   closeCompendium()
 
-  // 2. Character detail requested (/character/:id or ?character=ID or ?id=ID)
-  const pathMatch = window.location.pathname.match(/\/character\/([^/?#]+)/i)
-  const pathCharId = pathMatch ? decodeURIComponent(pathMatch[1]) : null
-  const charId = pathCharId || p.get('character') || p.get('id')
-  if (charId) {
-    const isCurrent = selectedCharacter.value && (
-      String(selectedCharacter.value.public_id || '') === String(charId) ||
-      String(selectedCharacter.value.id || '') === String(charId)
-    )
+  // 2. Character detail requested (/character/:unique_id)
+  const charMatch = pathname.match(/\/character\/([^/?#]+)/i)
+  if (charMatch) {
+    const charId = decodeURIComponent(charMatch[1])
+    // Strictly disallow numeric IDs in URL
+    if (/^\d+$/.test(charId)) {
+      errorMessage.value = 'Character not found. Access via unique character ID is required.'
+      selectedCharacter.value = null
+      currentView.value = 'list'
+      return
+    }
+    const isCurrent = selectedCharacter.value && String(selectedCharacter.value.public_id || '') === String(charId)
     if (!isCurrent) {
       selectCharacter(charId, false)
     } else {
@@ -83,24 +96,26 @@ const syncStateFromUrl = () => {
   }
 
   // 3. Wizard create / edit
-  if (p.get('create') === '1') {
+  if (pathname.endsWith('/create') || p.get('create') === '1') {
     characterToEdit.value = null
     selectedCharacter.value = null
     currentView.value = 'wizard'
     return
   }
-  if (p.get('edit')) {
+  if (p.get('edit') && !/^\d+$/.test(p.get('edit'))) {
     editCharacter(p.get('edit'), false)
     return
   }
 
-  // 4. Campaign view requested (?tab=campaign or ?campaign=ID or ?join=CODE)
-  if (p.get('tab') === 'campaign' || p.has('campaign') || p.has('join') || p.has('campaign_code')) {
+  // 4. Campaign view requested (/campaign or /campaign/:code)
+  const campMatch = pathname.match(/\/campaign(?:\/([^/?#]+))?/i)
+  if (campMatch || p.get('tab') === 'campaign') {
+    const code = campMatch?.[1] ? decodeURIComponent(campMatch[1]) : null
     currentView.value = 'list'
     mainMenu.value = 'campaign'
     selectedCharacter.value = null
     characterToEdit.value = null
-    campaignRoomId.value = p.get('campaign') ? Number(p.get('campaign')) : null
+    campaignRoomId.value = (code && !/^\d+$/.test(code)) ? code : null
     return
   }
 
@@ -127,12 +142,12 @@ watch([isAuthReady, isAuthenticated], ([ready, auth]) => {
     syncStateFromUrl()
   } else if (ready && !auth) {
     const pathMatch = window.location.pathname.match(/\/character\/([^/?#]+)/i)
-    const params = new URLSearchParams(window.location.search)
-    if (!params.has('compendium') && !params.get('character') && !params.get('id') && !pathMatch) {
+    const compMatch = window.location.pathname.match(/\/compendium/i)
+    if (!compMatch && !pathMatch) {
       selectedCharacter.value = null
       characterToEdit.value = null
       currentView.value = 'list'
-    } else if (params.get('character') || params.get('id') || pathMatch) {
+    } else if (pathMatch) {
       syncStateFromUrl()
     }
   }
@@ -144,31 +159,21 @@ const switchMainMenu = (tab) => {
   selectedCharacter.value = null
   closeCompendium()
   const basePath = getCleanBasePath()
-  const url = new URL(`${window.location.origin}${basePath}/`)
-  if (tab === 'campaign') {
-    if (campaignRoomId.value) {
-      url.searchParams.set('campaign', campaignRoomId.value)
-    } else {
-      url.searchParams.set('tab', 'campaign')
-    }
-  }
-  window.history.pushState({ tab, view: 'list' }, '', url.toString())
+  const targetUrl = tab === 'campaign' ? `${window.location.origin}${basePath}/campaign` : `${window.location.origin}${basePath}/`
+  window.history.pushState({ tab, view: 'list' }, '', targetUrl)
 }
 
-const openCampaignFromSheet = (campId) => {
-  campaignRoomId.value = campId ? Number(campId) : null
+const openCampaignFromSheet = (campIdOrCode) => {
+  campaignRoomId.value = (campIdOrCode && !/^\d+$/.test(String(campIdOrCode))) ? campIdOrCode : null
   currentView.value = 'list'
   selectedCharacter.value = null
   closeCompendium()
   mainMenu.value = 'campaign'
   const basePath = getCleanBasePath()
-  const url = new URL(`${window.location.origin}${basePath}/`)
-  if (campId) {
-    url.searchParams.set('campaign', campId)
-  } else {
-    url.searchParams.set('tab', 'campaign')
-  }
-  window.history.pushState({ tab: 'campaign', view: 'list', campaignId: campId }, '', url.toString())
+  const targetUrl = campaignRoomId.value
+    ? `${window.location.origin}${basePath}/campaign/${campaignRoomId.value}`
+    : `${window.location.origin}${basePath}/campaign`
+  window.history.pushState({ tab: 'campaign', view: 'list', campaignId: campaignRoomId.value }, '', targetUrl)
 }
 
 const currentView = ref('list') // 'list' | 'wizard' | 'sheet'
@@ -225,15 +230,10 @@ const backToList = (updateUrl = true) => {
   closeCompendium()
   if (updateUrl) {
     const basePath = getCleanBasePath()
-    const url = new URL(`${window.location.origin}${basePath}/`)
-    if (mainMenu.value === 'campaign') {
-      if (campaignRoomId.value) {
-        url.searchParams.set('campaign', campaignRoomId.value)
-      } else {
-        url.searchParams.set('tab', 'campaign')
-      }
-    }
-    window.history.pushState({ view: 'list', tab: mainMenu.value }, '', url.toString())
+    const targetUrl = mainMenu.value === 'campaign'
+      ? `${window.location.origin}${basePath}/campaign`
+      : `${window.location.origin}${basePath}/`
+    window.history.pushState({ view: 'list', tab: mainMenu.value }, '', targetUrl)
   }
 }
 
@@ -241,13 +241,18 @@ const selectCharacter = async (id, updateUrl = true) => {
   isLoadingDetail.value = true
   errorMessage.value = ''
   try {
+    if (/^\d+$/.test(String(id).trim())) {
+      errorMessage.value = 'Character not found. Access via unique character ID is required.'
+      currentView.value = 'list'
+      return
+    }
     const res = await axios.get(`${API_URL}/character/${id}`)
     if (res.data?.data) {
       selectedCharacter.value = res.data.data
       currentView.value = 'sheet'
       closeCompendium()
       if (updateUrl) {
-        const charKey = res.data.data.public_id || res.data.data.id || id
+        const charKey = res.data.data.public_id || id
         const basePath = getCleanBasePath()
         const targetUrl = `${window.location.origin}${basePath}/character/${charKey}`
         window.history.pushState({ view: 'sheet', id: charKey }, '', targetUrl)
