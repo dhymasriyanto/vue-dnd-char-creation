@@ -2,27 +2,16 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
-import { useCompendiumNav } from '../composables/useCompendiumNav'
 import { useAuth } from '../composables/useAuth'
 import {
-  IconBook,
-  IconExternalLink,
   IconEye,
   IconEdit,
   IconTrash,
-  IconUser,
-  IconLogout,
-  IconMenu2,
-  IconX
+  IconPlus
 } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
-const { openCompendium } = useCompendiumNav()
-const { user, isAuthenticated, logout, openLoginModal } = useAuth()
-
-const openCompendiumWindow = () => {
-  window.open(`${window.location.origin}${window.location.pathname}?compendium=1`, '_blank')
-}
+const { isAuthenticated } = useAuth()
 
 const emit = defineEmits(['create', 'select', 'edit'])
 
@@ -32,27 +21,11 @@ const errorMessage = ref('')
 const searchQuery = ref('')
 const editionFilter = ref('all') // 'all' | '2024' | '2014'
 const deletingId = ref(null)
-// ponytail: Mobile hamburger menu toggle inline, upgrade to sliding drawer if menu options grow
-const isMobileMenuOpen = ref(false)
 
-const handleCreate = () => {
-  isMobileMenuOpen.value = false
-  emit('create')
-}
-
-const handleOpenCompendium = () => {
-  isMobileMenuOpen.value = false
-  openCompendiumWindow()
-}
-
-const handleLogin = () => {
-  isMobileMenuOpen.value = false
-  openLoginModal()
-}
-
-const handleLogout = () => {
-  isMobileMenuOpen.value = false
-  logout()
+const formatImageUrl = (url) => {
+  if (!url) return ''
+  if (url.startsWith('http') || url.startsWith('data:')) return url
+  return `${API_URL}${url}`
 }
 
 const fetchCharacters = async () => {
@@ -131,126 +104,14 @@ onMounted(() => {
           </p>
         </div>
 
-        <!-- Mobile Hamburger Toggle (< sm) -->
         <button
           type="button"
-          @click="isMobileMenuOpen = !isMobileMenuOpen"
-          aria-label="Toggle navigation menu"
-          class="sm:hidden p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 transition cursor-pointer shrink-0"
+          @click="emit('create')"
+          class="bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer flex items-center gap-1.5 shrink-0"
         >
-          <IconX v-if="isMobileMenuOpen" class="w-5 h-5" />
-          <IconMenu2 v-else class="w-5 h-5" />
+          <IconPlus class="w-4 h-4" />
+          <span>Create Character</span>
         </button>
-
-        <!-- Desktop Action Buttons (>= sm) -->
-        <div class="hidden sm:flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            @click="openCompendiumWindow"
-            class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
-          >
-            <IconBook class="w-4 h-4 text-gray-700" />
-            <span>Compendium</span>
-            <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
-          </button>
-
-          <!-- Auth Status / Sign In -->
-          <template v-if="!isAuthenticated">
-            <button
-              type="button"
-              @click="openLoginModal"
-              class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
-            >
-              <IconUser class="w-4 h-4 text-gray-700" />
-              <span>Sign In</span>
-            </button>
-          </template>
-          <template v-else>
-            <div class="flex items-center gap-2 bg-gray-100 border border-gray-300 px-2.5 py-1.5 rounded text-xs">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span class="font-semibold text-gray-900">{{ user.username }}</span>
-              <span
-                v-if="user.auth_provider && user.auth_provider !== 'local'"
-                class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
-              >
-                {{ user.auth_provider }}
-              </span>
-              <button
-                type="button"
-                @click="logout"
-                title="Sign Out"
-                class="text-gray-400 hover:text-gray-800 transition cursor-pointer ml-0.5"
-              >
-                <IconLogout class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </template>
-
-          <button
-            type="button"
-            @click="emit('create')"
-            class="bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer"
-          >
-            Create Character
-          </button>
-        </div>
-      </div>
-
-      <!-- Mobile Dropdown Menu (< sm) -->
-      <div
-        v-if="isMobileMenuOpen"
-        class="sm:hidden mt-3 pt-3 border-t border-gray-100 flex flex-col gap-2"
-      >
-        <button
-          type="button"
-          @click="handleCreate"
-          class="w-full bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2.5 rounded shadow-sm transition cursor-pointer text-center"
-        >
-          Create Character
-        </button>
-
-        <button
-          type="button"
-          @click="handleOpenCompendium"
-          class="w-full bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2.5 rounded shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-        >
-          <IconBook class="w-4 h-4 text-gray-700" />
-          <span>Compendium</span>
-          <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
-        </button>
-
-        <template v-if="!isAuthenticated">
-          <button
-            type="button"
-            @click="handleLogin"
-            class="w-full bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2.5 rounded shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
-          >
-            <IconUser class="w-4 h-4 text-gray-700" />
-            <span>Sign In</span>
-          </button>
-        </template>
-        <template v-else>
-          <div class="flex items-center justify-between bg-gray-100 border border-gray-300 px-3 py-2 rounded text-xs">
-            <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-              <span class="font-semibold text-gray-900">{{ user.username }}</span>
-              <span
-                v-if="user.auth_provider && user.auth_provider !== 'local'"
-                class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
-              >
-                {{ user.auth_provider }}
-              </span>
-            </div>
-            <button
-              type="button"
-              @click="handleLogout"
-              class="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-medium cursor-pointer"
-            >
-              <IconLogout class="w-3.5 h-3.5" />
-              <span>Sign Out</span>
-            </button>
-          </div>
-        </template>
       </div>
     </div>
 
@@ -329,12 +190,18 @@ onMounted(() => {
           class="p-3 space-y-2 hover:bg-gray-50 cursor-pointer transition"
         >
           <div class="flex items-start justify-between gap-2">
-            <div>
-              <span class="font-bold text-gray-900 text-sm block">{{ c.name || 'Unnamed' }}</span>
-              <span class="text-[11px] text-gray-500">
-                Level {{ c.level }} {{ c.class_name || 'Adventurer' }}
-                <span v-if="c.sub_class_name">({{ c.sub_class_name }})</span>
-              </span>
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-9 h-9 rounded-md border border-gray-300 bg-gray-100 flex items-center justify-center font-bold text-gray-700 text-xs overflow-hidden shrink-0">
+                <img v-if="c.image_url" :src="formatImageUrl(c.image_url)" :alt="c.name" class="w-full h-full object-cover" />
+                <span v-else>{{ (c.name || 'H').charAt(0).toUpperCase() }}</span>
+              </div>
+              <div class="min-w-0">
+                <span class="font-bold text-gray-900 text-sm block truncate">{{ c.name || 'Unnamed' }}</span>
+                <span class="text-[11px] text-gray-500 block truncate">
+                  Level {{ c.level }} {{ c.class_name || 'Adventurer' }}
+                  <span v-if="c.sub_class_name">({{ c.sub_class_name }})</span>
+                </span>
+              </div>
             </div>
             <span
               class="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-gray-200 bg-gray-100 text-gray-700 shrink-0"
@@ -402,8 +269,16 @@ onMounted(() => {
               class="hover:bg-gray-50 cursor-pointer transition"
             >
               <td class="py-3 px-3">
-                <span class="font-bold text-gray-900 block">{{ c.name || 'Unnamed' }}</span>
-                <span class="text-[11px] text-gray-400 font-normal">{{ c.alignment || 'Neutral' }}</span>
+                <div class="flex items-center gap-2.5">
+                  <div class="w-8 h-8 rounded-md border border-gray-300 bg-gray-100 flex items-center justify-center font-bold text-gray-700 text-xs overflow-hidden shrink-0">
+                    <img v-if="c.image_url" :src="formatImageUrl(c.image_url)" :alt="c.name" class="w-full h-full object-cover" />
+                    <span v-else>{{ (c.name || 'H').charAt(0).toUpperCase() }}</span>
+                  </div>
+                  <div>
+                    <span class="font-bold text-gray-900 block">{{ c.name || 'Unnamed' }}</span>
+                    <span class="text-[11px] text-gray-400 font-normal">{{ c.alignment || 'Neutral' }}</span>
+                  </div>
+                </div>
               </td>
               <td class="py-3 px-3">
                 <span

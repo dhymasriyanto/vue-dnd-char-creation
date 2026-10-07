@@ -9,7 +9,24 @@ import { storeToRefs } from 'pinia'
 import { useCharacterStore } from '../stores/character'
 import { useConfig } from '../config'
 import { renderAnnotatedText, clean5eToolsMarkup } from '../utils/textRenderer'
-import { IconArrowLeft, IconLock, IconX } from '@tabler/icons-vue'
+import {
+  IconArrowLeft,
+  IconLock,
+  IconX,
+  IconCamera,
+  IconDice,
+  IconPlus,
+  IconTrash,
+  IconCheck,
+  IconPhoto
+} from '@tabler/icons-vue'
+import { compressImage } from '../utils/imageCompressor'
+import {
+  extractBackgroundCharacteristicsTables,
+  rollFromTable,
+  LIFESTYLES,
+  DND_SIZES
+} from '../utils/characteristicsHelper'
 import {
   formatPrerequisitesText,
   getMulticlassProficiencies,
@@ -56,6 +73,183 @@ const classLevel = ref(1)
 const backgrounds = ref([])
 const selectedBackgroundObj = ref(null)
 const availableFeats = ref([])
+
+// Image Upload State
+const imageUrl = ref('')
+const isUploadingImage = ref(false)
+const imageUploadError = ref('')
+const avatarFileInputRef = ref(null)
+
+const displayImageUrl = computed(() => {
+  if (!imageUrl.value) return ''
+  if (imageUrl.value.startsWith('http') || imageUrl.value.startsWith('data:')) {
+    return imageUrl.value
+  }
+  return `${API_URL}${imageUrl.value}`
+})
+
+const handleAvatarSelected = async (event) => {
+  const file = event.target?.files?.[0]
+  if (!file) return
+  imageUploadError.value = ''
+  try {
+    isUploadingImage.value = true
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error('Image size exceeds 2 MB limit')
+    }
+    const compressed = await compressImage(file)
+    const formData = new FormData()
+    formData.append('image', compressed.blob, compressed.name)
+    const res = await axios.post(`${API_URL}/character/upload-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    if (res.data?.data?.url) {
+      imageUrl.value = res.data.data.url
+    }
+  } catch (err) {
+    console.error('Image upload failed:', err)
+    imageUploadError.value = err.message || 'Failed to upload image'
+  } finally {
+    isUploadingImage.value = false
+    if (event.target) event.target.value = ''
+  }
+}
+
+// Characteristics State
+const characteristics = reactive({
+  gender: '',
+  eyes: '',
+  size: '',
+  height: '',
+  faith: '',
+  hair: '',
+  skin: '',
+  age: '',
+  weight: '',
+  lifestyle: 'Modest',
+  appearance: '',
+  personalityTraits: [],
+  ideals: [],
+  bonds: [],
+  flaws: [],
+  notes: {
+    organizations: '',
+    allies: '',
+    enemies: '',
+    backstory: '',
+    other: ''
+  }
+})
+
+const activeNotesSubTab = ref('ALL') // 'ALL' | 'ORGS' | 'ALLIES' | 'ENEMIES' | 'BACKSTORY' | 'OTHER'
+
+const bgCharacteristicTables = computed(() => {
+  return extractBackgroundCharacteristicsTables(selectedBackgroundObj.value)
+})
+
+// Trait Table Selection & Rolling Modal State
+const traitTableModal = reactive({
+  isOpen: false,
+  type: '', // 'personalityTraits' | 'ideals' | 'bonds' | 'flaws'
+  title: '',
+  options: []
+})
+
+const openTraitTableModal = (type) => {
+  traitTableModal.type = type
+  let title = ''
+  let options = []
+  if (type === 'personalityTraits') {
+    title = 'Personality Traits'
+    options = bgCharacteristicTables.value.personalityTraits
+  } else if (type === 'ideals') {
+    title = 'Ideals'
+    options = bgCharacteristicTables.value.ideals
+  } else if (type === 'bonds') {
+    title = 'Bonds'
+    options = bgCharacteristicTables.value.bonds
+  } else if (type === 'flaws') {
+    title = 'Flaws'
+    options = bgCharacteristicTables.value.flaws
+  }
+  traitTableModal.title = title
+  traitTableModal.options = options || []
+  traitTableModal.isOpen = true
+}
+
+const closeTraitTableModal = () => {
+  traitTableModal.isOpen = false
+}
+
+const selectTraitFromModal = (text) => {
+  if (!text) return
+  if (!Array.isArray(characteristics[traitTableModal.type])) {
+    characteristics[traitTableModal.type] = []
+  }
+  characteristics[traitTableModal.type].push(text)
+  closeTraitTableModal()
+}
+
+const rollTraitFromModal = () => {
+  const rolled = rollFromTable(traitTableModal.options)
+  if (rolled) {
+    selectTraitFromModal(rolled)
+  }
+}
+
+const rollPersonalityTrait = () => {
+  const rolled = rollFromTable(bgCharacteristicTables.value.personalityTraits)
+  if (rolled) characteristics.personalityTraits.push(rolled)
+}
+const addPersonalityTrait = () => {
+  characteristics.personalityTraits.push('')
+}
+const removePersonalityTrait = (idx) => {
+  characteristics.personalityTraits.splice(idx, 1)
+}
+
+const rollIdeal = () => {
+  const rolled = rollFromTable(bgCharacteristicTables.value.ideals)
+  if (rolled) characteristics.ideals.push(rolled)
+}
+const addIdeal = () => {
+  characteristics.ideals.push('')
+}
+const removeIdeal = (idx) => {
+  characteristics.ideals.splice(idx, 1)
+}
+
+const rollBond = () => {
+  const rolled = rollFromTable(bgCharacteristicTables.value.bonds)
+  if (rolled) characteristics.bonds.push(rolled)
+}
+const addBond = () => {
+  characteristics.bonds.push('')
+}
+const removeBond = (idx) => {
+  characteristics.bonds.splice(idx, 1)
+}
+
+const rollFlaw = () => {
+  const rolled = rollFromTable(bgCharacteristicTables.value.flaws)
+  if (rolled) characteristics.flaws.push(rolled)
+}
+const addFlaw = () => {
+  characteristics.flaws.push('')
+}
+const removeFlaw = (idx) => {
+  characteristics.flaws.splice(idx, 1)
+}
+
+// Auto-fill size from race if empty
+watch(() => characterRace.value, (newRace) => {
+  if (newRace && !characteristics.size) {
+    const s = Array.isArray(newRace.size) ? newRace.size[0] : (newRace.size || '')
+    if (s === 'M' || s === 'Medium') characteristics.size = 'Medium'
+    else if (s === 'S' || s === 'Small') characteristics.size = 'Small'
+    else if (s) characteristics.size = s
+  }
+})
 
 // Source Books Configuration
 const SOURCE_OPTIONS_2024 = [
@@ -2692,6 +2886,7 @@ const activeSteps = computed(() => {
   return selectedEdition.value === '2024'
     ? [
         { id: 'background', label: 'Background' },
+        { id: 'characteristics', label: 'Characteristics' },
         { id: 'species', label: 'Species' },
         { id: 'class', label: 'Class' },
         { id: 'abilities', label: 'Abilities' },
@@ -2701,6 +2896,7 @@ const activeSteps = computed(() => {
         { id: 'race', label: 'Race' },
         { id: 'class', label: 'Class' },
         { id: 'background', label: 'Background' },
+        { id: 'characteristics', label: 'Characteristics' },
         { id: 'abilities', label: 'Abilities' },
         { id: 'equipment', label: 'Equipment' }
       ]
@@ -2990,6 +3186,59 @@ const loadCharacterForEdit = async (data) => {
   alignment.value = data.alignment || ''
   classLevel.value = Number(data.level || 1)
   characterBackground.value = data.background || ''
+  imageUrl.value = data.image_url || ''
+
+  if (data.characteristics) {
+    let ch = data.characteristics
+    if (typeof ch === 'string') {
+      try { ch = JSON.parse(ch) } catch (e) { ch = {} }
+    }
+    characteristics.gender = ch.gender || ''
+    characteristics.eyes = ch.eyes || ''
+    characteristics.size = ch.size || ''
+    characteristics.height = ch.height || ''
+    characteristics.faith = ch.faith || ''
+    characteristics.hair = ch.hair || ''
+    characteristics.skin = ch.skin || ''
+    characteristics.age = ch.age || ''
+    characteristics.weight = ch.weight || ''
+    characteristics.lifestyle = ch.lifestyle || 'Modest'
+    characteristics.appearance = ch.appearance || ''
+    characteristics.personalityTraits = Array.isArray(ch.personalityTraits) ? [...ch.personalityTraits] : (Array.isArray(ch.personality_traits) ? [...ch.personality_traits] : [])
+    characteristics.ideals = Array.isArray(ch.ideals) ? [...ch.ideals] : []
+    characteristics.bonds = Array.isArray(ch.bonds) ? [...ch.bonds] : []
+    characteristics.flaws = Array.isArray(ch.flaws) ? [...ch.flaws] : []
+    characteristics.notes = {
+      organizations: ch.notes?.organizations || '',
+      allies: ch.notes?.allies || '',
+      enemies: ch.notes?.enemies || '',
+      backstory: ch.notes?.backstory || '',
+      other: ch.notes?.other || ''
+    }
+  } else {
+    characteristics.gender = ''
+    characteristics.eyes = ''
+    characteristics.size = ''
+    characteristics.height = ''
+    characteristics.faith = ''
+    characteristics.hair = ''
+    characteristics.skin = ''
+    characteristics.age = ''
+    characteristics.weight = ''
+    characteristics.lifestyle = 'Modest'
+    characteristics.appearance = ''
+    characteristics.personalityTraits = []
+    characteristics.ideals = []
+    characteristics.bonds = []
+    characteristics.flaws = []
+    characteristics.notes = {
+      organizations: '',
+      allies: '',
+      enemies: '',
+      backstory: '',
+      other: ''
+    }
+  }
 
   // Equipment
   const eqList = data.equipment || data.equipments || []
@@ -3555,7 +3804,7 @@ const getDynamicErrorFieldOrder = () => {
     order.push(item.errorKey)
   })
 
-  order.push('alignment', 'equipmentGold')
+  order.push('equipmentGold')
   return order
 }
 
@@ -3614,6 +3863,9 @@ const scrollToFirstError = () => {
 }
 
 const validateStep = (stepId, shouldScroll = true) => {
+  if (stepId === 'characteristics') {
+    return true
+  }
   let isValid = true
 
   const validateAllAsiTiers = () => {
@@ -3836,13 +4088,6 @@ const validateStep = (stepId, shouldScroll = true) => {
           break
         }
       }
-    }
-
-    if (!alignment.value) {
-      errors.alignment = 'Please select an alignment'
-      isValid = false
-    } else {
-      delete errors.alignment
     }
   } else if (stepId === 'equipment') {
     if (equipmentChoiceMode.value === 'gold') {
@@ -4101,6 +4346,32 @@ const submitForm = async () => {
     const payload = {
       edition: selectedEdition.value,
       name: characterName.value,
+      image_url: imageUrl.value || null,
+      characteristics: {
+        alignment: alignment.value || null,
+        gender: characteristics.gender || '',
+        eyes: characteristics.eyes || '',
+        size: characteristics.size || '',
+        height: characteristics.height || '',
+        faith: characteristics.faith || '',
+        hair: characteristics.hair || '',
+        skin: characteristics.skin || '',
+        age: characteristics.age || '',
+        weight: characteristics.weight || '',
+        lifestyle: characteristics.lifestyle || 'Modest',
+        appearance: characteristics.appearance || '',
+        personalityTraits: (characteristics.personalityTraits || []).filter(Boolean),
+        ideals: (characteristics.ideals || []).filter(Boolean),
+        bonds: (characteristics.bonds || []).filter(Boolean),
+        flaws: (characteristics.flaws || []).filter(Boolean),
+        notes: {
+          organizations: characteristics.notes?.organizations || '',
+          allies: characteristics.notes?.allies || '',
+          enemies: characteristics.notes?.enemies || '',
+          backstory: characteristics.notes?.backstory || '',
+          other: characteristics.notes?.other || ''
+        }
+      },
       background: characterBackground.value,
       alignment: alignment.value,
       level: totalCharacterLevel.value,
@@ -4241,20 +4512,79 @@ const submitForm = async () => {
       </div>
     </div>
 
-    <!-- Character Name Input with In-line Error -->
-    <div class="mb-4" data-error-field="characterName">
-      <label for="characterName" class="block text-xs font-semibold text-gray-700">Character Name:</label>
-      <input
-        type="text"
-        id="characterName"
-        v-model="characterName"
-        :class="errors.characterName ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-        class="mt-1 p-2 border rounded w-full text-xs bg-white"
-        placeholder="Enter character name"
-      />
-      <p v-if="errors.characterName" class="mt-1 text-xs text-red-600 font-medium">
-        {{ errors.characterName }}
-      </p>
+    <!-- Character Avatar & Name Input -->
+    <div class="mb-5 flex flex-row items-center gap-3 sm:gap-4" data-error-field="characterName">
+      <!-- Portrait Uploader -->
+      <div class="relative shrink-0 flex flex-col items-center">
+        <div
+          @click="avatarFileInputRef?.click()"
+          class="w-14 h-14 sm:w-16 sm:h-16 rounded-lg border-2 border-dashed border-gray-300 hover:border-gray-500 bg-gray-50 flex flex-col items-center justify-center cursor-pointer relative group overflow-hidden transition shadow-xs"
+          title="Upload character image (Max 2MB)"
+        >
+          <img
+            v-if="displayImageUrl"
+            :src="displayImageUrl"
+            alt="Portrait"
+            class="w-full h-full object-cover"
+          />
+          <div v-else class="flex flex-col items-center justify-center text-gray-400 group-hover:text-gray-600">
+            <IconCamera class="w-5 h-5 mb-0.5" />
+            <span class="text-[9px] font-bold uppercase tracking-wider">Photo</span>
+          </div>
+
+          <!-- Hover overlay if image exists -->
+          <div
+            v-if="displayImageUrl"
+            class="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-[10px] font-semibold"
+          >
+            Change
+          </div>
+
+          <!-- Loading state -->
+          <div
+            v-if="isUploadingImage"
+            class="absolute inset-0 bg-white/85 flex items-center justify-center text-[10px] font-bold text-gray-700"
+          >
+            ...
+          </div>
+        </div>
+
+        <input
+          ref="avatarFileInputRef"
+          type="file"
+          accept="image/*"
+          class="hidden"
+          @change="handleAvatarSelected"
+        />
+
+        <button
+          v-if="imageUrl"
+          type="button"
+          @click="imageUrl = ''"
+          class="mt-1 text-[10px] text-gray-500 hover:text-red-600 underline font-medium cursor-pointer"
+        >
+          Remove
+        </button>
+      </div>
+
+      <!-- Name Input -->
+      <div class="flex-1 min-w-0">
+        <label for="characterName" class="block text-xs font-semibold text-gray-700 mb-1">Character Name:</label>
+        <input
+          type="text"
+          id="characterName"
+          v-model="characterName"
+          :class="errors.characterName ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
+          class="p-2 border rounded w-full text-xs bg-white focus:outline-none focus:border-gray-900"
+          placeholder="Enter character name"
+        />
+        <p v-if="errors.characterName" class="mt-1 text-xs text-red-600 font-medium">
+          {{ errors.characterName }}
+        </p>
+        <p v-if="imageUploadError" class="mt-1 text-xs text-red-600 font-medium">
+          {{ imageUploadError }}
+        </p>
+      </div>
     </div>
 
     <!-- Tab Navigation -->
@@ -4447,6 +4777,456 @@ const submitForm = async () => {
         >
           Pick Feat Spells ({{ featChosenSpells.length }}) &rarr;
         </button>
+      </div>
+    </div>
+
+    <!-- TAB: Characteristics & Details -->
+    <div v-else-if="currentTab === 'characteristics'" class="space-y-6">
+      <div class="border-b border-gray-200 pb-2">
+        <h2 class="text-sm font-bold text-gray-900 tracking-wider uppercase">CHARACTERISTICS</h2>
+      </div>
+
+      <!-- Top Characteristics Grid -->
+      <div class="bg-gray-50/70 p-3 sm:p-4 rounded border border-gray-200">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs">
+          <!-- Alignment -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">ALIGNMENT</label>
+            <v-select
+              v-model="alignment"
+              :options="alignments"
+              placeholder="--"
+              class="text-xs bg-white rounded"
+            />
+          </div>
+          <!-- Gender -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">GENDER</label>
+            <select
+              v-model="characteristics.gender"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            >
+              <option value="">--</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+          <!-- Eyes -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">EYES</label>
+            <input
+              type="text"
+              v-model="characteristics.eyes"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Size -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">SIZE</label>
+            <select
+              v-model="characteristics.size"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            >
+              <option value="">--</option>
+              <option v-for="s in DND_SIZES" :key="s" :value="s">{{ s }}</option>
+            </select>
+          </div>
+          <!-- Height -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">HEIGHT</label>
+            <input
+              type="text"
+              v-model="characteristics.height"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Faith -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">FAITH</label>
+            <input
+              type="text"
+              v-model="characteristics.faith"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Hair -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">HAIR</label>
+            <input
+              type="text"
+              v-model="characteristics.hair"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Skin -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">SKIN</label>
+            <input
+              type="text"
+              v-model="characteristics.skin"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Age -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">AGE</label>
+            <input
+              type="text"
+              v-model="characteristics.age"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+          <!-- Weight -->
+          <div>
+            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">WEIGHT</label>
+            <input
+              type="text"
+              v-model="characteristics.weight"
+              placeholder="--"
+              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Personality Traits, Ideals, Bonds, Flaws -->
+      <div class="space-y-4 pt-1">
+        <!-- Personality Traits -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-gray-900 text-xs">Personality Traits</h3>
+            <button
+              type="button"
+              @click="openTraitTableModal('personalityTraits')"
+              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
+              title="View suggested traits table or roll"
+            >
+              <IconDice class="w-3.5 h-3.5 text-gray-600" />
+              <span>Table / Roll</span>
+            </button>
+          </div>
+          <div v-if="characteristics.personalityTraits.length === 0">
+            <button
+              type="button"
+              @click="addPersonalityTrait"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Personality Trait</span>
+            </button>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="(trait, idx) in characteristics.personalityTraits"
+              :key="idx"
+              class="flex items-start gap-1.5"
+            >
+              <textarea
+                v-model="characteristics.personalityTraits[idx]"
+                rows="2"
+                placeholder="Enter personality trait..."
+                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+              ></textarea>
+              <button
+                type="button"
+                @click="removePersonalityTrait(idx)"
+                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                title="Remove"
+              >
+                <IconTrash class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="addPersonalityTrait"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Personality Trait</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Ideals -->
+        <div class="space-y-2 pt-2 border-t border-gray-100">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-gray-900 text-xs">Ideals</h3>
+            <button
+              type="button"
+              @click="openTraitTableModal('ideals')"
+              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
+              title="View suggested ideals table or roll"
+            >
+              <IconDice class="w-3.5 h-3.5 text-gray-600" />
+              <span>Table / Roll</span>
+            </button>
+          </div>
+          <div v-if="characteristics.ideals.length === 0">
+            <button
+              type="button"
+              @click="addIdeal"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Ideal</span>
+            </button>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="(ideal, idx) in characteristics.ideals"
+              :key="idx"
+              class="flex items-start gap-1.5"
+            >
+              <textarea
+                v-model="characteristics.ideals[idx]"
+                rows="2"
+                placeholder="Enter ideal..."
+                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+              ></textarea>
+              <button
+                type="button"
+                @click="removeIdeal(idx)"
+                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                title="Remove"
+              >
+                <IconTrash class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="addIdeal"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Ideal</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bonds -->
+        <div class="space-y-2 pt-2 border-t border-gray-100">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-gray-900 text-xs">Bonds</h3>
+            <button
+              type="button"
+              @click="openTraitTableModal('bonds')"
+              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
+              title="View suggested bonds table or roll"
+            >
+              <IconDice class="w-3.5 h-3.5 text-gray-600" />
+              <span>Table / Roll</span>
+            </button>
+          </div>
+          <div v-if="characteristics.bonds.length === 0">
+            <button
+              type="button"
+              @click="addBond"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Bond</span>
+            </button>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="(bond, idx) in characteristics.bonds"
+              :key="idx"
+              class="flex items-start gap-1.5"
+            >
+              <textarea
+                v-model="characteristics.bonds[idx]"
+                rows="2"
+                placeholder="Enter bond..."
+                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+              ></textarea>
+              <button
+                type="button"
+                @click="removeBond(idx)"
+                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                title="Remove"
+              >
+                <IconTrash class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="addBond"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Bond</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Flaws -->
+        <div class="space-y-2 pt-2 border-t border-gray-100">
+          <div class="flex items-center justify-between">
+            <h3 class="font-bold text-gray-900 text-xs">Flaws</h3>
+            <button
+              type="button"
+              @click="openTraitTableModal('flaws')"
+              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
+              title="View suggested flaws table or roll"
+            >
+              <IconDice class="w-3.5 h-3.5 text-gray-600" />
+              <span>Table / Roll</span>
+            </button>
+          </div>
+          <div v-if="characteristics.flaws.length === 0">
+            <button
+              type="button"
+              @click="addFlaw"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Flaw</span>
+            </button>
+          </div>
+          <div v-else class="space-y-1.5">
+            <div
+              v-for="(flaw, idx) in characteristics.flaws"
+              :key="idx"
+              class="flex items-start gap-1.5"
+            >
+              <textarea
+                v-model="characteristics.flaws[idx]"
+                rows="2"
+                placeholder="Enter flaw..."
+                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+              ></textarea>
+              <button
+                type="button"
+                @click="removeFlaw(idx)"
+                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                title="Remove"
+              >
+                <IconTrash class="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              @click="addFlaw"
+              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
+            >
+              <IconPlus class="w-3.5 h-3.5" />
+              <span>Add Flaw</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- APPEARANCE -->
+      <div class="space-y-2 pt-3 border-t border-gray-200">
+        <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">APPEARANCE</h3>
+        <textarea
+          v-model="characteristics.appearance"
+          rows="3"
+          placeholder="+ Add Appearance information (physical features, clothing, demeanor, scars, etc.)"
+          class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+        ></textarea>
+      </div>
+
+      <!-- Lifestyle & Wealth -->
+      <div class="space-y-2 pt-3 border-t border-gray-200">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Lifestyle & Wealth</h3>
+          <span class="text-[11px] font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+            {{ LIFESTYLES.find(l => l.value === characteristics.lifestyle)?.cost || '1 gp/day' }}
+          </span>
+        </div>
+        <v-select
+          v-model="characteristics.lifestyle"
+          :options="LIFESTYLES"
+          :reduce="opt => opt.value"
+          label="label"
+          :clearable="false"
+          class="text-xs bg-white rounded"
+        />
+        <p class="text-[11px] text-gray-500">
+          {{ LIFESTYLES.find(l => l.value === characteristics.lifestyle)?.desc }}
+        </p>
+      </div>
+
+      <!-- Notes & Organizations Sub-Tabs -->
+      <div class="pt-4 border-t border-gray-200 space-y-3">
+        <!-- Sub-tabs bar: ALL, ORGS, ALLIES, ENEMIES, BACKSTORY, OTHER -->
+        <div class="flex items-center gap-1 overflow-x-auto pb-1 text-xs font-bold border-b border-gray-200">
+          <button
+            v-for="st in ['ALL', 'ORGS', 'ALLIES', 'ENEMIES', 'BACKSTORY', 'OTHER']"
+            :key="st"
+            type="button"
+            @click="activeNotesSubTab = st"
+            :class="activeNotesSubTab === st ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200'"
+            class="px-2.5 py-1 rounded text-[11px] font-bold tracking-wider transition cursor-pointer"
+          >
+            {{ st }}
+          </button>
+        </div>
+
+        <!-- Sections displayed based on activeNotesSubTab -->
+        <div class="space-y-4 pt-1">
+          <!-- ORGANIZATIONS -->
+          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ORGS'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ORGANIZATIONS</h4>
+            <textarea
+              v-model="characteristics.notes.organizations"
+              rows="2"
+              placeholder="+ Add Organizations"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- ALLIES -->
+          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ALLIES'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ALLIES</h4>
+            <textarea
+              v-model="characteristics.notes.allies"
+              rows="2"
+              placeholder="+ Add Allies"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- ENEMIES -->
+          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ENEMIES'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ENEMIES</h4>
+            <textarea
+              v-model="characteristics.notes.enemies"
+              rows="2"
+              placeholder="+ Add Enemies"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- BACKSTORY -->
+          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'BACKSTORY'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">BACKSTORY</h4>
+            <textarea
+              v-model="characteristics.notes.backstory"
+              rows="3"
+              placeholder="+ Add Backstory"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- OTHER -->
+          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'OTHER'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">OTHER</h4>
+            <textarea
+              v-model="characteristics.notes.other"
+              rows="2"
+              placeholder="+ Add Other"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -5336,21 +6116,6 @@ const submitForm = async () => {
           {{ errors.asiTiers }}
         </p>
       </div>
-
-      <!-- Alignment (Abilities step for both editions) -->
-      <div class="mb-4 pt-3 border-t border-gray-200" data-error-field="alignment">
-        <label for="alignment" class="block text-xs font-semibold text-gray-700 mb-1">Character Alignment:</label>
-        <v-select
-          id="alignment"
-          v-model="alignment"
-          :options="alignments"
-          placeholder="Choose alignment..."
-          :class="{ 'has-error': errors.alignment }"
-        />
-        <p v-if="errors.alignment" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.alignment }}
-        </p>
-      </div>
     </div>
 
     <!-- TAB 5: Equipment & Wealth -->
@@ -5716,6 +6481,67 @@ const submitForm = async () => {
               </button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trait Table Selection & Roll Modal -->
+    <div
+      v-if="traitTableModal.isOpen"
+      @click.self="closeTraitTableModal"
+      class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4"
+    >
+      <div class="bg-white border border-gray-200 rounded-lg shadow-xl max-w-lg w-full text-xs max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between p-3.5 border-b border-gray-200">
+          <div>
+            <h3 class="font-bold text-gray-900 text-sm">{{ traitTableModal.title }} Table</h3>
+            <p class="text-[11px] text-gray-500">
+              {{ selectedBackgroundObj?.name ? `${selectedBackgroundObj.name} suggested options` : 'Suggested options' }} (d{{ traitTableModal.options.length }})
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="closeTraitTableModal"
+            class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer"
+          >
+            <IconX class="w-4 h-4" />
+          </button>
+        </div>
+
+        <div class="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+          <span class="text-xs text-gray-600">Pick any option below or roll:</span>
+          <button
+            type="button"
+            @click="rollTraitFromModal"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-semibold rounded cursor-pointer transition shadow-xs"
+          >
+            <IconDice class="w-4 h-4" />
+            <span>Roll Random (d{{ traitTableModal.options.length }})</span>
+          </button>
+        </div>
+
+        <div class="p-3 overflow-y-auto space-y-2 flex-1">
+          <div
+            v-for="(opt, idx) in traitTableModal.options"
+            :key="idx"
+            @click="selectTraitFromModal(opt)"
+            class="p-2.5 rounded border border-gray-200 hover:border-gray-900 hover:bg-gray-50 cursor-pointer transition flex items-start gap-2.5 group text-xs text-gray-700"
+          >
+            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 group-hover:bg-gray-900 group-hover:text-white font-bold text-[11px] shrink-0 text-gray-600 transition">
+              {{ idx + 1 }}
+            </span>
+            <span class="flex-1 leading-relaxed">{{ opt }}</span>
+          </div>
+        </div>
+
+        <div class="p-3 border-t border-gray-200 flex justify-end">
+          <button
+            type="button"
+            @click="closeTraitTableModal"
+            class="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 cursor-pointer"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>

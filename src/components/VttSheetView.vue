@@ -4,7 +4,36 @@ import axios from 'axios'
 import { renderAnnotatedText, renderTableCell, clean5eToolsMarkup, format5eEntries } from '../utils/textRenderer'
 import { useConfig } from '../config'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
-import { IconArrowLeft, IconX, IconExternalLink, IconBook, IconUsers, IconEdit, IconBolt, IconHandStop, IconSword, IconStarFilled } from '@tabler/icons-vue'
+import {
+  IconArrowLeft,
+  IconX,
+  IconExternalLink,
+  IconBook,
+  IconUsers,
+  IconEdit,
+  IconBolt,
+  IconHandStop,
+  IconSword,
+  IconStarFilled,
+  IconStar,
+  IconShield,
+  IconMoon,
+  IconBed,
+  IconCampfire,
+  IconPlus,
+  IconCheck,
+  IconWorld,
+  IconPencil,
+  IconMenu2,
+  IconChevronDown,
+  IconChevronUp,
+  IconMinus,
+  IconHome,
+  IconCamera,
+  IconDice
+} from '@tabler/icons-vue'
+import { compressImage } from '../utils/imageCompressor'
+import { LIFESTYLES } from '../utils/characteristicsHelper'
 
 const API_URL = useConfig().API_URL
 const { openCompendium } = useCompendiumNav()
@@ -16,14 +45,125 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['back', 'create', 'edit'])
+const emit = defineEmits(['back', 'create', 'edit', 'open-campaign'])
+
+const openCompendiumInApp = () => {
+  openCompendium({ category: 'all', updateUrl: true })
+}
 
 const openCompendiumWindow = () => {
-  window.open(`${window.location.origin}${window.location.pathname}?compendium=1`, '_blank')
+  openCompendium({ category: 'all', updateUrl: true })
 }
 
 const vtt = computed(() => props.character?.vtt || {})
 const char = computed(() => props.character || {})
+
+// Avatar image interactive upload
+const avatarFileInput = ref(null)
+const isUploadingAvatar = ref(false)
+const localImageUrl = ref('')
+
+const resolvedImageUrl = computed(() => {
+  const url = localImageUrl.value || char.value?.image_url
+  if (!url) return ''
+  if (url.startsWith('http') || url.startsWith('data:')) return url
+  return `${API_URL}${url}`
+})
+
+const triggerAvatarUpload = () => {
+  if (isUploadingAvatar.value) return
+  avatarFileInput.value?.click()
+}
+
+const handleAvatarFileChange = async (event) => {
+  const file = event.target?.files?.[0]
+  if (!file) return
+  try {
+    isUploadingAvatar.value = true
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Image size exceeds 2 MB limit')
+      return
+    }
+    const compressed = await compressImage(file)
+    const formData = new FormData()
+    formData.append('image', compressed.blob, compressed.name)
+    const res = await axios.post(`${API_URL}/character/upload-image`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    const uploadedUrl = res.data?.data?.url
+    if (uploadedUrl && char.value?.id) {
+      localImageUrl.value = uploadedUrl
+      await axios.put(`${API_URL}/character/${char.value.id}`, {
+        image_url: uploadedUrl
+      })
+      if (props.character) {
+        props.character.image_url = uploadedUrl
+      }
+    }
+  } catch (err) {
+    console.error('Failed to update avatar:', err)
+    alert(err.message || 'Failed to upload avatar')
+  } finally {
+    isUploadingAvatar.value = false
+    if (event.target) event.target.value = ''
+  }
+}
+
+// Characteristics state & sheet notes
+const parsedCharacteristics = computed(() => {
+  const c = char.value?.characteristics
+  if (!c) return {}
+  if (typeof c === 'string') {
+    try { return JSON.parse(c) } catch (e) { return {} }
+  }
+  return c
+})
+
+const sheetNotesSubTab = ref('ALL') // 'ALL' | 'ORGS' | 'ALLIES' | 'ENEMIES' | 'BACKSTORY' | 'OTHER'
+const sheetNotes = ref({
+  organizations: '',
+  allies: '',
+  enemies: '',
+  backstory: '',
+  other: ''
+})
+const isSavingNotes = ref(false)
+const notesSavedToast = ref(false)
+
+watch(() => parsedCharacteristics.value, (val) => {
+  if (val?.notes) {
+    sheetNotes.value = {
+      organizations: val.notes.organizations || '',
+      allies: val.notes.allies || '',
+      enemies: val.notes.enemies || '',
+      backstory: val.notes.backstory || '',
+      other: val.notes.other || ''
+    }
+  }
+}, { immediate: true })
+
+const saveSheetNotes = async () => {
+  if (!char.value?.id) return
+  try {
+    isSavingNotes.value = true
+    const updatedChars = {
+      ...parsedCharacteristics.value,
+      notes: { ...sheetNotes.value }
+    }
+    await axios.put(`${API_URL}/character/${char.value.id}`, {
+      characteristics: updatedChars
+    })
+    if (props.character) {
+      props.character.characteristics = updatedChars
+    }
+    notesSavedToast.value = true
+    setTimeout(() => { notesSavedToast.value = false }, 2000)
+  } catch (err) {
+    console.error('Failed to save notes:', err)
+  } finally {
+    isSavingNotes.value = false
+  }
+}
 
 const classSummary = computed(() => {
   const classes = Array.isArray(char.value.class) ? char.value.class : (char.value.class ? [char.value.class] : [])
@@ -38,11 +178,179 @@ const classSummary = computed(() => {
   }).join(' / ')
 })
 
-// HP Tracker interactive state
-const currentHp = ref(Number(char.value.hp || char.value.max_hp || 10))
-const maxHp = ref(Number(char.value.max_hp || 10))
+// HP Tracker & Vitals interactive state
+const baseMaxHp = computed(() => {
+  return Number(char.value.base_max_hp || char.value.max_hp_base || char.value.max_hp || 10)
+})
+
+const maxHpModifier = ref(Number(char.value.max_hp_modifier != null ? char.value.max_hp_modifier : (vtt.value?.combat?.hp?.max_hp_modifier || 0)))
+const overrideMaxHp = ref(char.value.override_max_hp != null ? Number(char.value.override_max_hp) : (vtt.value?.combat?.hp?.override_max_hp != null ? Number(vtt.value.combat.hp.override_max_hp) : null))
+
+const effectiveMaxHp = computed(() => {
+  if (overrideMaxHp.value != null && overrideMaxHp.value !== '' && !isNaN(Number(overrideMaxHp.value)) && Number(overrideMaxHp.value) > 0) {
+    return Number(overrideMaxHp.value)
+  }
+  return Math.max(1, baseMaxHp.value + (Number(maxHpModifier.value) || 0))
+})
+
+const currentHp = ref(Number(char.value.hp != null ? char.value.hp : effectiveMaxHp.value))
+const maxHp = ref(effectiveMaxHp.value)
 const tempHp = ref(Number(char.value.temp_hp || 0))
+const tempHpInput = ref(tempHp.value > 0 ? tempHp.value : '')
 const hpInput = ref(1)
+
+const showHpModal = ref(false)
+const healModalInput = ref(0)
+const damageModalInput = ref(0)
+const maxHpModifierInput = ref(maxHpModifier.value !== 0 ? maxHpModifier.value : '')
+const overrideMaxHpInput = ref(overrideMaxHp.value != null ? overrideMaxHp.value : '')
+
+const openHpModal = () => {
+  healModalInput.value = 0
+  damageModalInput.value = 0
+  maxHpModifierInput.value = maxHpModifier.value !== 0 ? maxHpModifier.value : ''
+  overrideMaxHpInput.value = overrideMaxHp.value != null ? overrideMaxHp.value : ''
+  showHpModal.value = true
+}
+
+const previewMaxHp = computed(() => {
+  const oVal = overrideMaxHpInput.value === '' ? null : Number(overrideMaxHpInput.value)
+  if (oVal != null && !isNaN(oVal) && oVal > 0) return oVal
+  const modVal = maxHpModifierInput.value === '' ? 0 : Number(maxHpModifierInput.value) || 0
+  return Math.max(1, baseMaxHp.value + modVal)
+})
+
+const newHpPreview = computed(() => {
+  const targetMax = previewMaxHp.value
+  const heal = Math.max(0, Number(healModalInput.value) || 0)
+  const dmg = Math.max(0, Number(damageModalInput.value) || 0)
+  if (heal > 0) {
+    return Math.min(targetMax, currentHp.value + heal)
+  }
+  if (dmg > 0) {
+    if (tempHp.value > 0) {
+      const remDmg = Math.max(0, dmg - tempHp.value)
+      return Math.max(0, currentHp.value - remDmg)
+    }
+    return Math.max(0, currentHp.value - dmg)
+  }
+  return currentHp.value
+})
+
+const isInspired = ref(Boolean(vtt.value?.inspiration || char.value?.inspiration))
+const activeCampaignId = ref(props.character?.campaign_id ? Number(props.character.campaign_id) : null)
+const campaignName = ref(vtt.value?.campaign_name || char.value?.campaign_name || '')
+const showCampaignModal = ref(false)
+const campaignInput = ref(campaignName.value)
+const isMobileMenuOpen = ref(false)
+
+watch(() => props.character?.campaign_id, (newId) => {
+  activeCampaignId.value = newId ? Number(newId) : null
+})
+
+const toastMessage = ref('')
+let toastTimer = null
+const showToast = (msg) => {
+  toastMessage.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => { toastMessage.value = '' }, 2500)
+}
+
+watch(effectiveMaxHp, (newVal) => {
+  maxHp.value = newVal
+  if (currentHp.value > newVal) {
+    currentHp.value = newVal
+  }
+})
+
+watch(() => [char.value.hp, char.value.max_hp, char.value.temp_hp, char.value.max_hp_modifier, char.value.override_max_hp], () => {
+  maxHpModifier.value = Number(char.value.max_hp_modifier != null ? char.value.max_hp_modifier : (vtt.value?.combat?.hp?.max_hp_modifier || 0))
+  overrideMaxHp.value = char.value.override_max_hp != null ? Number(char.value.override_max_hp) : (vtt.value?.combat?.hp?.override_max_hp != null ? Number(vtt.value.combat.hp.override_max_hp) : null)
+  maxHp.value = effectiveMaxHp.value
+  currentHp.value = Number(char.value.hp != null ? char.value.hp : effectiveMaxHp.value)
+  tempHp.value = Number(char.value.temp_hp || 0)
+  tempHpInput.value = tempHp.value > 0 ? tempHp.value : ''
+})
+
+watch(() => [vtt.value?.inspiration, char.value?.inspiration], () => {
+  isInspired.value = Boolean(vtt.value?.inspiration || char.value?.inspiration)
+})
+
+watch(() => [vtt.value?.campaign_name, char.value?.campaign_name], () => {
+  campaignName.value = vtt.value?.campaign_name || char.value?.campaign_name || ''
+  campaignInput.value = campaignName.value
+})
+
+const saveVitals = async (updates) => {
+  if (!char.value?.id) return
+  try {
+    await axios.put(`${API_URL}/character/${char.value.id}`, updates)
+  } catch (err) {
+    console.error('Failed to save vitals', err)
+  }
+}
+
+const saveHpState = async () => {
+  const modVal = maxHpModifierInput.value === '' ? 0 : Number(maxHpModifierInput.value) || 0
+  maxHpModifier.value = modVal
+  const oVal = overrideMaxHpInput.value === '' ? null : Number(overrideMaxHpInput.value)
+  overrideMaxHp.value = oVal != null && !isNaN(oVal) && oVal > 0 ? oVal : null
+
+  maxHp.value = effectiveMaxHp.value
+  currentHp.value = Math.min(currentHp.value, maxHp.value)
+  tempHpInput.value = tempHp.value > 0 ? tempHp.value : ''
+
+  if (char.value) {
+    char.value.hp = currentHp.value
+    char.value.max_hp = maxHp.value
+    char.value.temp_hp = tempHp.value
+    char.value.max_hp_modifier = maxHpModifier.value
+    char.value.override_max_hp = overrideMaxHp.value
+  }
+
+  await saveVitals({
+    hp: currentHp.value,
+    max_hp: maxHp.value,
+    temp_hp: tempHp.value,
+    max_hp_modifier: maxHpModifier.value,
+    override_max_hp: overrideMaxHp.value
+  })
+}
+
+const applyModalHeal = async () => {
+  const val = Math.max(0, Number(healModalInput.value) || 0)
+  if (val > 0) {
+    currentHp.value = Math.min(previewMaxHp.value, currentHp.value + val)
+    healModalInput.value = 0
+    await saveHpState()
+  }
+}
+
+const applyModalDamage = async () => {
+  const val = Math.max(0, Number(damageModalInput.value) || 0)
+  if (val > 0) {
+    if (tempHp.value > 0) {
+      if (tempHp.value >= val) {
+        tempHp.value -= val
+        tempHpInput.value = tempHp.value > 0 ? tempHp.value : ''
+      } else {
+        const rem = val - tempHp.value
+        tempHp.value = 0
+        tempHpInput.value = ''
+        currentHp.value = Math.max(0, currentHp.value - rem)
+      }
+    } else {
+      currentHp.value = Math.max(0, currentHp.value - val)
+    }
+    damageModalInput.value = 0
+    await saveHpState()
+  }
+}
+
+const closeHpModal = async () => {
+  await saveHpState()
+  showHpModal.value = false
+}
 
 const applyDamage = () => {
   const amount = Number(hpInput.value) || 0
@@ -50,21 +358,437 @@ const applyDamage = () => {
   if (tempHp.value > 0) {
     if (tempHp.value >= amount) {
       tempHp.value -= amount
+      tempHpInput.value = tempHp.value > 0 ? tempHp.value : ''
+      saveVitals({ hp: currentHp.value, temp_hp: tempHp.value })
       return
     } else {
       const remaining = amount - tempHp.value
       tempHp.value = 0
+      tempHpInput.value = ''
       currentHp.value = Math.max(0, currentHp.value - remaining)
+      saveVitals({ hp: currentHp.value, temp_hp: 0 })
       return
     }
   }
   currentHp.value = Math.max(0, currentHp.value - amount)
+  saveVitals({ hp: currentHp.value, temp_hp: tempHp.value })
 }
 
 const applyHeal = () => {
   const amount = Number(hpInput.value) || 0
   if (amount <= 0) return
   currentHp.value = Math.min(maxHp.value, currentHp.value + amount)
+  saveVitals({ hp: currentHp.value, temp_hp: tempHp.value })
+}
+
+const updateTempHp = () => {
+  const val = Math.max(0, Number(tempHpInput.value) || 0)
+  tempHp.value = val
+  tempHpInput.value = val > 0 ? val : ''
+  saveVitals({ temp_hp: val })
+}
+
+const toggleInspiration = async () => {
+  isInspired.value = !isInspired.value
+  if (char.value) char.value.inspiration = isInspired.value
+  await saveVitals({ inspiration: isInspired.value })
+  showToast(isInspired.value ? 'Heroic Inspiration gained!' : 'Inspiration expended')
+}
+
+const userCampaigns = ref([])
+const selectedLinkCampaignId = ref('')
+const isLinkingCampaign = ref(false)
+
+const openCampaignModal = async () => {
+  campaignInput.value = campaignName.value
+  selectedLinkCampaignId.value = activeCampaignId.value ? String(activeCampaignId.value) : ''
+  showCampaignModal.value = true
+  try {
+    const res = await axios.get(`${API_URL}/campaign`)
+    userCampaigns.value = Array.isArray(res.data?.data) ? res.data.data : []
+  } catch (err) {
+    console.warn('Failed to load campaigns for sheet modal', err)
+  }
+}
+
+const linkCharacterToCampaign = async () => {
+  if (!selectedLinkCampaignId.value || !char.value?.id) return
+  isLinkingCampaign.value = true
+  try {
+    const campId = Number(selectedLinkCampaignId.value)
+    await axios.post(`${API_URL}/campaign/${campId}/link-character`, {
+      character_id: char.value.id
+    })
+    const camp = userCampaigns.value.find(c => c.id === campId)
+    activeCampaignId.value = campId
+    campaignName.value = camp?.name || campaignName.value
+    campaignInput.value = campaignName.value
+    if (props.character) {
+      props.character.campaign_id = campId
+      props.character.campaign_name = campaignName.value
+    }
+    showToast('Character linked to campaign!')
+  } catch (err) {
+    console.error('Failed to link character', err)
+    showToast(err.response?.data?.message || 'Failed to link character')
+  } finally {
+    isLinkingCampaign.value = false
+  }
+}
+
+const unlinkCharacterFromCampaign = async () => {
+  const campId = activeCampaignId.value || char.value?.campaign_id
+  if (!campId || !char.value?.id) return
+  try {
+    await axios.post(`${API_URL}/campaign/${campId}/unlink-character`, {
+      character_id: char.value.id
+    })
+    activeCampaignId.value = null
+    campaignName.value = ''
+    campaignInput.value = ''
+    selectedLinkCampaignId.value = ''
+    if (props.character) {
+      props.character.campaign_id = null
+      props.character.campaign_name = null
+    }
+    showToast('Character unlinked from campaign')
+  } catch (err) {
+    console.error('Failed to unlink character', err)
+    showToast(err.response?.data?.message || 'Failed to unlink character')
+  }
+}
+
+const goToCampaignRoom = () => {
+  showCampaignModal.value = false
+  const campId = activeCampaignId.value || char.value?.campaign_id
+  emit('open-campaign', campId)
+}
+
+const saveCampaign = async () => {
+  campaignName.value = campaignInput.value.trim()
+  showCampaignModal.value = false
+  if (char.value) char.value.campaign_name = campaignName.value
+  await saveVitals({ campaign_name: campaignName.value })
+  showToast('Campaign updated')
+}
+
+// Defenses state
+const rawDefenses = computed(() => vtt.value?.defenses || char.value?.defenses || { resistances: [], immunities: [], vulnerabilities: [] })
+const liveDefenses = ref({
+  resistances: [...(rawDefenses.value.resistances || [])],
+  immunities: [...(rawDefenses.value.immunities || [])],
+  vulnerabilities: [...(rawDefenses.value.vulnerabilities || [])]
+})
+
+watch(rawDefenses, (val) => {
+  if (val) {
+    liveDefenses.value = {
+      resistances: [...(val.resistances || [])],
+      immunities: [...(val.immunities || [])],
+      vulnerabilities: [...(val.vulnerabilities || [])]
+    }
+  }
+}, { deep: true, immediate: true })
+
+const showAddDefenseModal = ref(false)
+const newDefenseType = ref('resistances')
+const newDefenseDamage = ref('Poison')
+
+const DAMAGE_TYPES = [
+  'Acid', 'Bludgeoning', 'Cold', 'Fire', 'Force', 'Lightning',
+  'Necrotic', 'Piercing', 'Poison', 'Psychic', 'Radiant', 'Slashing', 'Thunder'
+]
+
+const openAddDefenseModal = () => {
+  newDefenseType.value = 'resistances'
+  newDefenseDamage.value = 'Poison'
+  showAddDefenseModal.value = true
+}
+
+const addDefense = async () => {
+  const type = newDefenseType.value
+  const dmg = newDefenseDamage.value.trim()
+  if (!dmg) return
+  if (!liveDefenses.value[type].includes(dmg)) {
+    liveDefenses.value[type].push(dmg)
+    if (char.value) char.value.defenses = liveDefenses.value
+    await saveVitals({ defenses: liveDefenses.value })
+    showToast(`Added ${dmg} defense`)
+  }
+  showAddDefenseModal.value = false
+}
+
+const removeDefense = async (type, dmg) => {
+  liveDefenses.value[type] = liveDefenses.value[type].filter(d => d !== dmg)
+  if (char.value) char.value.defenses = liveDefenses.value
+  await saveVitals({ defenses: liveDefenses.value })
+  showToast(`Removed ${dmg} defense`)
+}
+
+// Conditions state
+const rawConditions = computed(() => vtt.value?.conditions || char.value?.conditions || [])
+const liveConditions = ref(Array.isArray(rawConditions.value) ? [...rawConditions.value] : [])
+
+watch(rawConditions, (val) => {
+  liveConditions.value = Array.isArray(val) ? [...val] : []
+}, { deep: true, immediate: true })
+
+const showConditionModal = ref(false)
+
+const ALL_CONDITIONS = [
+  'Blinded', 'Charmed', 'Deafened', 'Exhaustion', 'Frightened',
+  'Grappled', 'Incapacitated', 'Invisible', 'Paralyzed', 'Petrified',
+  'Poisoned', 'Prone', 'Restrained', 'Stunned', 'Unconscious'
+]
+
+const maxExhaustionLevel = computed(() => {
+  return char.value?.edition === '2024' ? 10 : 6
+})
+
+const isConditionActive = (cond) => {
+  if (cond === 'Exhaustion') {
+    return exhaustionLevel.value !== null
+  }
+  return liveConditions.value.includes(cond)
+}
+
+const getExhaustionLevel = () => {
+  const ex = liveConditions.value.find(c => typeof c === 'string' && c.toLowerCase().startsWith('exhaustion'))
+  if (!ex) return null
+  const m = ex.match(/level\s*(\d+)/i)
+  return m ? Number(m[1]) : 1
+}
+
+const exhaustionLevel = computed(() => getExhaustionLevel())
+
+const setExhaustionLevel = async (lvl) => {
+  const maxLvl = maxExhaustionLevel.value
+  const clamped = Math.max(1, Math.min(maxLvl, Number(lvl) || 1))
+  liveConditions.value = liveConditions.value.filter(c => !String(c).toLowerCase().startsWith('exhaustion'))
+  liveConditions.value.push(`Exhaustion (Level ${clamped})`)
+  if (char.value) char.value.conditions = liveConditions.value
+  await saveVitals({ conditions: liveConditions.value })
+}
+
+const toggleCondition = async (cond) => {
+  if (cond === 'Exhaustion') {
+    if (exhaustionLevel.value !== null) {
+      liveConditions.value = liveConditions.value.filter(c => !String(c).toLowerCase().startsWith('exhaustion'))
+    } else {
+      liveConditions.value.push('Exhaustion (Level 1)')
+    }
+  } else {
+    const idx = liveConditions.value.indexOf(cond)
+    if (idx >= 0) {
+      liveConditions.value.splice(idx, 1)
+    } else {
+      liveConditions.value.push(cond)
+    }
+  }
+  if (char.value) char.value.conditions = liveConditions.value
+  await saveVitals({ conditions: liveConditions.value })
+}
+
+const removeCondition = async (cond) => {
+  if (String(cond).toLowerCase().startsWith('exhaustion')) {
+    liveConditions.value = liveConditions.value.filter(c => !String(c).toLowerCase().startsWith('exhaustion'))
+  } else {
+    liveConditions.value = liveConditions.value.filter(c => c !== cond)
+  }
+  if (char.value) char.value.conditions = liveConditions.value
+  await saveVitals({ conditions: liveConditions.value })
+}
+
+const getExhaustionDescription = (lvl) => {
+  if (!lvl) return ''
+  if (char.value?.edition === '2024') {
+    if (lvl >= 10) return 'Level 10: Death.'
+    return `Level ${lvl}: -${lvl} penalty on all D20 Tests (attack rolls, ability checks, and saving throws), and Speed is reduced by ${lvl * 5} feet.`
+  }
+  const descriptions = {
+    1: 'Level 1: Disadvantage on ability checks.',
+    2: 'Level 2: Speed halved.',
+    3: 'Level 3: Disadvantage on attack rolls and saving throws.',
+    4: 'Level 4: Hit point maximum halved.',
+    5: 'Level 5: Speed reduced to 0.',
+    6: 'Level 6: Death.'
+  }
+  return descriptions[lvl] || `Level ${lvl}`
+}
+
+// Saving throw notes & advantages
+const showSaveNoteModal = ref(false)
+const customSaveNoteInput = ref(char.value?.saving_throw_notes || '')
+
+watch(() => char.value?.saving_throw_notes, (val) => {
+  customSaveNoteInput.value = val || ''
+})
+
+const saveAdvantageNotes = computed(() => {
+  const list = []
+  const vNotes = vtt.value?.saving_throw_notes
+  if (Array.isArray(vNotes)) {
+    list.push(...vNotes)
+  }
+  const custom = customSaveNoteInput.value.trim()
+  if (custom && !list.some(n => n.label === custom)) {
+    list.push({ type: 'custom', label: custom })
+  }
+  return list
+})
+
+const saveCustomSaveNote = async () => {
+  const val = customSaveNoteInput.value.trim()
+  showSaveNoteModal.value = false
+  if (char.value) char.value.saving_throw_notes = val
+  await saveVitals({ saving_throw_notes: val })
+  showToast('Saving throw notes updated')
+}
+
+// Rest state & mechanics
+const totalHitDice = computed(() => {
+  return char.value.hit_dice || vtt.value?.combat?.hp?.hit_dice || `${char.value.level || 1}d8`
+})
+
+const maxHitDiceCount = computed(() => {
+  const str = totalHitDice.value || '1d8'
+  const match = str.match(/^(\d+)d/)
+  return match ? Number(match[1]) : (Number(char.value.level) || 1)
+})
+
+const hitDieFaces = computed(() => {
+  const str = totalHitDice.value || '1d8'
+  const match = str.match(/d(\d+)/)
+  return match ? Number(match[1]) : 8
+})
+
+const conMod = computed(() => {
+  const cVal = char.value.ability_score?.constitution
+  if (cVal != null) return Math.floor((Number(cVal) - 10) / 2)
+  return Number(vtt.value?.abilities?.constitution?.modifier || 0)
+})
+
+const spentHitDice = ref(0)
+const remainingHitDice = computed(() => Math.max(0, maxHitDiceCount.value - spentHitDice.value))
+
+const showShortRestModal = ref(false)
+const shortRestRollResult = ref(null)
+
+const openShortRestModal = () => {
+  shortRestRollResult.value = null
+  showShortRestModal.value = true
+}
+
+const rollHitDie = () => {
+  if (remainingHitDice.value <= 0) return
+  const die = hitDieFaces.value
+  const roll = Math.floor(Math.random() * die) + 1
+  const mod = conMod.value
+  const total = Math.max(1, roll + mod)
+
+  spentHitDice.value += 1
+  const prevHp = currentHp.value
+  currentHp.value = Math.min(maxHp.value, currentHp.value + total)
+  const healed = currentHp.value - prevHp
+
+  shortRestRollResult.value = {
+    roll,
+    mod,
+    die,
+    total,
+    healed,
+    timestamp: new Date().toLocaleTimeString()
+  }
+
+  saveVitals({ hp: currentHp.value })
+}
+
+const completeShortRest = () => {
+  showShortRestModal.value = false
+  showToast('Short rest completed')
+}
+
+const showLongRestModal = ref(false)
+const longRestRule = ref(char.value?.edition === '2024' ? '5.5e' : '5e')
+const resetMaxHpOnRest = ref(true)
+
+const openLongRestModal = () => {
+  longRestRule.value = char.value?.edition === '2024' ? '5.5e' : '5e'
+  resetMaxHpOnRest.value = true
+  showLongRestModal.value = true
+}
+
+const recoverSummaryText = computed(() => {
+  const parts = []
+  const missingHp = Math.max(0, effectiveMaxHp.value - currentHp.value)
+  parts.push(missingHp > 0 ? `${missingHp} Hit Points` : `All Hit Points`)
+
+  const maxHd = maxHitDiceCount.value
+  const recoverHd = longRestRule.value === '5.5e'
+    ? maxHd
+    : Math.max(1, Math.floor(maxHd / 2))
+  parts.push(`Up to ${recoverHd} Hit Dice`)
+
+  let countSlots = 0
+  for (const k of Object.keys(expendedSlots?.value || {})) {
+    if (expendedSlots.value[k]) countSlots++
+  }
+  if (countSlots > 0) {
+    parts.push(`${countSlots} Spell Slots`)
+  } else if (allSpellLevels?.value?.length > 0) {
+    parts.push(`All Spell Slots`)
+  }
+  return parts.join(', ')
+})
+
+const executeLongRest = async () => {
+  if (resetMaxHpOnRest.value) {
+    maxHpModifier.value = 0
+    maxHpModifierInput.value = ''
+    overrideMaxHp.value = null
+    overrideMaxHpInput.value = ''
+  }
+
+  currentHp.value = effectiveMaxHp.value
+  maxHp.value = effectiveMaxHp.value
+  tempHp.value = 0
+  tempHpInput.value = ''
+
+  if (longRestRule.value === '5.5e') {
+    spentHitDice.value = 0
+  } else {
+    spentHitDice.value = Math.max(0, spentHitDice.value - Math.max(1, Math.floor(maxHitDiceCount.value / 2)))
+  }
+
+  restoreAllSlots()
+
+  // Long rest removes 1 level of exhaustion
+  if (exhaustionLevel.value !== null) {
+    if (exhaustionLevel.value > 1) {
+      await setExhaustionLevel(exhaustionLevel.value - 1)
+    } else {
+      await toggleCondition('Exhaustion')
+    }
+  }
+
+  showLongRestModal.value = false
+  if (char.value) {
+    char.value.hp = currentHp.value
+    char.value.max_hp = maxHp.value
+    char.value.temp_hp = 0
+    char.value.max_hp_modifier = maxHpModifier.value
+    char.value.override_max_hp = overrideMaxHp.value
+  }
+
+  await saveVitals({
+    hp: currentHp.value,
+    max_hp: maxHp.value,
+    temp_hp: 0,
+    max_hp_modifier: maxHpModifier.value,
+    override_max_hp: overrideMaxHp.value,
+    conditions: liveConditions.value
+  })
+  showToast('Long rest completed. HP and abilities restored.')
 }
 
 // Interactive Wealth / Currency state
@@ -116,6 +840,110 @@ const adjustCurrency = (coin, delta) => {
 // Interactive Equipment & Inventory
 const liveEquipment = ref([])
 
+const DEFAULT_CONTAINER_CAPACITIES = {
+  chest: 300,
+  backpack: 30,
+  sack: 30,
+  pouch: 6,
+  'bag of holding': 500,
+  basket: 40,
+  barrel: 400,
+  saddlebag: 30,
+  'component pouch': 4
+}
+
+const getContainerCapacity = (item) => {
+  if (!item) return null
+  if (item.container_capacity) return Number(item.container_capacity)
+  const nameLower = (item.name || '').toLowerCase()
+  for (const [key, cap] of Object.entries(DEFAULT_CONTAINER_CAPACITIES)) {
+    if (nameLower.includes(key)) return cap
+  }
+  return null
+}
+
+const isContainerItem = (item) => {
+  if (!item) return false
+  if (item.equip_type === 'container') return true
+  const nameLower = (item.name || '').toLowerCase()
+  return Boolean(getContainerCapacity(item)) || ['chest', 'backpack', 'pouch', 'sack', 'bag of holding', 'barrel', 'basket'].some(k => nameLower.includes(k))
+}
+
+const getItemEquipType = (item) => {
+  if (!item) return null
+  if (item.equip_type) return item.equip_type
+
+  const nameLower = (item.name || '').toLowerCase()
+  const type = (item.item_type || item.type || '').toLowerCase()
+
+  if (isContainerItem(item)) return 'container'
+  if (nameLower.includes('shield')) return 'shield'
+  if (item.is_armor || type === 'armor' || nameLower.includes('armor')) return 'armor'
+
+  const key = nameLower.replace(/['’]/g, '').replace(/[\s-]+/g, '_')
+  const isWeapon = type === 'weapon' || Boolean(item.damage_dice || item.damageDice || item.dmg1) || Boolean(WEAPON_DEFINITIONS[key]) || Object.keys(WEAPON_DEFINITIONS).some(k => nameLower.includes(k))
+  if (isWeapon) return 'weapon'
+
+  const wearableKeywords = ['ring', 'cloak', 'boots', 'bracers', 'robe', 'belt', 'helm', 'helmet', 'hat', 'circlet', 'goggles', 'amulet', 'necklace', 'gloves', 'gauntlets', 'clothes', 'suit']
+  if (type === 'wondrous' || wearableKeywords.some(k => nameLower.includes(k))) return 'wearable'
+
+  return null
+}
+
+const isItemEquippable = (item) => {
+  const eqType = getItemEquipType(item)
+  return eqType === 'weapon' || eqType === 'armor' || eqType === 'shield' || eqType === 'wearable'
+}
+
+const availableContainers = computed(() => {
+  return liveEquipment.value.filter(eq => isContainerItem(eq) && (eq.name || '').toLowerCase() !== 'backpack')
+})
+
+const equippedCount = computed(() => {
+  return liveEquipment.value.filter(eq => eq.status === 'equipped').length
+})
+
+const backpackCount = computed(() => {
+  return liveEquipment.value.filter(eq => eq.status !== 'equipped' && (!eq.container_name || eq.container_name.toLowerCase() === 'backpack')).length
+})
+
+const getContainerCurrentWeight = (containerName) => {
+  if (!containerName) return 0
+  const nameLower = containerName.toLowerCase()
+  return liveEquipment.value
+    .filter(eq => (eq.container_name || '').toLowerCase() === nameLower)
+    .reduce((sum, eq) => sum + ((parseFloat(eq.weight) || 0) * (parseInt(eq.amount) || 1)), 0)
+}
+
+const selectedContainerFilter = ref('all')
+
+const currentActiveContainer = computed(() => {
+  if (selectedContainerFilter.value === 'all' || selectedContainerFilter.value === 'equipped' || selectedContainerFilter.value === 'backpack') return null
+  return availableContainers.value.find(c => c.name.toLowerCase() === selectedContainerFilter.value.toLowerCase()) || null
+})
+
+const filteredEquipment = computed(() => {
+  if (selectedContainerFilter.value === 'all') {
+    return liveEquipment.value
+  }
+  if (selectedContainerFilter.value === 'equipped') {
+    return liveEquipment.value.filter(eq => eq.status === 'equipped')
+  }
+  if (selectedContainerFilter.value === 'backpack') {
+    return liveEquipment.value.filter(eq => eq.status !== 'equipped' && (!eq.container_name || eq.container_name.toLowerCase() === 'backpack'))
+  }
+  const target = selectedContainerFilter.value.toLowerCase()
+  return liveEquipment.value.filter(eq => (eq.container_name || '').toLowerCase() === target)
+})
+
+const setItemContainer = (item, containerName) => {
+  item.container_name = containerName || null
+  if (containerName) {
+    item.status = 'inventory'
+  }
+  saveEquipment()
+}
+
 const initEquipment = () => {
   const eq = char.value.equipment || char.value.equipments || []
   liveEquipment.value = Array.isArray(eq) ? JSON.parse(JSON.stringify(eq)) : []
@@ -132,27 +960,72 @@ const dexMod = computed(() => {
   return Number(vtt.value?.abilities?.dexterity?.modifier || 0)
 })
 
-const calculateLiveAc = (eqList) => {
+// AC Customization, Breakdown & Calculations
+const showAcModal = ref(false)
+const isAcCustomizeOpen = ref(true)
+
+const acCustom = ref({
+  override_ac: char.value?.ac_custom?.override_ac ?? null,
+  override_base: char.value?.ac_custom?.override_base ?? null,
+  magic_bonus: char.value?.ac_custom?.magic_bonus ?? null,
+  misc_bonus: char.value?.ac_custom?.misc_bonus ?? null,
+  notes_override_ac: char.value?.ac_custom?.notes_override_ac ?? '',
+  notes_override_base: char.value?.ac_custom?.notes_override_base ?? '',
+  notes_magic: char.value?.ac_custom?.notes_magic ?? '',
+  notes_misc: char.value?.ac_custom?.notes_misc ?? ''
+})
+
+watch(() => char.value?.ac_custom, (val) => {
+  if (val) {
+    acCustom.value = {
+      override_ac: val.override_ac ?? null,
+      override_base: val.override_base ?? null,
+      magic_bonus: val.magic_bonus ?? null,
+      misc_bonus: val.misc_bonus ?? null,
+      notes_override_ac: val.notes_override_ac ?? '',
+      notes_override_base: val.notes_override_base ?? '',
+      notes_magic: val.notes_magic ?? '',
+      notes_misc: val.notes_misc ?? ''
+    }
+  }
+}, { deep: true })
+
+const acBreakdown = computed(() => {
   let baseArmorAc = null
+  let armorName = 'Armor (None)'
+  let isHeavyArmor = false
+  let isMediumArmor = false
   let hasShield = false
   const dMod = dexMod.value
 
-  for (const eq of eqList) {
+  for (const eq of liveEquipment.value) {
     if (eq.status !== 'equipped') continue
     const nameLower = (eq.name || '').toLowerCase()
     if (nameLower.includes('shield')) {
       hasShield = true
     } else if (eq.is_armor || eq.item_type === 'armor') {
-      if (nameLower.includes('padded') || nameLower.includes('leather') || nameLower.includes('studded')) {
-        const base = nameLower.includes('studded') ? 12 : 11
-        baseArmorAc = base + dMod
+      armorName = eq.name || 'Armor'
+      const itemAc = eq.base_ac != null ? Number(eq.base_ac) : (eq.ac ? Number(eq.ac) : null)
+      if (itemAc !== null && itemAc > 0) {
+        if (eq.ac_dex_bonus === false || itemAc >= 16) {
+          baseArmorAc = itemAc
+          isHeavyArmor = true
+        } else if (itemAc >= 12 && itemAc <= 15) {
+          baseArmorAc = itemAc
+          isMediumArmor = true
+        } else {
+          baseArmorAc = itemAc
+        }
+      } else if (nameLower.includes('padded') || nameLower.includes('leather') || nameLower.includes('studded')) {
+        baseArmorAc = nameLower.includes('studded') ? 12 : 11
       } else if (nameLower.includes('hide') || nameLower.includes('chain shirt') || nameLower.includes('scale mail') || nameLower.includes('breastplate') || nameLower.includes('half plate')) {
         let base = 14
         if (nameLower.includes('hide')) base = 12
         else if (nameLower.includes('chain shirt')) base = 13
         else if (nameLower.includes('scale mail') || nameLower.includes('breastplate')) base = 14
         else if (nameLower.includes('half plate')) base = 15
-        baseArmorAc = base + Math.min(2, Math.max(0, dMod))
+        baseArmorAc = base
+        isMediumArmor = true
       } else if (nameLower.includes('ring mail') || nameLower.includes('chain mail') || nameLower.includes('splint') || nameLower.includes('plate')) {
         let base = 16
         if (nameLower.includes('ring mail')) base = 14
@@ -160,26 +1033,141 @@ const calculateLiveAc = (eqList) => {
         else if (nameLower.includes('splint')) base = 17
         else if (nameLower.includes('plate')) base = 18
         baseArmorAc = base
-      } else if (eq.ac || eq.base_ac) {
-        const base = Number(eq.ac || eq.base_ac)
-        baseArmorAc = base > 0 ? (base + (eq.dexMod ? dMod : 0)) : (10 + dMod)
+        isHeavyArmor = true
       }
     }
   }
 
-  let finalAc = 10 + dMod
-  if (baseArmorAc !== null) {
-    finalAc = baseArmorAc
+  const baseArmorValue = baseArmorAc !== null ? baseArmorAc : 10
+  let appliedDex = dMod
+  let dexLabel = 'Dexterity Bonus'
+  if (isHeavyArmor) {
+    appliedDex = 0
+    dexLabel = 'Dexterity Bonus (None - Heavy Armor)'
+  } else if (isMediumArmor) {
+    appliedDex = Math.min(2, Math.max(0, dMod))
+    dexLabel = 'Dexterity Bonus (Max +2)'
   }
-  if (hasShield) {
-    finalAc += 2
+
+  const overrideAcVal = acCustom.value.override_ac !== null && acCustom.value.override_ac !== '' && !isNaN(Number(acCustom.value.override_ac))
+    ? Number(acCustom.value.override_ac)
+    : null
+
+  const overrideBaseVal = acCustom.value.override_base !== null && acCustom.value.override_base !== '' && !isNaN(Number(acCustom.value.override_base))
+    ? Number(acCustom.value.override_base)
+    : null
+
+  const magicBonus = Number(acCustom.value.magic_bonus) || 0
+  const miscBonus = Number(acCustom.value.misc_bonus) || 0
+
+  let totalAc = 10
+  if (overrideAcVal !== null) {
+    totalAc = overrideAcVal
+  } else {
+    const effectiveBaseAndDex = overrideBaseVal !== null ? overrideBaseVal : (baseArmorValue + appliedDex)
+    totalAc = effectiveBaseAndDex + (hasShield ? 2 : 0) + magicBonus + miscBonus
   }
-  return finalAc
-}
+
+  return {
+    armorName,
+    baseArmorValue,
+    dexBonus: appliedDex,
+    dexBonusLabel: dexLabel,
+    isHeavyArmor,
+    isMediumArmor,
+    hasShield,
+    magicBonus,
+    miscBonus,
+    overrideBase: overrideBaseVal,
+    overrideAc: overrideAcVal,
+    totalAc
+  }
+})
 
 const currentArmorClass = computed(() => {
-  return calculateLiveAc(liveEquipment.value)
+  return acBreakdown.value.totalAc
 })
+
+const calculateLiveAc = (eqList) => {
+  return currentArmorClass.value
+}
+
+const openAcModal = () => {
+  showAcModal.value = true
+}
+
+const saveAcCustom = async () => {
+  if (char.value) {
+    char.value.ac = currentArmorClass.value
+    char.value.ac_custom = { ...acCustom.value }
+  }
+  await saveVitals({
+    ac: currentArmorClass.value,
+    ac_custom: acCustom.value
+  })
+}
+
+const closeAcModal = async () => {
+  await saveAcCustom()
+  showAcModal.value = false
+}
+
+// Speed & Movement state
+const showSpeedModal = ref(false)
+
+const customSpeeds = ref({
+  walk: Number(char.value?.speeds?.walk ?? (char.value?.speed || char.value?.race?.speed || 30)),
+  fly: Number(char.value?.speeds?.fly ?? (char.value?.race?.fly_speed || 0)),
+  swim: Number(char.value?.speeds?.swim ?? (char.value?.race?.swim_speed || 0)),
+  climb: Number(char.value?.speeds?.climb ?? (char.value?.race?.climb_speed || 0)),
+  burrow: Number(char.value?.speeds?.burrow ?? 0),
+  notes: char.value?.speeds?.notes || ''
+})
+
+watch(() => [char.value?.speed, char.value?.speeds, char.value?.race], () => {
+  customSpeeds.value = {
+    walk: Number(char.value?.speeds?.walk ?? (char.value?.speed || char.value?.race?.speed || 30)),
+    fly: Number(char.value?.speeds?.fly ?? (char.value?.race?.fly_speed || 0)),
+    swim: Number(char.value?.speeds?.swim ?? (char.value?.race?.swim_speed || 0)),
+    climb: Number(char.value?.speeds?.climb ?? (char.value?.race?.climb_speed || 0)),
+    burrow: Number(char.value?.speeds?.burrow ?? 0),
+    notes: char.value?.speeds?.notes || ''
+  }
+}, { deep: true })
+
+const otherSpeedsList = computed(() => {
+  const list = []
+  if (customSpeeds.value.fly > 0) list.push({ type: 'Fly', speed: customSpeeds.value.fly })
+  if (customSpeeds.value.swim > 0) list.push({ type: 'Swim', speed: customSpeeds.value.swim })
+  if (customSpeeds.value.climb > 0) list.push({ type: 'Climb', speed: customSpeeds.value.climb })
+  if (customSpeeds.value.burrow > 0) list.push({ type: 'Burrow', speed: customSpeeds.value.burrow })
+  return list
+})
+
+let speedSnapshot = null
+const openSpeedModal = () => {
+  speedSnapshot = { ...customSpeeds.value }
+  showSpeedModal.value = true
+}
+
+const cancelSpeedModal = () => {
+  if (speedSnapshot) {
+    customSpeeds.value = { ...speedSnapshot }
+  }
+  showSpeedModal.value = false
+}
+
+const closeSpeedModal = async () => {
+  showSpeedModal.value = false
+  if (char.value) {
+    char.value.speed = customSpeeds.value.walk
+    char.value.speeds = { ...customSpeeds.value }
+  }
+  await saveVitals({
+    speed: customSpeeds.value.walk,
+    speeds: customSpeeds.value
+  })
+}
 
 const isSavingEquipment = ref(false)
 const equipmentSavedToast = ref(false)
@@ -201,15 +1189,20 @@ const saveEquipment = async () => {
   }
 }
 
-const toggleEquipStatus = (idx) => {
-  const item = liveEquipment.value[idx]
-  if (!item) return
-  item.status = item.status === 'equipped' ? 'inventory' : 'equipped'
+const toggleEquipStatus = (itemOrIdx) => {
+  const item = typeof itemOrIdx === 'number' ? liveEquipment.value[itemOrIdx] : itemOrIdx
+  if (!item || !isItemEquippable(item)) return
+  if (item.status === 'equipped') {
+    item.status = 'inventory'
+  } else {
+    item.status = 'equipped'
+    item.container_name = null
+  }
   saveEquipment()
 }
 
-const changeItemAmount = (idx, delta) => {
-  const item = liveEquipment.value[idx]
+const changeItemAmount = (itemOrIdx, delta) => {
+  const item = typeof itemOrIdx === 'number' ? liveEquipment.value[itemOrIdx] : itemOrIdx
   if (!item) return
   const cur = Number(item.amount) || 1
   const updated = Math.max(1, cur + delta)
@@ -217,9 +1210,12 @@ const changeItemAmount = (idx, delta) => {
   saveEquipment()
 }
 
-const removeItem = (idx) => {
-  liveEquipment.value.splice(idx, 1)
-  saveEquipment()
+const removeItem = (itemOrIdx) => {
+  const idx = typeof itemOrIdx === 'number' ? itemOrIdx : liveEquipment.value.indexOf(itemOrIdx)
+  if (idx !== -1) {
+    liveEquipment.value.splice(idx, 1)
+    saveEquipment()
+  }
 }
 
 // Compendium Item Picker Modal
@@ -290,20 +1286,32 @@ const openCompendiumModal = () => {
 
 const addItemFromCompendium = (it) => {
   const isArmor = it.type === 'armor' || (it.name || '').toLowerCase().includes('armor') || (it.name || '').toLowerCase().includes('shield')
+  const defaultContainer = (selectedContainerFilter.value !== 'all' && selectedContainerFilter.value !== 'equipped' && selectedContainerFilter.value !== 'backpack')
+    ? selectedContainerFilter.value
+    : null
+
   liveEquipment.value.push({
     name: it.name,
     weight: String(it.weight || 0),
     amount: 1,
     status: 'inventory',
     is_armor: Boolean(isArmor),
+    equip_type: it.equip_type || null,
+    container_capacity: it.container_capacity || null,
+    container_name: defaultContainer,
     ac: it.ac || 0,
     dexMod: !!it.dexMod
   })
   saveEquipment()
+  isCompendiumOpen.value = false
 }
 
 const totalWeight = computed(() => {
   return liveEquipment.value.reduce((sum, item) => {
+    // Items inside a Bag of Holding do not contribute to carried encumbrance
+    if (item.container_name && item.container_name.toLowerCase().includes('bag of holding')) {
+      return sum
+    }
     const w = parseFloat(item.weight) || 0
     const amt = parseInt(item.amount) || 1
     return sum + (w * amt)
@@ -535,6 +1543,26 @@ const setRollResult = (result) => {
   rollDismissTimer = setTimeout(() => {
     lastRoll.value = null
   }, 12000)
+
+  // Broadcast roll to campaign if character is linked to a campaign
+  const broadcastCampaignId = activeCampaignId.value || props.character?.campaign_id || char.value?.campaign_id
+  if (broadcastCampaignId && result && result.total !== undefined) {
+    axios.post(`${API_URL}/campaign/${broadcastCampaignId}/rolls`, {
+      character_id: char.value.id,
+      roll_name: result.label || 'Dice Roll',
+      roll_data: {
+        label: result.label,
+        total: result.total,
+        formula: result.formula,
+        breakdown: result.breakdown,
+        isNat20: Boolean(result.isNat20),
+        isNat1: Boolean(result.isNat1),
+        timestamp: result.timestamp || new Date().toLocaleTimeString()
+      }
+    }).catch(err => {
+      console.warn('Failed to broadcast roll to campaign', err)
+    })
+  }
 }
 
 const rollDice = (label, mod = 0, formula = null) => {
@@ -868,10 +1896,11 @@ const WEAPON_DEFINITIONS = {
 
 const getWeaponDetails = (item) => {
   if (!item) return null
+  const eqType = getItemEquipType(item)
+  if (eqType !== 'weapon') return null
+
   const key = (item.name || '').toLowerCase().replace(/['’]/g, '').replace(/[\s-]+/g, '_')
   const found = WEAPON_DEFINITIONS[key] || Object.entries(WEAPON_DEFINITIONS).find(([k]) => key.includes(k))?.[1]
-  const isArmor = item.is_armor || (item.name || '').toLowerCase().includes('armor') || (item.name || '').toLowerCase().includes('shield')
-  if (isArmor) return null
 
   const strMod = vtt.value.abilities?.str?.modifier || 0
   const dexMod = vtt.value.abilities?.dex?.modifier || 0
@@ -885,8 +1914,8 @@ const getWeaponDetails = (item) => {
   }
 
   const toHit = prof + statMod
-  const damageDice = found?.damage || item.damageDice || item.dmg1 || '1d6'
-  const damageType = found?.type || item.dmgType || 'slashing'
+  const damageDice = found?.damage || item.damage_dice || item.damageDice || item.dmg1 || '1d6'
+  const damageType = found?.type || item.damage_type || item.dmgType || 'slashing'
 
   return {
     name: item.name,
@@ -908,7 +1937,7 @@ const getWeaponDetails = (item) => {
 
 const equippedWeapons = computed(() => {
   return liveEquipment.value
-    .filter(eq => eq.status === 'equipped')
+    .filter(eq => eq.status === 'equipped' && getItemEquipType(eq) === 'weapon')
     .map(eq => getWeaponDetails(eq))
     .filter(Boolean)
 })
@@ -1673,13 +2702,38 @@ watch(() => charSpells.value, (list) => {
   <div class="max-w-4xl mx-2 sm:mx-auto my-4 sm:my-6 p-3.5 sm:p-6 bg-white text-gray-800 rounded border border-gray-200 shadow-sm font-sans pb-24">
     
     <!-- Top Header Bar -->
-    <div class="flex flex-row justify-between items-start pb-4 border-b border-gray-200 gap-3">
+    <div class="flex flex-row justify-between items-start pb-4 border-b border-gray-200 gap-3 relative">
       <div class="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-        <!-- Avatar / Initial -->
-        <div class="w-11 h-11 sm:w-12 sm:h-12 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-base sm:text-lg overflow-hidden shrink-0 shadow-xs">
-          <img v-if="char.image_url" :src="char.image_url" :alt="char.name" class="w-full h-full object-cover" />
+        <!-- Avatar / Initial with interactive click to change -->
+        <div
+          @click="triggerAvatarUpload"
+          class="w-11 h-11 sm:w-12 sm:h-12 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-base sm:text-lg overflow-hidden shrink-0 shadow-xs cursor-pointer relative group hover:border-gray-500 transition"
+          title="Click to change portrait (Max 2MB)"
+        >
+          <img
+            v-if="resolvedImageUrl"
+            :src="resolvedImageUrl"
+            :alt="char.name"
+            class="w-full h-full object-cover"
+          />
           <span v-else>{{ (char.name || 'H').charAt(0).toUpperCase() }}</span>
+
+          <!-- Hover overlay -->
+          <div class="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px] font-semibold text-center leading-tight p-0.5">
+            <span v-if="isUploadingAvatar">...</span>
+            <template v-else>
+              <IconCamera class="w-3.5 h-3.5 mb-0.5" />
+              <span>Change</span>
+            </template>
+          </div>
         </div>
+        <input
+          ref="avatarFileInput"
+          type="file"
+          accept="image/*"
+          class="hidden"
+          @change="handleAvatarFileChange"
+        />
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <h1 class="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight truncate">{{ char.name || 'Hero' }}</h1>
@@ -1689,127 +2743,343 @@ watch(() => charSpells.value, (list) => {
               {{ char.edition === '2024' ? '2024 One D&D' : '2014 5e' }}
             </span>
           </div>
-          <p class="text-[11px] sm:text-xs text-gray-500 mt-0.5 leading-snug">
-            Level {{ char.level || 1 }} 
-            <span class="text-gray-900 font-semibold">{{ classSummary }}</span>
-            • <span>{{ char.race?.name || 'Unknown Species' }}</span>
-            • <span>{{ char.background || 'No Background' }}</span>
-            • <span>{{ char.alignment || 'Neutral' }}</span>
+          <p class="text-[11px] sm:text-xs text-gray-500 mt-0.5 leading-snug flex flex-wrap gap-x-1.5">
+            <span class="whitespace-nowrap">Level {{ char.level || 1 }} <strong class="text-gray-900 font-semibold">{{ classSummary }}</strong></span>
+            <span class="whitespace-nowrap">• {{ char.race?.name || 'Unknown Species' }}</span>
+            <span class="whitespace-nowrap">• {{ char.background || 'No Background' }}</span>
+            <span class="whitespace-nowrap">• {{ char.alignment || 'Neutral' }}</span>
           </p>
         </div>
       </div>
 
-      <!-- Action Icons: compendium, char list, edit in one row on the right -->
-      <div class="flex items-center gap-1.5 sm:gap-2 shrink-0 pt-0.5">
+      <!-- Actions, Campaign & Rest in Header Toolbar (Desktop view) -->
+      <div class="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 pt-0.5 flex-wrap justify-end">
+        <!-- Campaign Trigger (Clean text, no icon) -->
+        <button
+          type="button"
+          @click="openCampaignModal"
+          class="bg-white hover:bg-gray-100 text-gray-700 px-2 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer shadow-xs text-xs max-w-[130px] truncate"
+          title="Campaign Settings"
+        >
+          {{ campaignName || 'No Campaign' }}
+        </button>
+
+        <!-- Heroic Inspiration Toggle -->
+        <button
+          type="button"
+          @click="toggleInspiration"
+          class="p-1.5 rounded border transition cursor-pointer shadow-xs flex items-center justify-center"
+          :class="isInspired ? 'bg-amber-100 border-amber-400 text-amber-600' : 'bg-white hover:bg-gray-100 border-gray-300 text-gray-400'"
+          :title="isInspired ? 'Heroic Inspiration (Active)' : 'Heroic Inspiration (Inactive)'"
+          aria-label="Heroic Inspiration"
+        >
+          <IconStarFilled v-if="isInspired" class="w-4 h-4 text-amber-500" />
+          <IconStar v-else class="w-4 h-4 text-gray-400" />
+        </button>
+
+        <!-- Short Rest (Icon only, no text) -->
+        <button
+          type="button"
+          @click="openShortRestModal"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
+          title="Short Rest"
+          aria-label="Short Rest"
+        >
+          <IconCampfire class="w-4 h-4 text-gray-700" />
+        </button>
+
+        <!-- Long Rest (Icon only, no text) -->
+        <button
+          type="button"
+          @click="openLongRestModal"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
+          title="Long Rest"
+          aria-label="Long Rest"
+        >
+          <IconMoon class="w-4 h-4 text-gray-700" />
+        </button>
+
+        <!-- Compendium -->
         <button
           type="button"
           @click="openCompendiumWindow"
-          class="bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 font-medium transition cursor-pointer flex items-center justify-center shadow-xs"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
           title="Compendium"
           aria-label="Compendium"
         >
           <IconBook class="w-4 h-4 text-gray-700" />
         </button>
+
+        <!-- Home -->
         <button
           type="button"
           @click="emit('back')"
-          class="bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 font-medium transition cursor-pointer flex items-center justify-center shadow-xs"
-          title="Character List"
-          aria-label="Character List"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
+          title="Home"
+          aria-label="Home"
         >
-          <IconUsers class="w-4 h-4" />
+          <IconHome class="w-4 h-4 text-gray-700" />
         </button>
+
+        <!-- Edit Character -->
         <button
           type="button"
           @click="emit('edit', char.id)"
-          class="bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 font-medium transition cursor-pointer flex items-center justify-center shadow-xs"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
           title="Edit Character"
           aria-label="Edit Character"
         >
           <IconEdit class="w-4 h-4 text-gray-700" />
         </button>
       </div>
-    </div>
 
-    <!-- Core Combat Vitals Grid -->
-    <div class="grid grid-cols-2 sm:grid-cols-6 gap-2.5 my-4">
-      <!-- AC -->
-      <div class="bg-gray-100/70 p-2.5 rounded border border-gray-300 text-center">
-        <div class="text-[10px] text-gray-600 uppercase font-bold">Armor Class</div>
-        <div class="text-xl font-bold text-gray-900 mt-0.5">{{ currentArmorClass }}</div>
-      </div>
+      <!-- Mobile Hamburger Button & Dropdown Menu -->
+      <div class="sm:hidden relative shrink-0">
+        <button
+          type="button"
+          @click="isMobileMenuOpen = !isMobileMenuOpen"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 shadow-xs flex items-center justify-center transition cursor-pointer"
+          aria-label="Menu"
+        >
+          <IconX v-if="isMobileMenuOpen" class="w-5 h-5 text-gray-700" />
+          <IconMenu2 v-else class="w-5 h-5 text-gray-700" />
+        </button>
 
-      <!-- Initiative -->
-      <button
-        type="button"
-        @click="rollDice('Initiative', computedInitiative)"
-        class="bg-gray-100/70 hover:bg-gray-200/80 p-2.5 rounded border border-gray-300 text-center transition cursor-pointer group"
-      >
-        <div class="text-[10px] text-gray-600 uppercase font-bold group-hover:text-gray-900">Initiative</div>
-        <div class="text-xl font-bold text-gray-900 mt-0.5">
-          {{ computedInitiative >= 0 ? '+' : '' }}{{ computedInitiative }}
+        <div
+          v-if="isMobileMenuOpen"
+          class="fixed inset-0 z-30"
+          @click="isMobileMenuOpen = false"
+        ></div>
+
+        <div
+          v-if="isMobileMenuOpen"
+          class="absolute right-0 top-11 w-52 bg-white border border-gray-200 rounded-lg shadow-xl py-1.5 z-40 text-xs divide-y divide-gray-100"
+        >
+          <!-- Campaign in Mobile Menu -->
+          <div class="px-3 py-2 flex items-center justify-between">
+            <span class="font-medium text-gray-600">Campaign</span>
+            <button
+              type="button"
+              @click="openCampaignModal(); isMobileMenuOpen = false"
+              class="font-semibold text-gray-900 hover:underline max-w-[110px] truncate"
+            >
+              {{ campaignName || 'No Campaign' }}
+            </button>
+          </div>
+
+          <!-- Inspiration in Mobile Menu -->
+          <div class="px-3 py-2 flex items-center justify-between">
+            <span class="font-medium text-gray-600">Inspiration</span>
+            <button
+              type="button"
+              @click="toggleInspiration"
+              :class="isInspired ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-gray-100 text-gray-600 border-gray-200'"
+              class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1"
+            >
+              <IconStarFilled v-if="isInspired" class="w-3.5 h-3.5 text-amber-500" />
+              <IconStar v-else class="w-3.5 h-3.5 text-gray-400" />
+              <span>{{ isInspired ? 'Active' : 'Off' }}</span>
+            </button>
+          </div>
+
+          <!-- Rests -->
+          <div class="py-1">
+            <button
+              type="button"
+              @click="openShortRestModal(); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconCampfire class="w-4 h-4 text-gray-600" />
+              <span>Short Rest</span>
+            </button>
+            <button
+              type="button"
+              @click="openLongRestModal(); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconMoon class="w-4 h-4 text-gray-600" />
+              <span>Long Rest</span>
+            </button>
+          </div>
+
+          <!-- Navigation & Edit -->
+          <div class="py-1">
+            <button
+              type="button"
+              @click="openCompendiumWindow(); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconBook class="w-4 h-4 text-gray-600" />
+              <span>Compendium</span>
+            </button>
+            <button
+              type="button"
+              @click="emit('edit', char.id); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconEdit class="w-4 h-4 text-gray-600" />
+              <span>Edit Character</span>
+            </button>
+            <button
+              type="button"
+              @click="emit('back'); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconHome class="w-4 h-4 text-gray-600" />
+              <span>Home</span>
+            </button>
+          </div>
         </div>
-      </button>
-
-      <!-- Speed -->
-      <div class="bg-gray-100/70 p-2.5 rounded border border-gray-300 text-center">
-        <div class="text-[10px] text-gray-600 uppercase font-bold">Speed</div>
-        <div class="text-xl font-bold text-gray-900 mt-0.5">{{ char.speed || 30 }} <span class="text-xs font-normal text-gray-500">ft</span></div>
-      </div>
-
-      <!-- Proficiency Bonus -->
-      <div class="bg-gray-100/70 p-2.5 rounded border border-gray-300 text-center">
-        <div class="text-[10px] text-gray-600 uppercase font-bold">Prof. Bonus</div>
-        <div class="text-xl font-bold text-gray-900 mt-0.5">+{{ vtt.proficiency_bonus || char.proficiency_bonus || 2 }}</div>
-      </div>
-
-      <!-- Hit Dice -->
-      <div class="bg-gray-100/70 p-2.5 rounded border border-gray-300 text-center">
-        <div class="text-[10px] text-gray-600 uppercase font-bold">Hit Dice</div>
-        <div class="text-lg font-bold text-gray-900 mt-0.5">{{ char.hit_dice || '1d8' }}</div>
-      </div>
-
-      <!-- Passive Perception -->
-      <div class="bg-gray-100/70 p-2.5 rounded border border-gray-300 text-center">
-        <div class="text-[10px] text-gray-600 uppercase font-bold">Passive Perc.</div>
-        <div class="text-xl font-bold text-gray-900 mt-0.5">{{ vtt.senses?.passive_perception || 10 }}</div>
       </div>
     </div>
 
-    <!-- Hit Points Interactive Widget -->
-    <div class="bg-gray-100/70 rounded p-3.5 border border-gray-300 mb-5">
-      <div class="flex flex-row justify-between items-center gap-3">
-        <!-- Left: HP Info -->
-        <div>
-          <span class="text-[11px] font-bold uppercase tracking-wider text-gray-700">Hit Points</span>
-          <div class="flex items-baseline gap-2 mt-0.5">
-            <span class="text-2xl font-bold" :class="currentHp <= (maxHp/3) ? 'text-red-700' : 'text-gray-900'">
-              {{ currentHp }}
-            </span>
-            <span class="text-gray-600 text-xs">/ {{ maxHp }} Max</span>
-            <span v-if="tempHp > 0" class="text-[10px] bg-cyan-100 text-cyan-900 border border-cyan-300 px-1.5 py-0.5 rounded font-mono">+{{ tempHp }} Temp</span>
+    <!-- Core Combat Vitals & HP Grid -->
+    <div class="my-3 space-y-2 sm:space-y-0 sm:grid sm:grid-cols-12 sm:gap-2 items-stretch">
+      <!-- 4 Stats Group: 4 columns on mobile, contents on sm/md -->
+      <div class="grid grid-cols-4 gap-1.5 sm:contents">
+        <!-- Armor Class Shield Card Box -->
+        <div class="sm:col-span-2 flex flex-col justify-center items-center h-[72px] sm:h-[76px]">
+          <div
+            @click="openAcModal"
+            class="relative w-full max-w-[82px] h-[72px] sm:max-w-[88px] sm:h-[76px] flex flex-col items-center justify-center select-none cursor-pointer group hover:scale-[1.03] transition-transform"
+            title="Configure Armor Class"
+          >
+            <svg
+              class="absolute inset-0 w-full h-full drop-shadow-xs group-hover:drop-shadow-sm transition-all"
+              viewBox="0 0 100 88"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <defs>
+                <linearGradient id="acShieldBg" x1="50" y1="4" x2="50" y2="84" gradientUnits="userSpaceOnUse">
+                  <stop offset="0%" stop-color="#ffffff" />
+                  <stop offset="100%" stop-color="#f1f5f9" />
+                </linearGradient>
+              </defs>
+              <!-- Outer Shield Shape -->
+              <path
+                d="M 5 6 Q 50 10 95 6 C 96.5 42 85 66 50 84 C 15 66 3.5 42 5 6 Z"
+                fill="url(#acShieldBg)"
+                stroke="#94a3b8"
+                stroke-width="2.2"
+                stroke-linejoin="round"
+              />
+              <!-- Inner Inset Rim -->
+              <path
+                d="M 11 12 Q 50 15.5 89 12 C 90 42 80 63 50 78 C 20 63 10 42 11 12 Z"
+                fill="none"
+                stroke="#cbd5e1"
+                stroke-width="1.2"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div class="relative z-10 flex flex-col items-center justify-center text-center px-1 -mt-0.5 sm:-mt-1">
+              <span class="text-[7.5px] sm:text-[8.5px] font-bold text-gray-500 uppercase tracking-tight leading-none group-hover:text-gray-900 transition-colors">ARMOR CLASS</span>
+              <span class="text-xl sm:text-2xl font-black text-gray-900 leading-none mt-1 sm:mt-1.5">{{ currentArmorClass }}</span>
+            </div>
           </div>
         </div>
 
-        <!-- Right: Heal, Input, Damage in row -->
-        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <!-- Initiative -->
+        <button
+          type="button"
+          @click="rollDice('Initiative', computedInitiative)"
+          class="sm:col-span-2 bg-gray-100/70 hover:bg-gray-200/80 p-1.5 sm:p-2 rounded border border-gray-300 text-center transition cursor-pointer group flex flex-col items-center justify-center h-[72px] sm:h-[76px]"
+        >
+          <span class="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold group-hover:text-gray-900 leading-none">Initiative</span>
+          <span class="text-lg sm:text-xl font-bold text-gray-900 leading-none mt-1.5">
+            {{ computedInitiative >= 0 ? '+' : '' }}{{ computedInitiative }}
+          </span>
+        </button>
+
+        <!-- Speed -->
+        <button
+          type="button"
+          @click="openSpeedModal"
+          class="sm:col-span-2 bg-gray-100/70 hover:bg-gray-200/80 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px] cursor-pointer transition group"
+          title="Configure Speeds & Movement"
+        >
+          <span class="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold leading-none group-hover:text-gray-900 transition-colors">Speed</span>
+          <span class="text-lg sm:text-xl font-bold text-gray-900 leading-none mt-1">
+            {{ customSpeeds.walk }} <span class="text-xs font-normal text-gray-500">ft</span>
+          </span>
+          <div v-if="otherSpeedsList.length > 0" class="text-[7.5px] sm:text-[8px] text-gray-500 font-medium truncate max-w-full px-0.5 mt-0.5 leading-tight">
+            <span v-for="(s, idx) in otherSpeedsList" :key="s.type">
+              {{ s.type }} {{ s.speed }}ft{{ idx < otherSpeedsList.length - 1 ? ' · ' : '' }}
+            </span>
+          </div>
+        </button>
+
+        <!-- Proficiency Bonus -->
+        <div class="sm:col-span-1 bg-gray-100/70 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px]">
+          <span class="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold leading-none">Prof</span>
+          <span class="text-lg sm:text-xl font-bold text-gray-900 leading-none mt-1.5">+{{ vtt.proficiency_bonus || char.proficiency_bonus || 2 }}</span>
+        </div>
+      </div>
+
+      <!-- Hit Points, Temp HP & Hit Dice Combined Card -->
+      <div class="sm:col-span-5 bg-gray-100/70 p-1.5 sm:p-2 rounded border border-gray-300 flex flex-col justify-between h-[72px] sm:h-[76px]">
+        <div class="grid grid-cols-3 gap-1 items-start text-center">
+          <!-- Current HP -->
+          <div
+            @click="openHpModal"
+            class="flex flex-col items-center cursor-pointer group hover:bg-gray-200/60 rounded px-1 -mx-0.5 py-0.5 transition"
+            title="Manage Hit Points"
+          >
+            <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none group-hover:text-gray-900 transition-colors">Hit Points</span>
+            <div class="flex items-baseline gap-0.5 mt-0.5">
+              <span class="text-base sm:text-lg font-bold leading-none" :class="currentHp <= (effectiveMaxHp/3) ? 'text-red-700' : 'text-gray-900'">
+                {{ currentHp }}
+              </span>
+              <span class="text-[10px] text-gray-500 font-semibold leading-none">/{{ effectiveMaxHp }}</span>
+            </div>
+          </div>
+
+          <!-- Temp HP -->
+          <div class="flex flex-col items-center">
+            <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none">Temp HP</span>
+            <div class="mt-0.5">
+              <input
+                type="number"
+                min="0"
+                v-model.number="tempHpInput"
+                @change="updateTempHp"
+                @keydown.enter="updateTempHp"
+                class="w-10 sm:w-11 text-center text-sm sm:text-base font-bold text-gray-900 bg-white border border-gray-300 rounded h-5 px-0.5 leading-none focus:border-gray-900 focus:outline-none"
+                placeholder="0"
+                title="Temporary Hit Points (click to edit)"
+              />
+            </div>
+          </div>
+
+          <!-- Hit Dice -->
+          <div class="flex flex-col items-center">
+            <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none">Hit Dice</span>
+            <div class="text-sm sm:text-base font-bold text-gray-900 mt-0.5 font-mono leading-none">
+              {{ remainingHitDice }}<span class="text-[10px] font-normal text-gray-500 font-sans">/{{ totalHitDice }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Heal / Damage Controls -->
+        <div class="flex items-center gap-1 sm:gap-1.5 pt-1 border-t border-gray-200/80">
           <button
             type="button"
             @click="applyHeal"
-            class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs px-2.5 sm:px-3 py-1 rounded font-medium transition cursor-pointer"
+            class="flex-1 bg-gray-900 hover:bg-black text-white text-[10px] h-5 rounded font-semibold transition cursor-pointer flex items-center justify-center leading-none"
           >
             Heal
           </button>
           <input
             type="number"
             min="1"
-            v-model="hpInput"
-            class="w-14 sm:w-16 bg-white border border-gray-300 rounded px-1.5 py-1 text-center text-xs font-semibold"
+            v-model.number="hpInput"
+            class="w-10 bg-white border border-gray-300 rounded h-5 text-center text-[11px] font-semibold shrink-0"
           />
           <button
             type="button"
             @click="applyDamage"
-            class="bg-rose-700 hover:bg-rose-800 text-white text-xs px-2.5 sm:px-3 py-1 rounded font-medium transition cursor-pointer"
+            class="flex-1 bg-gray-900 hover:bg-black text-white text-[10px] h-5 rounded font-semibold transition cursor-pointer flex items-center justify-center leading-none"
           >
             Damage
           </button>
@@ -1818,7 +3088,7 @@ watch(() => charSpells.value, (list) => {
     </div>
 
     <!-- 6 Ability Scores Bar -->
-    <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-5">
+    <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3">
       <div
         v-for="(stat, name) in vtt.abilities"
         :key="name"
@@ -1847,6 +3117,143 @@ watch(() => charSpells.value, (list) => {
           Save {{ vtt.saving_throws?.[name]?.modifier_string || stat.modifier_string }}
         </button>
       </div>
+    </div>
+
+    <!-- 2 Overview Cards: Defenses (with Saving Throw Notes) & Conditions -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5 mb-3">
+      <!-- Defenses Card -->
+      <div class="bg-white p-3 rounded border border-gray-200 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between pb-1.5 border-b border-gray-100">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-gray-700">Defenses</span>
+            <button
+              type="button"
+              @click="openAddDefenseModal"
+              class="text-gray-600 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
+            >
+              + Add
+            </button>
+          </div>
+
+          <div class="mt-2 space-y-2">
+            <!-- Resistances -->
+            <div v-if="liveDefenses.resistances?.length">
+              <span class="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Resistances</span>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="d in liveDefenses.resistances"
+                  :key="d"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
+                >
+                  <span>{{ d }}</span>
+                  <button type="button" @click.stop="removeDefense('resistances', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                </span>
+              </div>
+            </div>
+
+            <!-- Immunities -->
+            <div v-if="liveDefenses.immunities?.length">
+              <span class="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Immunities</span>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="d in liveDefenses.immunities"
+                  :key="d"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
+                >
+                  <span>{{ d }}</span>
+                  <button type="button" @click.stop="removeDefense('immunities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                </span>
+              </div>
+            </div>
+
+            <!-- Vulnerabilities -->
+            <div v-if="liveDefenses.vulnerabilities?.length">
+              <span class="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Vulnerabilities</span>
+              <div class="flex flex-wrap gap-1">
+                <span
+                  v-for="d in liveDefenses.vulnerabilities"
+                  :key="d"
+                  class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
+                >
+                  <span>{{ d }}</span>
+                  <button type="button" @click.stop="removeDefense('vulnerabilities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                </span>
+              </div>
+            </div>
+
+            <div v-if="!liveDefenses.resistances?.length && !liveDefenses.immunities?.length && !liveDefenses.vulnerabilities?.length" class="text-xs text-gray-400 py-1 italic">
+              No special damage defenses recorded
+            </div>
+          </div>
+        </div>
+
+        <!-- Saving Throw Advantages & Notes inside Defenses Card -->
+        <div class="mt-3 pt-2 border-t border-gray-100">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[9px] uppercase font-bold text-gray-400">Saving Throw Advantages & Notes</span>
+            <button
+              type="button"
+              @click="showSaveNoteModal = true"
+              class="text-gray-500 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
+            >
+              Edit Note
+            </button>
+          </div>
+          <div v-if="saveAdvantageNotes.length" class="space-y-1">
+            <div
+              v-for="(n, idx) in saveAdvantageNotes"
+              :key="idx"
+              class="text-[10px] leading-tight px-1.5 py-1 rounded bg-gray-100 text-gray-800 border border-gray-300"
+            >
+              {{ n.label }}
+            </div>
+          </div>
+          <div v-else class="text-xs text-gray-400 italic">
+            No special saving throw advantages
+          </div>
+        </div>
+      </div>
+
+      <!-- Conditions Card -->
+      <div class="bg-white p-3 rounded border border-gray-200 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between pb-1.5 border-b border-gray-100">
+            <span class="text-[11px] font-bold uppercase tracking-wider text-gray-700">Conditions</span>
+            <button
+              type="button"
+              @click="showConditionModal = true"
+              class="text-gray-600 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
+            >
+              + Manage
+            </button>
+          </div>
+
+          <div class="mt-2">
+            <div v-if="liveConditions.length" class="flex flex-wrap gap-1">
+              <span
+                v-for="c in liveConditions"
+                :key="c"
+                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
+              >
+                <span>{{ c }}</span>
+                <button type="button" @click.stop="removeCondition(c)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+              </span>
+            </div>
+            <div v-else class="text-xs text-gray-400 py-2 italic text-center">
+              No active conditions (Normal)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Senses Bar -->
+    <div class="flex flex-wrap items-center gap-3 text-xs bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-4 text-gray-600">
+      <span class="font-bold text-gray-700 uppercase text-[10px] tracking-wider">Senses:</span>
+      <span>Passive Perception: <strong class="text-gray-900 font-mono">{{ vtt.senses?.passive_perception || 10 }}</strong></span>
+      <span>Passive Investigation: <strong class="text-gray-900 font-mono">{{ vtt.senses?.passive_investigation || 10 }}</strong></span>
+      <span>Passive Insight: <strong class="text-gray-900 font-mono">{{ vtt.senses?.passive_insight || 10 }}</strong></span>
+      <span v-if="vtt.senses?.darkvision">Darkvision: <strong class="text-gray-900">{{ vtt.senses.darkvision }}</strong></span>
     </div>
 
     <!-- Tabs Navigation -->
@@ -1899,6 +3306,14 @@ watch(() => charSpells.value, (list) => {
         <span v-if="liveEquipment.length" class="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-gray-100 text-gray-700 border border-gray-200">
           {{ liveEquipment.length }}
         </span>
+      </button>
+      <button
+        type="button"
+        @click="activeTab = 'characteristics'"
+        :class="activeTab === 'characteristics' ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-800'"
+        class="pb-1 transition px-2 cursor-pointer whitespace-nowrap uppercase tracking-wider"
+      >
+        CHARACTERISTICS
       </button>
       <button
         type="button"
@@ -3662,8 +5077,72 @@ watch(() => charSpells.value, (list) => {
           </button>
         </div>
 
-        <div v-if="liveEquipment.length === 0" class="p-6 text-center text-gray-400 italic">
-          No equipment or gear recorded.
+        <!-- Container & Storage View Pills -->
+        <div class="flex flex-wrap items-center gap-1.5 p-2 bg-gray-50/70 border-b border-gray-200">
+          <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mr-1">View:</span>
+          <button
+            type="button"
+            @click="selectedContainerFilter = 'all'"
+            :class="selectedContainerFilter === 'all' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'"
+            class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer"
+          >
+            All Items ({{ liveEquipment.length }})
+          </button>
+          <button
+            type="button"
+            @click="selectedContainerFilter = 'equipped'"
+            :class="selectedContainerFilter === 'equipped' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'"
+            class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer"
+          >
+            Equipped ({{ equippedCount }})
+          </button>
+          <button
+            type="button"
+            @click="selectedContainerFilter = 'backpack'"
+            :class="selectedContainerFilter === 'backpack' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'"
+            class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer"
+          >
+            Backpack ({{ backpackCount }})
+          </button>
+          <button
+            v-for="c in availableContainers"
+            :key="c.name"
+            type="button"
+            @click="selectedContainerFilter = c.name"
+            :class="selectedContainerFilter === c.name ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-300'"
+            class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer flex items-center gap-1"
+          >
+            <span>{{ c.name }}</span>
+            <span class="text-[10px] opacity-75">
+              ({{ getContainerCurrentWeight(c.name).toFixed(1) }}{{ getContainerCapacity(c) ? '/' + getContainerCapacity(c) : '' }} lb)
+            </span>
+          </button>
+        </div>
+
+        <!-- Container Capacity Banner (if viewing specific container) -->
+        <div
+          v-if="currentActiveContainer"
+          class="p-2.5 bg-gray-100/70 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs"
+        >
+          <div>
+            <span class="font-bold text-gray-900">{{ currentActiveContainer.name }}</span>
+            <span class="text-gray-500 ml-2">Items inside: {{ filteredEquipment.length }}</span>
+          </div>
+          <div v-if="getContainerCapacity(currentActiveContainer)" class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="text-[11px] text-gray-600 font-medium">
+              {{ getContainerCurrentWeight(currentActiveContainer.name).toFixed(1) }} / {{ getContainerCapacity(currentActiveContainer) }} lbs
+            </div>
+            <div class="w-24 bg-gray-200 h-2 rounded overflow-hidden border border-gray-300">
+              <div
+                class="h-full bg-gray-800 rounded transition-all"
+                :style="{ width: Math.min(100, (getContainerCurrentWeight(currentActiveContainer.name) / getContainerCapacity(currentActiveContainer)) * 100) + '%' }"
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="filteredEquipment.length === 0" class="p-6 text-center text-gray-400 italic">
+          {{ selectedContainerFilter === 'equipped' ? 'No items currently equipped.' : selectedContainerFilter === 'backpack' ? 'No items in backpack.' : selectedContainerFilter !== 'all' ? 'No items stored in this container yet.' : 'No equipment or gear recorded.' }}
         </div>
 
         <div v-else class="overflow-x-auto">
@@ -3671,41 +5150,78 @@ watch(() => charSpells.value, (list) => {
             <thead>
               <tr class="border-b border-gray-200 bg-gray-50/50 text-[11px] text-gray-500 font-medium">
                 <th class="py-2 px-3">Item Name</th>
-                <th class="py-2 px-3 text-center">Status</th>
-                <th class="py-2 px-3 text-center">Qty</th>
+                <th class="py-2 px-2 text-center">Location</th>
+                <th class="py-2 px-2 text-center">Status</th>
+                <th class="py-2 px-2 text-center">Qty</th>
                 <th class="py-2 px-3 text-right">Weight</th>
                 <th class="py-2 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              <tr v-for="(eq, eIdx) in liveEquipment" :key="eIdx" class="hover:bg-gray-50">
+              <tr v-for="(eq, eIdx) in filteredEquipment" :key="eIdx" class="hover:bg-gray-50">
                 <td class="py-2 px-3 font-medium text-gray-800">
                   <span>{{ eq.name }}</span>
-                  <span v-if="eq.is_armor" class="ml-1.5 text-[10px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded font-mono">
-                    Armor
+                  <span v-if="isContainerItem(eq)" class="ml-1.5 text-[9px] bg-gray-100 text-gray-700 border border-gray-300 px-1 py-0.5 rounded font-mono">
+                    Container{{ getContainerCapacity(eq) ? ' (' + getContainerCapacity(eq) + ' lb)' : '' }}
+                  </span>
+                  <span v-else-if="getItemEquipType(eq) === 'armor' || getItemEquipType(eq) === 'shield'" class="ml-1.5 text-[9px] bg-gray-100 text-gray-700 border border-gray-300 px-1 py-0.5 rounded font-mono">
+                    {{ getItemEquipType(eq) === 'shield' ? 'Shield' : 'Armor' }}
+                  </span>
+                  <span v-else-if="getItemEquipType(eq) === 'weapon'" class="ml-1.5 text-[9px] bg-gray-100 text-gray-700 border border-gray-300 px-1 py-0.5 rounded font-mono">
+                    Weapon
+                  </span>
+                  <span v-else-if="getItemEquipType(eq) === 'wearable'" class="ml-1.5 text-[9px] bg-gray-100 text-gray-700 border border-gray-300 px-1 py-0.5 rounded font-mono">
+                    Wearable
+                  </span>
+                  <span v-if="selectedContainerFilter === 'all' && eq.container_name" class="ml-1.5 text-[9px] text-gray-500 italic">
+                    (in {{ eq.container_name }})
                   </span>
                 </td>
-                <td class="py-2 px-3 text-center">
+                <td class="py-2 px-2 text-center">
+                  <span
+                    v-if="eq.status === 'equipped'"
+                    class="text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded"
+                  >
+                    Equipped
+                  </span>
+                  <span v-else-if="isContainerItem(eq)" class="text-[10px] text-gray-400 font-mono">Container</span>
+                  <select
+                    v-else-if="availableContainers.length > 0"
+                    :value="eq.container_name || ''"
+                    @change="setItemContainer(eq, $event.target.value)"
+                    class="text-[10px] p-1 border border-gray-300 rounded bg-white text-gray-700 cursor-pointer"
+                  >
+                    <option value="">Backpack</option>
+                    <option v-for="c in availableContainers.filter(cont => cont !== eq)" :key="c.name" :value="c.name">
+                      {{ c.name }}
+                    </option>
+                  </select>
+                  <span v-else class="text-[10px] text-gray-400">Backpack</span>
+                </td>
+                <td class="py-2 px-2 text-center">
                   <button
+                    v-if="isItemEquippable(eq) && !eq.container_name"
                     type="button"
-                    @click="toggleEquipStatus(eIdx)"
+                    @click="toggleEquipStatus(eq)"
                     :class="eq.status === 'equipped' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-gray-50 text-gray-600 border-gray-200'"
                     class="px-2 py-0.5 text-[10px] rounded border transition cursor-pointer capitalize"
                   >
-                    {{ eq.status === 'equipped' ? 'Equipped' : 'Inventory' }}
+                    {{ eq.status === 'equipped' ? 'Equipped' : 'Equip' }}
                   </button>
+                  <span v-else-if="isItemEquippable(eq) && eq.container_name" class="text-[10px] text-gray-400 select-none" :title="'Stored in ' + eq.container_name">—</span>
+                  <span v-else class="text-[10px] text-gray-400 select-none">—</span>
                 </td>
-                <td class="py-2 px-3 text-center font-mono">
+                <td class="py-2 px-2 text-center font-mono">
                   <div class="inline-flex items-center gap-1">
                     <button
                       type="button"
-                      @click="changeItemAmount(eIdx, -1)"
+                      @click="changeItemAmount(eq, -1)"
                       class="w-4 h-4 bg-gray-100 hover:bg-gray-200 rounded text-[10px] font-bold leading-none cursor-pointer"
                     >-</button>
                     <span class="w-6 text-center text-xs font-semibold">{{ eq.amount || 1 }}</span>
                     <button
                       type="button"
-                      @click="changeItemAmount(eIdx, 1)"
+                      @click="changeItemAmount(eq, 1)"
                       class="w-4 h-4 bg-gray-100 hover:bg-gray-200 rounded text-[10px] font-bold leading-none cursor-pointer"
                     >+</button>
                   </div>
@@ -3714,7 +5230,7 @@ watch(() => charSpells.value, (list) => {
                 <td class="py-2 px-3 text-right">
                   <button
                     type="button"
-                    @click="removeItem(eIdx)"
+                    @click="removeItem(eq)"
                     class="text-gray-400 hover:text-red-600 text-xs font-bold px-1.5 py-0.5 rounded hover:bg-red-50 cursor-pointer transition"
                     title="Remove Item"
                   >
@@ -3830,6 +5346,255 @@ watch(() => charSpells.value, (list) => {
           >
             Close
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: Characteristics & Roleplay -->
+    <div v-else-if="activeTab === 'characteristics'" class="space-y-4 text-xs">
+      <!-- Characteristics Header Card -->
+      <div class="p-3 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+        <div>
+          <h2 class="text-sm font-bold text-gray-900 tracking-wider uppercase">CHARACTERISTICS & DETAILS</h2>
+          <p class="text-[11px] text-gray-500 mt-0.5">Physical appearance, traits, lifestyle, and character notes.</p>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            @click="emit('edit')"
+            class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 px-2.5 py-1 rounded text-xs font-medium cursor-pointer shadow-xs inline-flex items-center gap-1"
+            title="Edit all characteristics in wizard"
+          >
+            <IconEdit class="w-3.5 h-3.5" />
+            <span>Edit</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Top Characteristics Grid (10 fields matching user screenshot) -->
+      <div class="p-3.5 bg-white border border-gray-200 rounded">
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs">
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">ALIGNMENT</div>
+            <div class="font-semibold text-gray-900">{{ char.alignment || parsedCharacteristics.alignment || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">GENDER</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.gender || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">EYES</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.eyes || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">SIZE</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.size || 'Medium' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">HEIGHT</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.height || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">FAITH</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.faith || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">HAIR</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.hair || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">SKIN</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.skin || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">AGE</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.age || '—' }}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">WEIGHT</div>
+            <div class="font-semibold text-gray-900">{{ parsedCharacteristics.weight || '—' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Personality Traits, Ideals, Bonds, Flaws -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <!-- Personality Traits -->
+        <div class="p-3 bg-white border border-gray-200 rounded space-y-1.5">
+          <div class="text-xs font-bold text-gray-900 flex items-center justify-between border-b border-gray-100 pb-1">
+            <span>Personality Traits</span>
+          </div>
+          <div v-if="parsedCharacteristics.personalityTraits && parsedCharacteristics.personalityTraits.length" class="space-y-1">
+            <p
+              v-for="(tr, idx) in parsedCharacteristics.personalityTraits"
+              :key="idx"
+              class="text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-100 italic"
+            >
+              "{{ tr }}"
+            </p>
+          </div>
+          <p v-else class="text-xs text-gray-400 italic">No personality traits recorded.</p>
+        </div>
+
+        <!-- Ideals -->
+        <div class="p-3 bg-white border border-gray-200 rounded space-y-1.5">
+          <div class="text-xs font-bold text-gray-900 flex items-center justify-between border-b border-gray-100 pb-1">
+            <span>Ideals</span>
+          </div>
+          <div v-if="parsedCharacteristics.ideals && parsedCharacteristics.ideals.length" class="space-y-1">
+            <p
+              v-for="(idItem, idx) in parsedCharacteristics.ideals"
+              :key="idx"
+              class="text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-100 italic"
+            >
+              "{{ idItem }}"
+            </p>
+          </div>
+          <p v-else class="text-xs text-gray-400 italic">No ideals recorded.</p>
+        </div>
+
+        <!-- Bonds -->
+        <div class="p-3 bg-white border border-gray-200 rounded space-y-1.5">
+          <div class="text-xs font-bold text-gray-900 flex items-center justify-between border-b border-gray-100 pb-1">
+            <span>Bonds</span>
+          </div>
+          <div v-if="parsedCharacteristics.bonds && parsedCharacteristics.bonds.length" class="space-y-1">
+            <p
+              v-for="(bd, idx) in parsedCharacteristics.bonds"
+              :key="idx"
+              class="text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-100 italic"
+            >
+              "{{ bd }}"
+            </p>
+          </div>
+          <p v-else class="text-xs text-gray-400 italic">No bonds recorded.</p>
+        </div>
+
+        <!-- Flaws -->
+        <div class="p-3 bg-white border border-gray-200 rounded space-y-1.5">
+          <div class="text-xs font-bold text-gray-900 flex items-center justify-between border-b border-gray-100 pb-1">
+            <span>Flaws</span>
+          </div>
+          <div v-if="parsedCharacteristics.flaws && parsedCharacteristics.flaws.length" class="space-y-1">
+            <p
+              v-for="(fl, idx) in parsedCharacteristics.flaws"
+              :key="idx"
+              class="text-xs text-gray-700 bg-gray-50 p-2 rounded border border-gray-100 italic"
+            >
+              "{{ fl }}"
+            </p>
+          </div>
+          <p v-else class="text-xs text-gray-400 italic">No flaws recorded.</p>
+        </div>
+      </div>
+
+      <!-- Appearance -->
+      <div class="p-3.5 bg-white border border-gray-200 rounded space-y-2">
+        <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">APPEARANCE</h3>
+        <p v-if="parsedCharacteristics.appearance" class="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">
+          {{ parsedCharacteristics.appearance }}
+        </p>
+        <p v-else class="text-xs text-gray-400 italic">No appearance description provided.</p>
+      </div>
+
+      <!-- Lifestyle & Wealth -->
+      <div class="p-3.5 bg-white border border-gray-200 rounded space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Lifestyle & Wealth</h3>
+          <span class="text-[11px] font-bold text-gray-800 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">
+            {{ parsedCharacteristics.lifestyle || 'Modest' }} &bull; {{ LIFESTYLES.find(l => l.value === (parsedCharacteristics.lifestyle || 'Modest'))?.cost || '1 gp/day' }}
+          </span>
+        </div>
+        <p class="text-xs text-gray-600">
+          {{ LIFESTYLES.find(l => l.value === (parsedCharacteristics.lifestyle || 'Modest'))?.desc }}
+        </p>
+      </div>
+
+      <!-- Notes & Organizations with interactive save (Screenshot 2) -->
+      <div class="p-4 bg-white border border-gray-200 rounded space-y-3">
+        <div class="flex items-center justify-between">
+          <!-- Sub-tabs bar: ALL, ORGS, ALLIES, ENEMIES, BACKSTORY, OTHER -->
+          <div class="flex items-center gap-1 overflow-x-auto pb-1 text-xs font-bold">
+            <button
+              v-for="st in ['ALL', 'ORGS', 'ALLIES', 'ENEMIES', 'BACKSTORY', 'OTHER']"
+              :key="st"
+              type="button"
+              @click="sheetNotesSubTab = st"
+              :class="sheetNotesSubTab === st ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200'"
+              class="px-2.5 py-1 rounded text-[11px] font-bold tracking-wider transition cursor-pointer"
+            >
+              {{ st }}
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span v-if="notesSavedToast" class="text-[11px] text-emerald-600 font-semibold animate-pulse">Saved!</span>
+            <button
+              type="button"
+              :disabled="isSavingNotes"
+              @click="saveSheetNotes"
+              class="bg-gray-900 hover:bg-black text-white px-3 py-1 rounded text-xs font-medium cursor-pointer transition shadow-xs disabled:opacity-50"
+            >
+              {{ isSavingNotes ? 'Saving...' : 'Save Notes' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-4 pt-2">
+          <!-- ORGANIZATIONS -->
+          <div v-if="sheetNotesSubTab === 'ALL' || sheetNotesSubTab === 'ORGS'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ORGANIZATIONS</h4>
+            <textarea
+              v-model="sheetNotes.organizations"
+              rows="2"
+              placeholder="+ Add Organizations"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- ALLIES -->
+          <div v-if="sheetNotesSubTab === 'ALL' || sheetNotesSubTab === 'ALLIES'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ALLIES</h4>
+            <textarea
+              v-model="sheetNotes.allies"
+              rows="2"
+              placeholder="+ Add Allies"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- ENEMIES -->
+          <div v-if="sheetNotesSubTab === 'ALL' || sheetNotesSubTab === 'ENEMIES'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ENEMIES</h4>
+            <textarea
+              v-model="sheetNotes.enemies"
+              rows="2"
+              placeholder="+ Add Enemies"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- BACKSTORY -->
+          <div v-if="sheetNotesSubTab === 'ALL' || sheetNotesSubTab === 'BACKSTORY'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">BACKSTORY</h4>
+            <textarea
+              v-model="sheetNotes.backstory"
+              rows="4"
+              placeholder="+ Add Backstory"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <!-- OTHER -->
+          <div v-if="sheetNotesSubTab === 'ALL' || sheetNotesSubTab === 'OTHER'" class="space-y-1.5">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">OTHER</h4>
+            <textarea
+              v-model="sheetNotes.other"
+              rows="2"
+              placeholder="+ Add Other"
+              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
         </div>
       </div>
     </div>
@@ -4129,6 +5894,841 @@ watch(() => charSpells.value, (list) => {
             <span v-else class="text-[10px] text-gray-400 font-mono">{{ lastRoll.timestamp }}</span>
           </div>
         </div>
+      </div>
+    </transition>
+
+    <!-- Campaign Modal -->
+    <div v-if="showCampaignModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-sm w-full p-4 space-y-3.5">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <span class="font-bold text-gray-900 text-sm">Campaign Settings</span>
+          <button type="button" @click="showCampaignModal = false" class="text-gray-400 hover:text-gray-700 font-bold leading-none cursor-pointer">×</button>
+        </div>
+
+        <!-- Currently Linked to a Campaign -->
+        <div v-if="activeCampaignId" class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] uppercase font-bold text-gray-400">Linked Campaign</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-100 text-emerald-800">Active</span>
+          </div>
+          <div class="text-sm font-bold text-gray-900">{{ campaignName || char.campaign_name }}</div>
+          <div class="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              @click="goToCampaignRoom"
+              class="flex-1 py-1.5 px-3 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer transition shadow-xs text-center"
+            >
+              Open Campaign Room
+            </button>
+            <button
+              type="button"
+              @click="unlinkCharacterFromCampaign"
+              class="py-1.5 px-2.5 rounded border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 text-xs font-medium cursor-pointer transition shadow-xs"
+            >
+              Unlink
+            </button>
+          </div>
+        </div>
+
+        <!-- Not linked or switch campaign -->
+        <div v-else class="space-y-3">
+          <div v-if="userCampaigns.length > 0" class="space-y-1.5">
+            <label class="block text-xs font-semibold text-gray-700">Link to Existing Campaign</label>
+            <div class="flex items-center gap-1.5">
+              <select
+                v-model="selectedLinkCampaignId"
+                class="flex-1 bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+              >
+                <option value="">Select a Campaign...</option>
+                <option v-for="c in userCampaigns" :key="c.id" :value="c.id">
+                  {{ c.name }} ({{ c.is_dm ? 'DM' : 'Player' }})
+                </option>
+              </select>
+              <button
+                type="button"
+                @click="linkCharacterToCampaign"
+                :disabled="!selectedLinkCampaignId || isLinkingCampaign"
+                class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black disabled:opacity-40 text-white text-xs font-semibold cursor-pointer transition shrink-0"
+              >
+                Link
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Campaign Name</label>
+            <input
+              type="text"
+              v-model="campaignInput"
+              @keydown.enter="saveCampaign"
+              placeholder="e.g. Curse of Strahd"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            />
+          </div>
+
+          <div class="pt-1">
+            <button
+              type="button"
+              @click="goToCampaignRoom"
+              class="w-full py-2 px-3 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 text-xs font-semibold cursor-pointer transition flex items-center justify-center gap-1.5"
+            >
+              <span>Go to Campaigns Menu</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+          <button
+            type="button"
+            @click="showCampaignModal = false"
+            class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="saveCampaign"
+            class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Short Rest Modal -->
+    <div v-if="showShortRestModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <span class="font-bold text-gray-900 text-sm">Short Rest</span>
+          <button type="button" @click="completeShortRest" class="text-gray-400 hover:text-gray-700 font-bold">×</button>
+        </div>
+
+        <p class="text-xs text-gray-600">
+          Spend Hit Dice to recover Hit Points. You regain 1d{{ hitDieFaces }} + CON modifier ({{ conMod >= 0 ? '+' : '' }}{{ conMod }}) per die rolled.
+        </p>
+
+        <div class="bg-gray-50 border border-gray-200 rounded p-3 flex items-center justify-between">
+          <div>
+            <div class="text-[10px] uppercase font-bold text-gray-500">Current HP</div>
+            <div class="text-lg font-bold text-gray-900">{{ currentHp }} <span class="text-xs font-normal text-gray-500">/ {{ maxHp }}</span></div>
+          </div>
+          <div class="text-right">
+            <div class="text-[10px] uppercase font-bold text-gray-500">Available Hit Dice</div>
+            <div class="text-lg font-bold text-gray-900 font-mono">{{ remainingHitDice }} <span class="text-xs font-normal text-gray-500">/ {{ maxHitDiceCount }}d{{ hitDieFaces }}</span></div>
+          </div>
+        </div>
+
+        <div v-if="shortRestRollResult" class="p-2.5 bg-gray-100 border border-gray-300 rounded text-xs space-y-1">
+          <div class="font-bold text-gray-900">Hit Die Spent: +{{ shortRestRollResult.healed }} HP recovered!</div>
+          <div class="text-gray-700 font-mono text-[11px]">
+            Rolled {{ shortRestRollResult.roll }} on d{{ shortRestRollResult.die }} {{ shortRestRollResult.mod >= 0 ? '+' : '' }}{{ shortRestRollResult.mod }} (CON) = {{ shortRestRollResult.total }}
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center pt-2">
+          <button
+            type="button"
+            @click="rollHitDie"
+            :disabled="remainingHitDice <= 0 || currentHp >= maxHp"
+            class="px-3.5 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-semibold cursor-pointer transition"
+          >
+            Roll 1 Hit Die
+          </button>
+          <button
+            type="button"
+            @click="completeShortRest"
+            class="px-3.5 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-bold uppercase tracking-wider cursor-pointer transition shadow-xs"
+          >
+            Finish Short Rest
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Long Rest Modal -->
+    <div v-if="showLongRestModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-md w-full p-5 space-y-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-2.5 border-b border-gray-200">
+          <h3 class="text-base font-bold text-gray-900 tracking-tight">Long Rest</h3>
+          <button
+            type="button"
+            @click="showLongRestModal = false"
+            class="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Flavor / Description -->
+        <p class="text-xs text-gray-600 leading-relaxed">
+          A long rest is a period of extended downtime, at least 8 hours long, during which a character sleeps for at least 6 hours and performs no more than 2 hours of light activity, such as reading, talking, eating, or standing watch.
+        </p>
+
+        <!-- Hit Dice Recovery Rule Selection -->
+        <div class="space-y-2 pt-1">
+          <label
+            class="flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition"
+            :class="longRestRule === '5e' ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900/10' : 'border-gray-200 hover:bg-gray-50'"
+          >
+            <input
+              type="radio"
+              name="longRestRule"
+              value="5e"
+              v-model="longRestRule"
+              class="mt-0.5 text-gray-900 accent-gray-900 focus:ring-gray-900 cursor-pointer"
+            />
+            <div class="text-xs">
+              <span class="font-bold text-gray-900 block">Recover 1/2 Hit Dice</span>
+              <span class="text-gray-500 text-[11px]">Use 5e Rules (2014)</span>
+            </div>
+          </label>
+
+          <label
+            class="flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition"
+            :class="longRestRule === '5.5e' ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900/10' : 'border-gray-200 hover:bg-gray-50'"
+          >
+            <input
+              type="radio"
+              name="longRestRule"
+              value="5.5e"
+              v-model="longRestRule"
+              class="mt-0.5 text-gray-900 accent-gray-900 focus:ring-gray-900 cursor-pointer"
+            />
+            <div class="text-xs">
+              <span class="font-bold text-gray-900 block">Recover all Hit Dice</span>
+              <span class="text-gray-500 text-[11px]">Use 5.5e Rules (2024)</span>
+            </div>
+          </label>
+        </div>
+
+        <!-- RECOVER Summary Box -->
+        <div class="border-t border-b border-gray-200 py-3">
+          <span class="text-[10px] font-black uppercase text-gray-900 tracking-wider block mb-1">RECOVER</span>
+          <p class="text-xs text-gray-800 font-medium">
+            {{ recoverSummaryText }}
+          </p>
+        </div>
+
+        <!-- Reset Maximum HP checkbox -->
+        <div class="pt-0.5">
+          <label class="flex items-center gap-2 cursor-pointer select-none text-xs text-gray-700 font-medium">
+            <input
+              type="checkbox"
+              v-model="resetMaxHpOnRest"
+              class="rounded text-gray-900 accent-gray-900 focus:ring-gray-900 w-4 h-4 cursor-pointer"
+            />
+            <span>Reset Maximum HP changes during this rest</span>
+          </label>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex items-center justify-between pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            @click="longRestRule = char?.edition === '2024' ? '5.5e' : '5e'; resetMaxHpOnRest = true"
+            class="text-[11px] text-gray-500 hover:text-gray-800 underline cursor-pointer"
+          >
+            Reset defaults
+          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              @click="showLongRestModal = false"
+              class="px-3.5 py-2 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              @click="executeLongRest"
+              class="bg-gray-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider py-2 px-5 rounded cursor-pointer transition shadow-xs"
+            >
+              Take Long Rest
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HP Management Modal -->
+    <div v-if="showHpModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-md w-full p-5 space-y-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-2.5 border-b border-gray-200">
+          <h3 class="text-base font-bold text-gray-900 tracking-tight">Hit Points</h3>
+          <button
+            type="button"
+            @click="closeHpModal"
+            class="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- 3 Boxes: Current / Max / Temp -->
+        <div class="grid grid-cols-3 gap-2 text-center">
+          <!-- Current HP Box -->
+          <div class="border border-gray-300 rounded p-2 bg-gray-50/50 flex flex-col items-center">
+            <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">CURRENT</span>
+            <input
+              type="number"
+              min="0"
+              :max="previewMaxHp"
+              v-model.number="currentHp"
+              class="w-full text-center text-lg font-black text-gray-900 bg-white border border-gray-300 rounded mt-1 py-0.5 focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+
+          <!-- Max HP Box -->
+          <div class="border border-gray-300 rounded p-2 bg-gray-50/50 flex flex-col items-center justify-center">
+            <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">MAX</span>
+            <span class="text-lg font-black text-gray-900 mt-1 py-0.5">{{ previewMaxHp }}</span>
+          </div>
+
+          <!-- Temp HP Box -->
+          <div class="border border-gray-300 rounded p-2 bg-gray-50/50 flex flex-col items-center">
+            <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">TEMP</span>
+            <input
+              type="number"
+              min="0"
+              v-model.number="tempHp"
+              placeholder="0"
+              class="w-full text-center text-lg font-black text-gray-900 bg-white border border-gray-300 rounded mt-1 py-0.5 focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <!-- Heal & Damage Calculator Grid -->
+        <div class="border border-gray-200 rounded-lg p-3 bg-gray-50/80">
+          <div class="grid grid-cols-3 gap-2 items-center text-center">
+            <!-- HEAL Section -->
+            <div class="flex flex-col items-center gap-1.5">
+              <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">HEALING</span>
+              <div class="flex items-center gap-1 w-full justify-center">
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="healModalInput"
+                  placeholder="0"
+                  class="w-16 bg-white border border-gray-300 rounded text-center text-sm font-bold py-1 text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  @click="applyModalHeal"
+                  class="w-7 h-7 bg-gray-900 hover:bg-black text-white font-bold rounded flex items-center justify-center text-sm cursor-pointer shadow-xs transition"
+                  title="Apply Healing"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+
+            <!-- NEW HP Preview Box -->
+            <div class="flex flex-col items-center justify-center border-x border-gray-200 px-2">
+              <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">NEW HP</span>
+              <span class="text-2xl font-black text-gray-900 my-0.5">{{ newHpPreview }}</span>
+              <span class="text-[10px] text-gray-500">Preview</span>
+            </div>
+
+            <!-- DAMAGE Section -->
+            <div class="flex flex-col items-center gap-1.5">
+              <span class="text-[9px] font-bold text-gray-500 uppercase tracking-wider">DAMAGE</span>
+              <div class="flex items-center gap-1 w-full justify-center">
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="damageModalInput"
+                  placeholder="0"
+                  class="w-16 bg-white border border-gray-300 rounded text-center text-sm font-bold py-1 text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  @click="applyModalDamage"
+                  class="w-7 h-7 bg-gray-900 hover:bg-black text-white font-bold rounded flex items-center justify-center text-sm cursor-pointer shadow-xs transition"
+                  title="Apply Damage"
+                >
+                  -
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Max HP Modifier & Override Max HP Fields -->
+        <div class="space-y-3 pt-1">
+          <div class="flex items-center justify-between gap-3 text-xs">
+            <div class="flex-1">
+              <span class="font-bold text-gray-800 block text-[11px] uppercase tracking-wide">MAX HP MODIFIER</span>
+              <span class="text-gray-500 text-[10px]">Adjusts maximum hit points by this amount.</span>
+            </div>
+            <input
+              type="number"
+              v-model="maxHpModifierInput"
+              placeholder="--"
+              class="w-20 bg-white border border-gray-300 rounded px-2 py-1 text-center text-xs font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+
+          <div class="flex items-center justify-between gap-3 text-xs">
+            <div class="flex-1">
+              <span class="font-bold text-gray-800 block text-[11px] uppercase tracking-wide">OVERRIDE MAX HP</span>
+              <span class="text-gray-500 text-[10px]">Overrides base hit points calculation.</span>
+            </div>
+            <input
+              type="number"
+              v-model="overrideMaxHpInput"
+              placeholder="--"
+              class="w-20 bg-white border border-gray-300 rounded px-2 py-1 text-center text-xs font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            @click="closeHpModal"
+            class="bg-gray-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider py-2 px-5 rounded cursor-pointer transition"
+          >
+            Save & Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Armor Class Modal -->
+    <div v-if="showAcModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-md w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-2.5 border-b border-gray-200">
+          <div class="flex items-baseline gap-2">
+            <h3 class="text-base font-bold text-gray-900 tracking-tight">Armor Class</h3>
+            <span class="text-xl font-black text-gray-900 leading-none">{{ currentArmorClass }}</span>
+          </div>
+          <button
+            type="button"
+            @click="closeAcModal"
+            class="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- AC Breakdown -->
+        <div class="space-y-1.5 bg-gray-50 border border-gray-200 rounded p-3 text-xs">
+          <div class="font-bold text-gray-700 uppercase text-[10px] tracking-wider mb-1">Base AC Breakdown</div>
+          <div class="flex justify-between items-center text-gray-800">
+            <span>{{ acBreakdown.baseArmorValue }} Armor ({{ acBreakdown.armorName }})</span>
+            <span class="font-bold text-gray-900">{{ acBreakdown.baseArmorValue }}</span>
+          </div>
+          <div class="flex justify-between items-center text-gray-800">
+            <span>{{ acBreakdown.dexBonus >= 0 ? '+' : '' }}{{ acBreakdown.dexBonus }} {{ acBreakdown.dexBonusLabel }}</span>
+            <span class="font-bold text-gray-900">{{ acBreakdown.dexBonus >= 0 ? '+' : '' }}{{ acBreakdown.dexBonus }}</span>
+          </div>
+          <div v-if="acBreakdown.hasShield" class="flex justify-between items-center text-gray-800">
+            <span>+2 Shield</span>
+            <span class="font-bold text-gray-900">+2</span>
+          </div>
+          <div v-if="acBreakdown.magicBonus !== 0" class="flex justify-between items-center text-gray-800">
+            <span>{{ acBreakdown.magicBonus > 0 ? '+' : '' }}{{ acBreakdown.magicBonus }} Magic Bonus</span>
+            <span class="font-bold text-gray-900">{{ acBreakdown.magicBonus > 0 ? '+' : '' }}{{ acBreakdown.magicBonus }}</span>
+          </div>
+          <div v-if="acBreakdown.miscBonus !== 0" class="flex justify-between items-center text-gray-800">
+            <span>{{ acBreakdown.miscBonus > 0 ? '+' : '' }}{{ acBreakdown.miscBonus }} Misc Bonus</span>
+            <span class="font-bold text-gray-900">{{ acBreakdown.miscBonus > 0 ? '+' : '' }}{{ acBreakdown.miscBonus }}</span>
+          </div>
+          <div v-if="acBreakdown.overrideAc !== null" class="pt-1.5 border-t border-gray-200 flex justify-between items-center font-bold text-gray-900">
+            <span>Total Overridden</span>
+            <span class="font-black text-gray-900">{{ acBreakdown.overrideAc }}</span>
+          </div>
+        </div>
+
+        <!-- Collapsible Customize Section -->
+        <div class="border border-gray-200 rounded overflow-hidden">
+          <button
+            type="button"
+            @click="isAcCustomizeOpen = !isAcCustomizeOpen"
+            class="w-full flex items-center justify-between p-2.5 bg-gray-100 hover:bg-gray-200/70 text-xs font-bold text-gray-800 cursor-pointer transition select-none"
+          >
+            <span>Customize</span>
+            <component :is="isAcCustomizeOpen ? IconChevronUp : IconChevronDown" class="w-4 h-4 text-gray-600" />
+          </button>
+
+          <div v-if="isAcCustomizeOpen" class="p-3 space-y-3 bg-white text-xs">
+            <!-- 1. Override AC -->
+            <div class="space-y-1">
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider">OVERRIDE AC</label>
+              <div class="grid grid-cols-4 gap-2">
+                <input
+                  type="number"
+                  v-model="acCustom.override_ac"
+                  placeholder="--"
+                  class="col-span-1 bg-white border border-gray-300 rounded px-2 py-1 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  v-model="acCustom.notes_override_ac"
+                  placeholder="Enter Source Notes..."
+                  class="col-span-3 bg-white border border-gray-300 rounded px-2.5 py-1 text-gray-800 placeholder-gray-400 focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <!-- 2. Override Base Armor + DEX -->
+            <div class="space-y-1">
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider">OVERRIDE BASE ARMOR + DEX</label>
+              <div class="grid grid-cols-4 gap-2">
+                <input
+                  type="number"
+                  v-model="acCustom.override_base"
+                  placeholder="--"
+                  class="col-span-1 bg-white border border-gray-300 rounded px-2 py-1 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  v-model="acCustom.notes_override_base"
+                  placeholder="Enter Source Notes..."
+                  class="col-span-3 bg-white border border-gray-300 rounded px-2.5 py-1 text-gray-800 placeholder-gray-400 focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <!-- 3. Additional Magic Bonus -->
+            <div class="space-y-1">
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider">ADDITIONAL MAGIC BONUS</label>
+              <div class="grid grid-cols-4 gap-2">
+                <input
+                  type="number"
+                  v-model.number="acCustom.magic_bonus"
+                  placeholder="--"
+                  class="col-span-1 bg-white border border-gray-300 rounded px-2 py-1 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  v-model="acCustom.notes_magic"
+                  placeholder="Enter Source Notes..."
+                  class="col-span-3 bg-white border border-gray-300 rounded px-2.5 py-1 text-gray-800 placeholder-gray-400 focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <!-- 4. Additional Misc Bonus -->
+            <div class="space-y-1">
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider">ADDITIONAL MISC BONUS</label>
+              <div class="grid grid-cols-4 gap-2">
+                <input
+                  type="number"
+                  v-model.number="acCustom.misc_bonus"
+                  placeholder="--"
+                  class="col-span-1 bg-white border border-gray-300 rounded px-2 py-1 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  v-model="acCustom.notes_misc"
+                  placeholder="Enter Source Notes..."
+                  class="col-span-3 bg-white border border-gray-300 rounded px-2.5 py-1 text-gray-800 placeholder-gray-400 focus:border-gray-900 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            @click="closeAcModal"
+            class="bg-gray-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider py-2 px-5 rounded cursor-pointer transition"
+          >
+            Save & Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Speed & Movement Modal -->
+    <div v-if="showSpeedModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-md w-full p-5 space-y-4">
+        <!-- Header -->
+        <div class="flex items-center justify-between pb-2.5 border-b border-gray-200">
+          <h3 class="text-base font-bold text-gray-900 tracking-tight">Speed & Movement</h3>
+          <button
+            type="button"
+            @click="cancelSpeedModal"
+            class="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Speeds Grid -->
+        <div class="space-y-3 text-xs">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Walking Speed</label>
+              <div class="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  v-model.number="customSpeeds.walk"
+                  class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <span class="text-gray-500 font-semibold text-xs">ft</span>
+              </div>
+            </div>
+            <div>
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Flying Speed</label>
+              <div class="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  v-model.number="customSpeeds.fly"
+                  placeholder="0"
+                  class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <span class="text-gray-500 font-semibold text-xs">ft</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Swimming</label>
+              <div class="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  v-model.number="customSpeeds.swim"
+                  placeholder="0"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1.5 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <span class="text-gray-500 font-semibold text-xs">ft</span>
+              </div>
+            </div>
+            <div>
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Climbing</label>
+              <div class="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  v-model.number="customSpeeds.climb"
+                  placeholder="0"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1.5 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <span class="text-gray-500 font-semibold text-xs">ft</span>
+              </div>
+            </div>
+            <div>
+              <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Burrowing</label>
+              <div class="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  step="5"
+                  v-model.number="customSpeeds.burrow"
+                  placeholder="0"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1.5 text-center font-bold text-gray-900 focus:border-gray-900 focus:outline-none"
+                />
+                <span class="text-gray-500 font-semibold text-xs">ft</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-bold text-gray-800 text-[10px] uppercase tracking-wider mb-1">Movement Notes</label>
+            <textarea
+              v-model="customSpeeds.notes"
+              rows="2"
+              placeholder="e.g. Hover, Mobile feat +10ft, difficult terrain ignores..."
+              class="w-full bg-white border border-gray-300 rounded p-2 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="flex justify-end gap-2 pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            @click="cancelSpeedModal"
+            class="px-3.5 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="closeSpeedModal"
+            class="bg-gray-900 hover:bg-black text-white font-bold text-xs uppercase tracking-wider py-1.5 px-4 rounded cursor-pointer transition"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Defense Modal -->
+    <div v-if="showAddDefenseModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-sm w-full p-4 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <span class="font-bold text-gray-900 text-sm">Add Defense</span>
+          <button type="button" @click="showAddDefenseModal = false" class="text-gray-400 hover:text-gray-700 font-bold">×</button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Defense Type</label>
+          <select
+            v-model="newDefenseType"
+            class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900"
+          >
+            <option value="resistances">Resistance (Half damage)</option>
+            <option value="immunities">Immunity (No damage)</option>
+            <option value="vulnerabilities">Vulnerability (Double damage)</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Damage Type</label>
+          <select
+            v-model="newDefenseDamage"
+            class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900"
+          >
+            <option v-for="d in DAMAGE_TYPES" :key="d" :value="d">{{ d }}</option>
+          </select>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            @click="showAddDefenseModal = false"
+            class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="addDefense"
+            class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Conditions Modal -->
+    <div v-if="showConditionModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-md w-full p-4 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <span class="font-bold text-gray-900 text-sm">Manage Active Conditions</span>
+          <button type="button" @click="showConditionModal = false" class="text-gray-400 hover:text-gray-700 font-bold">×</button>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto p-1">
+          <button
+            v-for="cond in ALL_CONDITIONS"
+            :key="cond"
+            type="button"
+            @click="toggleCondition(cond)"
+            class="px-2 py-1.5 rounded border text-left text-xs font-medium transition cursor-pointer flex items-center justify-between"
+            :class="isConditionActive(cond) ? 'bg-gray-900 border-gray-900 text-white font-bold' : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'"
+          >
+            <span>{{ cond }}</span>
+            <IconCheck v-if="isConditionActive(cond)" class="w-3.5 h-3.5 text-white" />
+          </button>
+        </div>
+
+        <!-- Exhaustion Stepper & Details when active -->
+        <div v-if="exhaustionLevel !== null" class="border border-gray-300 bg-gray-50 rounded p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-xs text-gray-900 uppercase tracking-wide">Exhaustion Level</span>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="exhaustionLevel > 1 ? setExhaustionLevel(exhaustionLevel - 1) : toggleCondition('Exhaustion')"
+                class="w-6 h-6 rounded bg-gray-900 hover:bg-black text-white flex items-center justify-center font-bold text-xs cursor-pointer shadow-xs transition"
+                title="Decrease Level"
+              >
+                -
+              </button>
+              <span class="font-black text-sm text-gray-900 w-16 text-center">Level {{ exhaustionLevel }}</span>
+              <button
+                type="button"
+                @click="setExhaustionLevel(exhaustionLevel + 1)"
+                :disabled="exhaustionLevel >= maxExhaustionLevel"
+                class="w-6 h-6 rounded bg-gray-900 hover:bg-black text-white disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-xs cursor-pointer shadow-xs transition"
+                title="Increase Level"
+              >
+                +
+              </button>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-600 leading-tight">
+            {{ getExhaustionDescription(exhaustionLevel) }}
+          </p>
+        </div>
+
+        <div class="flex justify-end pt-2 border-t border-gray-200">
+          <button
+            type="button"
+            @click="showConditionModal = false"
+            class="px-3.5 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom Save Note Modal -->
+    <div v-if="showSaveNoteModal" class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-sm w-full p-4 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <span class="font-bold text-gray-900 text-sm">Saving Throw Notes</span>
+          <button type="button" @click="showSaveNoteModal = false" class="text-gray-400 hover:text-gray-700 font-bold">×</button>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Additional Save Modifiers / Resistances</label>
+          <textarea
+            v-model="customSaveNoteInput"
+            rows="3"
+            placeholder="e.g. +2 against spells from Magic Resistance, Danger Sense on DEX saves..."
+            class="w-full bg-white border border-gray-300 rounded p-2 text-xs text-gray-900 focus:outline-none focus:border-gray-500"
+          ></textarea>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button
+            type="button"
+            @click="showSaveNoteModal = false"
+            class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="saveCustomSaveNote"
+            class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer"
+          >
+            Save Note
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Feedback Toast -->
+    <transition name="fade">
+      <div
+        v-if="toastMessage"
+        class="fixed top-5 right-5 z-50 bg-gray-900 text-white text-xs px-3.5 py-2 rounded shadow-lg flex items-center gap-2"
+      >
+        <IconCheck class="w-4 h-4 text-emerald-400" />
+        <span>{{ toastMessage }}</span>
       </div>
     </transition>
 

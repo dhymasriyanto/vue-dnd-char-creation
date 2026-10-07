@@ -665,9 +665,13 @@ const getMonsterXp = (cr) => {
   return XP_BY_CR[String(cr)] || '—'
 }
 
+const handleBack = () => {
+  closeCompendium(true)
+}
+
 const onKeyDown = (e) => {
   if (e.key === 'Escape' && isCompendiumOpen.value) {
-    closeCompendium()
+    handleBack()
   }
 }
 
@@ -697,7 +701,7 @@ onBeforeUnmount(() => {
         <div class="flex items-center gap-3">
           <button
             type="button"
-            @click="closeCompendium"
+            @click="handleBack"
             class="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold flex items-center gap-1.5 transition cursor-pointer"
           >
             <IconArrowLeft class="w-4 h-4" />
@@ -739,7 +743,7 @@ onBeforeUnmount(() => {
           </div>
           <button
             type="button"
-            @click="closeCompendium"
+            @click="handleBack"
             class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 hover:text-gray-900 rounded font-semibold text-xs transition cursor-pointer border border-gray-200 flex items-center gap-1"
           >
             <IconX class="w-3.5 h-3.5" />
