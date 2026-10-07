@@ -6,12 +6,18 @@ import { useCharacterStore } from '../stores/character'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
 import {
   renderAnnotatedText,
+  clean5eToolsMarkup,
   formatPrerequisite,
   format5eEntries,
+  formatBackgroundAbility,
+  formatBackgroundFeats,
+  formatProficiencies,
+  formatFeatCategory,
   getItemCategoryAndRange,
   getItemExpandedProperties,
   getItemMastery,
-  getItemArmorDetails
+  getItemArmorDetails,
+  formatItemPropertyNames
 } from '../utils/textRenderer'
 import { IconArrowLeft, IconX } from '@tabler/icons-vue'
 
@@ -619,32 +625,115 @@ const formatFeatureType = (ft) => {
   return names.join(', ')
 }
 
-const formatBackgroundAbility = (ability) => {
-  if (!ability) return '—'
-  if (Array.isArray(ability)) {
-    return ability.map(a => {
-      if (typeof a === 'string') return a.toUpperCase()
-      if (typeof a === 'object') {
-        return Object.entries(a).map(([k, v]) => `${k.toUpperCase()} +${v}`).join(', ')
-      }
-      return String(a)
-    }).join('; ')
-  }
-  return String(ability)
+const ITEM_TYPE_MAP = {
+  w: 'Weapon',
+  weapon: 'Weapon',
+  la: 'Light Armor',
+  ma: 'Medium Armor',
+  ha: 'Heavy Armor',
+  s: 'Shield',
+  armor: 'Armor',
+  rg: 'Ring',
+  rd: 'Rod',
+  sc: 'Scroll',
+  st: 'Staff',
+  w_: 'Wand',
+  wd: 'Wand',
+  p: 'Potion',
+  g: 'Adventuring Gear',
+  gear: 'Adventuring Gear',
+  t: 'Tool',
+  tool: 'Tool',
+  m: 'Melee Weapon',
+  r: 'Ranged Weapon',
+  vehicle: 'Vehicle',
+  mount: 'Mount',
+  ship: 'Ship'
 }
 
-const formatProficiencies = (prof) => {
-  if (!prof) return '—'
-  if (Array.isArray(prof)) {
-    return prof.map(p => {
-      if (typeof p === 'string') return p
-      if (typeof p === 'object' && p.choose) {
-        return `Choose ${p.choose.count || 1} from ${(p.choose.from || []).join(', ')}`
+const formatItemType = (item) => {
+  if (!item) return 'Equipment'
+  const cat = getItemCategoryAndRange(item)
+  if (cat) return cat.replace(/\s*\(Range.*?\)/i, '')
+  const t = item.itemType || (typeof item.type === 'string' ? item.type : '')
+  if (!t) return 'Equipment'
+  const key = t.toLowerCase().trim()
+  return ITEM_TYPE_MAP[key] || t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+const formatItemProperties = (props, versatileDice = null, weaponName = '') => {
+  if (!props) return '—'
+  const formatted = formatItemPropertyNames(props, versatileDice, weaponName)
+  if (formatted && formatted.length > 0) return formatted.join(', ')
+  const arr = Array.isArray(props) ? props : [props]
+  return arr.map(p => clean5eToolsMarkup(String(p))).filter(Boolean).join(', ') || '—'
+}
+
+const formatRaceSize = (sz) => {
+  if (!sz) return 'Medium'
+  const list = Array.isArray(sz) ? sz : [sz]
+  return list.map(s => SIZE_NAMES[String(s).toUpperCase()] || s).join(', ') || 'Medium'
+}
+
+const formatRaceTraits = (traits) => {
+  if (!traits) return ''
+  const list = Array.isArray(traits) ? traits : [traits]
+  return list.map(t => {
+    if (typeof t === 'string') return clean5eToolsMarkup(t)
+    if (typeof t === 'object' && t !== null) {
+      return t.name || t.entry || Object.keys(t).join(', ')
+    }
+    return String(t)
+  }).filter(Boolean).join(', ')
+}
+
+const formatClassProf = (list) => {
+  if (!list) return '—'
+  const arr = Array.isArray(list) ? list : [list]
+  return arr.map(item => {
+    if (!item) return ''
+    if (typeof item === 'object') {
+      if (item.choose) {
+        const from = (item.choose.from || []).map(formatClassProf).join(', ')
+        return `Choose ${item.choose.count || 1} from ${from}`
       }
-      return Object.keys(p).join(', ')
-    }).join(', ')
+      return Object.keys(item).map(clean5eToolsMarkup).join(', ')
+    }
+    const cleaned = clean5eToolsMarkup(String(item))
+    return cleaned.replace(/\b([a-zA-Z]+)\b/g, m => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase())
+  }).filter(Boolean).join(', ') || '—'
+}
+
+const CLASS_PRIMARY_FALLBACK = {
+  barbarian: 'STR',
+  bard: 'CHA',
+  cleric: 'WIS',
+  druid: 'WIS',
+  fighter: 'STR or DEX',
+  monk: 'DEX & WIS',
+  paladin: 'STR & CHA',
+  ranger: 'DEX & WIS',
+  rogue: 'DEX',
+  sorcerer: 'CHA',
+  warlock: 'CHA',
+  wizard: 'INT',
+  artificer: 'INT',
+  mystic: 'INT'
+}
+
+const formatMonsterLanguages = (langs) => {
+  if (!langs) return '—'
+  if (typeof langs === 'string') return langs
+  if (Array.isArray(langs)) {
+    return langs.map(l => {
+      if (typeof l === 'string') return l
+      if (typeof l === 'object' && l !== null) {
+        return l.name || l.language || Object.keys(l).join(', ')
+      }
+      return String(l)
+    }).filter(Boolean).join(', ') || '—'
   }
-  return String(prof)
+  return String(langs)
 }
 
 const isItemCategory = (item) => {
@@ -674,7 +763,8 @@ const getItemBadge = (item) => {
     return formatSpellLevel(item.level)
   }
   if (item._category === 'items' || item.itemType || item.damageDice || item.ac || item.vehAc || item.vehHp || item.crew) {
-    const rawT = String(item.itemType || item.type || '').toLowerCase()
+    const typeStr = typeof item.type === 'object' && item.type !== null ? (item.type.type || '') : (item.type || '')
+    const rawT = String(item.itemType || typeStr).toLowerCase()
     if (rawT === 'vehicle' || item.vehAc || item.vehHp || item.crew) return 'Vehicle'
     if (rawT === 'mount') return 'Mount'
     if (rawT === 'wondrous') return 'Wondrous Item'
@@ -683,7 +773,7 @@ const getItemBadge = (item) => {
     if (rawT === 'armor') return 'Armor'
     if (rawT === 'tool') return 'Tool'
     if (rawT === 'gear') return 'Gear'
-    return item.itemType || item.type || 'Item'
+    return item.itemType || typeStr || 'Item'
   }
   if (item._category === 'rules') {
     const rawC = String(item.category || item.type || '').toLowerCase()
@@ -724,8 +814,16 @@ const formatMonsterSize = (sz) => {
 const formatMonsterType = (t) => {
   if (!t) return 'humanoid'
   if (typeof t === 'string') return t
+  if (Array.isArray(t)) return t.map(formatMonsterType).join(', ')
   if (typeof t === 'object') {
-    const base = t.type || 'creature'
+    let base = t.type || 'creature'
+    if (typeof base === 'object' && base !== null) {
+      if (Array.isArray(base.choose)) {
+        base = base.choose.join(' or ')
+      } else {
+        base = 'creature'
+      }
+    }
     const tags = Array.isArray(t.tags) ? ` (${t.tags.join(', ')})` : ''
     return `${base}${tags}`
   }
@@ -744,13 +842,26 @@ const formatMonsterAlignment = (al) => {
 const formatMonsterAc = (ac) => {
   if (!ac) return '10'
   if (Array.isArray(ac)) {
+    if (ac.length === 0) return '10'
     return ac.map(a => {
-      if (typeof a === 'object') {
-        const from = Array.isArray(a.from) ? ` (${a.from.join(', ')})` : ''
-        return `${a.ac}${from}`
+      if (typeof a === 'object' && a !== null) {
+        if (a.special) return a.special
+        const val = a.ac !== undefined ? a.ac : ''
+        const from = Array.isArray(a.from) ? ` (${a.from.join(', ')})` : (a.from ? ` (${a.from})` : '')
+        const cond = a.condition ? ` ${a.condition}` : ''
+        const res = `${val}${from}${cond}`.trim()
+        return a.braces ? `(${res})` : res
       }
       return String(a)
-    }).join(', ')
+    }).filter(Boolean).join(', ')
+  }
+  if (typeof ac === 'object' && ac !== null) {
+    if (ac.special) return ac.special
+    const val = ac.ac !== undefined ? ac.ac : ''
+    const from = Array.isArray(ac.from) ? ` (${ac.from.join(', ')})` : (ac.from ? ` (${ac.from})` : '')
+    const cond = ac.condition ? ` ${ac.condition}` : ''
+    const res = `${val}${from}${cond}`.trim()
+    return ac.braces ? `(${res})` : res
   }
   return String(ac)
 }
@@ -758,6 +869,7 @@ const formatMonsterAc = (ac) => {
 const formatMonsterHp = (hp) => {
   if (!hp) return '10'
   if (typeof hp === 'object') {
+    if (hp.special) return hp.special
     const avg = hp.average || ''
     const formula = hp.formula ? ` (${hp.formula})` : ''
     return `${avg}${formula}`.trim() || '10'
@@ -769,11 +881,21 @@ const formatMonsterSpeed = (spd) => {
   if (!spd) return '30 ft.'
   if (typeof spd === 'object') {
     const parts = []
+    const canHover = spd.canHover
     for (const [k, v] of Object.entries(spd)) {
+      if (k === 'canHover') continue
       if (typeof v === 'object' && v !== null) {
-        parts.push(`${k === 'walk' ? '' : `${k} `}${v.number || 30} ft.${v.condition ? ` ${v.condition}` : ''}`.trim())
+        let cond = v.condition ? ` ${v.condition}` : ''
+        if (k === 'fly' && canHover && !cond.includes('hover')) {
+          cond = cond ? `${cond} (hover)` : ' (hover)'
+        }
+        parts.push(`${k === 'walk' ? '' : `${k} `}${v.number || 30} ft.${cond}`.trim())
       } else if (typeof v === 'number' || typeof v === 'string') {
-        parts.push(`${k === 'walk' ? '' : `${k} `}${v}${typeof v === 'number' ? ' ft.' : ''}`.trim())
+        let cond = ''
+        if (k === 'fly' && canHover) {
+          cond = ' (hover)'
+        }
+        parts.push(`${k === 'walk' ? '' : `${k} `}${v}${typeof v === 'number' ? ' ft.' : ''}${cond}`.trim())
       }
     }
     return parts.join(', ') || '30 ft.'
@@ -811,6 +933,41 @@ const getMonsterXp = (cr) => {
   return XP_BY_CR[String(cr)] || '—'
 }
 
+const formatMonsterDefenses = (def) => {
+  if (!def) return ''
+  if (typeof def === 'string') return def
+  if (Array.isArray(def)) {
+    return def.map(item => {
+      if (typeof item === 'string') return item
+      if (typeof item === 'object' && item !== null) {
+        if (item.special) return item.special
+        const sub = item.resist || item.immune || item.vulnerable || item.conditionImmune || []
+        const subStr = Array.isArray(sub) ? sub.join(', ') : String(sub)
+        const note = item.note ? ` (${item.note})` : ''
+        return `${subStr}${note}`.trim()
+      }
+      return String(item)
+    }).filter(Boolean).join('; ')
+  }
+  return String(def)
+}
+
+const formatMonsterSenses = (item) => {
+  if (!item) return ''
+  const parts = []
+  if (item.senses) {
+    if (Array.isArray(item.senses)) {
+      parts.push(...item.senses.filter(Boolean))
+    } else if (typeof item.senses === 'string' && item.senses.trim()) {
+      parts.push(item.senses.trim())
+    }
+  }
+  if (item.passive != null && !parts.some(p => p.toLowerCase().includes('passive perception'))) {
+    parts.push(`passive Perception ${item.passive}`)
+  }
+  return parts.join(', ')
+}
+
 const formatRaceSpeed = (item) => {
   if (!item) return '30 ft.'
   const parts = []
@@ -821,8 +978,11 @@ const formatRaceSpeed = (item) => {
   return parts.join(', ') || '30 ft.'
 }
 
-const formatPrimaryAbility = (pa) => {
-  if (!pa) return '—'
+const formatPrimaryAbility = (pa, className = '') => {
+  if (!pa || (Array.isArray(pa) && pa.length === 0)) {
+    const cName = String(className || '').toLowerCase().trim()
+    return CLASS_PRIMARY_FALLBACK[cName] || '—'
+  }
   if (Array.isArray(pa)) {
     return pa.map(obj => {
       if (typeof obj === 'object' && obj !== null) {
@@ -1305,12 +1465,12 @@ onBeforeUnmount(() => {
 
             <!-- Item Stats Grid -->
             <div
-              v-else-if="selectedItem._category === 'items' || selectedItem.itemType || selectedItem.vehAc || selectedItem.vehHp || selectedItem.crew || selectedItem.speed"
+              v-else-if="selectedItem._category !== 'monsters' && selectedItem.cr === undefined && (selectedItem._category === 'items' || selectedItem.itemType || selectedItem.vehAc || selectedItem.vehHp || selectedItem.crew || selectedItem.capCargo || (selectedItem._category === 'rules' && (selectedItem.capPassenger || selectedItem.carryingCapacity)))"
               class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
             >
               <div>
                 <span class="text-gray-400 block font-medium">Type</span>
-                <span class="font-semibold text-gray-800 capitalize">{{ selectedItem.type || selectedItem.itemType || 'Equipment' }}</span>
+                <span class="font-semibold text-gray-800 capitalize">{{ formatItemType(selectedItem) }}</span>
               </div>
               <div v-if="selectedItem.damageDice || selectedItem.dmg1">
                 <span class="text-gray-400 block font-medium">Damage</span>
@@ -1323,7 +1483,7 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selectedItem.ac || selectedItem.baseAc">
                 <span class="text-gray-400 block font-medium">AC</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.ac || selectedItem.baseAc }}</span>
+                <span class="font-semibold text-gray-800">{{ formatMonsterAc(selectedItem.ac || selectedItem.baseAc) }}</span>
               </div>
               <div v-if="selectedItem.vehAc || selectedItem.vehHp">
                 <span class="text-gray-400 block font-medium">Hull</span>
@@ -1346,7 +1506,7 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selectedItem.speed">
                 <span class="text-gray-400 block font-medium">Speed</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.speed }}</span>
+                <span class="font-semibold text-gray-800">{{ formatMonsterSpeed(selectedItem.speed) }}</span>
               </div>
               <div v-if="selectedItem.carryingCapacity">
                 <span class="text-gray-400 block font-medium">Capacity</span>
@@ -1367,7 +1527,7 @@ onBeforeUnmount(() => {
               <div v-if="(selectedItem.property && selectedItem.property.length) || (selectedItem.properties && selectedItem.properties.length)" class="col-span-2 sm:col-span-4">
                 <span class="text-gray-400 block font-medium">Properties</span>
                 <span class="font-semibold text-gray-800">
-                  {{ Array.isArray(selectedItem.properties || selectedItem.property) ? (selectedItem.properties || selectedItem.property).join(', ') : (selectedItem.properties || selectedItem.property) }}
+                  {{ formatItemProperties(selectedItem.properties || selectedItem.property, selectedItem.dmg2 || selectedItem.versatileDice, selectedItem.name) }}
                 </span>
               </div>
             </div>
@@ -1383,7 +1543,7 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selectedItem.feats && selectedItem.feats.length">
                 <span class="text-gray-400 block font-medium">Feat</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.feats.map(f => String(f).split('|')[0]).join(', ') }}</span>
+                <span class="font-semibold text-gray-800">{{ formatBackgroundFeats(selectedItem.feats) }}</span>
               </div>
               <div v-if="selectedItem.skillProficiencies && selectedItem.skillProficiencies.length">
                 <span class="text-gray-400 block font-medium">Skills</span>
@@ -1411,7 +1571,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div>
                   <span class="text-gray-400 block font-medium">Primary Ability</span>
-                  <span class="font-semibold text-gray-800">{{ formatPrimaryAbility(selectedItem.primaryAbility) }}</span>
+                  <span class="font-semibold text-gray-800">{{ formatPrimaryAbility(selectedItem.primaryAbility, selectedItem.name) }}</span>
                 </div>
                 <div>
                   <span class="text-gray-400 block font-medium">Saving Throws</span>
@@ -1425,13 +1585,13 @@ onBeforeUnmount(() => {
 
               <div class="space-y-1 pt-1 border-t border-gray-200">
                 <div v-if="selectedItem.armorProficiencies && selectedItem.armorProficiencies.length">
-                  <strong class="text-gray-700">Armor Training:</strong> {{ selectedItem.armorProficiencies.join(', ') }}
+                  <strong class="text-gray-700">Armor Training:</strong> {{ formatClassProf(selectedItem.armorProficiencies) }}
                 </div>
                 <div v-if="selectedItem.weaponProficiencies && selectedItem.weaponProficiencies.length">
-                  <strong class="text-gray-700">Weapon Proficiencies:</strong> {{ selectedItem.weaponProficiencies.join(', ') }}
+                  <strong class="text-gray-700">Weapon Proficiencies:</strong> {{ formatClassProf(selectedItem.weaponProficiencies) }}
                 </div>
                 <div v-if="selectedItem.toolProficiencies && selectedItem.toolProficiencies.length">
-                  <strong class="text-gray-700">Tool Proficiencies:</strong> {{ selectedItem.toolProficiencies.map(t => String(t).split('|')[0].replace(/\{@item ([^}]+)\}/g, '$1')).join(', ') }}
+                  <strong class="text-gray-700">Tool Proficiencies:</strong> {{ formatClassProf(selectedItem.toolProficiencies) }}
                 </div>
               </div>
 
@@ -1464,7 +1624,7 @@ onBeforeUnmount(() => {
                 </div>
                 <div>
                   <span class="text-gray-400 block font-medium">Size</span>
-                  <span class="font-semibold text-gray-800">{{ (selectedItem.size || []).join(', ') || 'Medium' }}</span>
+                  <span class="font-semibold text-gray-800">{{ formatRaceSize(selectedItem.size) }}</span>
                 </div>
                 <div>
                   <span class="text-gray-400 block font-medium">Speed</span>
@@ -1476,8 +1636,12 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
+              <div v-if="selectedItem.abilityBonuses && selectedItem.abilityBonuses.length" class="pt-1 border-t border-gray-200">
+                <strong class="text-gray-700">Ability Scores:</strong> {{ formatBackgroundAbility(selectedItem.abilityBonuses) }}
+              </div>
+
               <div v-if="selectedItem.traits && selectedItem.traits.length" class="pt-1 border-t border-gray-200">
-                <strong class="text-gray-700">Traits:</strong> {{ selectedItem.traits.join(', ') }}
+                <strong class="text-gray-700">Traits:</strong> {{ formatRaceTraits(selectedItem.traits) }}
               </div>
 
               <div v-if="selectedItem.subraces && selectedItem.subraces.length" class="pt-2 border-t border-gray-200 space-y-1.5">
@@ -1494,6 +1658,25 @@ onBeforeUnmount(() => {
                     <span v-if="sr.source" class="text-[9px] font-mono px-1 py-0.2 bg-gray-100 rounded text-gray-500">{{ sr.source }}</span>
                   </span>
                 </div>
+              </div>
+            </div>
+
+            <!-- Feat Details -->
+            <div
+              v-else-if="selectedItem._category === 'feats'"
+              class="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50 p-2.5 rounded border border-gray-200 text-[11px]"
+            >
+              <div>
+                <span class="text-gray-400 block font-medium">Category</span>
+                <span class="font-semibold text-gray-800">{{ formatFeatCategory(selectedItem.category) }}</span>
+              </div>
+              <div v-if="selectedItem.ability && (Array.isArray(selectedItem.ability) ? selectedItem.ability.length : selectedItem.ability)">
+                <span class="text-gray-400 block font-medium">Ability Score Increase</span>
+                <span class="font-semibold text-gray-800">{{ formatBackgroundAbility(selectedItem.ability) }}</span>
+              </div>
+              <div>
+                <span class="text-gray-400 block font-medium">Repeatable</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.repeatable ? 'Yes' : 'No' }}</span>
               </div>
             </div>
 
@@ -1514,7 +1697,7 @@ onBeforeUnmount(() => {
 
               <!-- AC, HP, Speed -->
               <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
-                <div><strong class="text-gray-900">Armor Class:</strong> {{ formatMonsterAc(selectedItem.ac) }}</div>
+                <div><strong class="text-gray-900">Armor Class:</strong> <span v-html="renderAnnotatedText(formatMonsterAc(selectedItem.ac))"></span></div>
                 <div><strong class="text-gray-900">Hit Points:</strong> {{ formatMonsterHp(selectedItem.hp) }}</div>
                 <div><strong class="text-gray-900">Speed:</strong> {{ formatMonsterSpeed(selectedItem.speed) }}</div>
               </div>
@@ -1531,8 +1714,12 @@ onBeforeUnmount(() => {
               <div class="space-y-1 text-[11px] border-b border-gray-200 pb-2 text-gray-800">
                 <div v-if="selectedItem.save && Object.keys(selectedItem.save).length"><strong class="text-gray-900">Saving Throws:</strong> {{ formatMonsterSaves(selectedItem.save) }}</div>
                 <div v-if="selectedItem.skill && Object.keys(selectedItem.skill).length"><strong class="text-gray-900">Skills:</strong> {{ formatMonsterSkills(selectedItem.skill) }}</div>
-                <div v-if="selectedItem.senses && (Array.isArray(selectedItem.senses) ? selectedItem.senses.length : selectedItem.senses)"><strong class="text-gray-900">Senses:</strong> {{ Array.isArray(selectedItem.senses) ? selectedItem.senses.join(', ') : selectedItem.senses }}</div>
-                <div v-if="selectedItem.languages && (Array.isArray(selectedItem.languages) ? selectedItem.languages.length : selectedItem.languages)"><strong class="text-gray-900">Languages:</strong> {{ Array.isArray(selectedItem.languages) ? selectedItem.languages.join(', ') : selectedItem.languages }}</div>
+                <div v-if="formatMonsterDefenses(selectedItem.vulnerable || selectedItem.raw_data?.vulnerable)"><strong class="text-gray-900">Damage Vulnerabilities:</strong> {{ formatMonsterDefenses(selectedItem.vulnerable || selectedItem.raw_data?.vulnerable) }}</div>
+                <div v-if="formatMonsterDefenses(selectedItem.resist || selectedItem.raw_data?.resist)"><strong class="text-gray-900">Damage Resistances:</strong> {{ formatMonsterDefenses(selectedItem.resist || selectedItem.raw_data?.resist) }}</div>
+                <div v-if="formatMonsterDefenses(selectedItem.immune || selectedItem.raw_data?.immune)"><strong class="text-gray-900">Damage Immunities:</strong> {{ formatMonsterDefenses(selectedItem.immune || selectedItem.raw_data?.immune) }}</div>
+                <div v-if="formatMonsterDefenses(selectedItem.conditionImmune || selectedItem.raw_data?.conditionImmune)"><strong class="text-gray-900">Condition Immunities:</strong> {{ formatMonsterDefenses(selectedItem.conditionImmune || selectedItem.raw_data?.conditionImmune) }}</div>
+                <div v-if="formatMonsterSenses(selectedItem)"><strong class="text-gray-900">Senses:</strong> {{ formatMonsterSenses(selectedItem) }}</div>
+                <div v-if="selectedItem.languages && (Array.isArray(selectedItem.languages) ? selectedItem.languages.length : selectedItem.languages)"><strong class="text-gray-900">Languages:</strong> {{ formatMonsterLanguages(selectedItem.languages) }}</div>
                 <div><strong class="text-gray-900">Challenge:</strong> {{ selectedItem.cr || '0' }} ({{ getMonsterXp(selectedItem.cr) }} XP)</div>
               </div>
 
@@ -1583,7 +1770,7 @@ onBeforeUnmount(() => {
 
             <!-- Description Body -->
             <div class="prose-xs leading-relaxed text-gray-800 space-y-2 pt-1">
-              <div v-if="selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true)" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+              <div v-if="selectedItem._category !== 'monsters' && selectedItem.cr === undefined && selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true)" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
               <!-- Dynamic Item Rules fallback for weapons, armor, and gear -->
               <div v-else-if="isItemCategory(selectedItem)" class="space-y-3">
                 <div v-if="getItemCategoryAndRange(selectedItem)" class="italic text-gray-600 font-medium">
@@ -1606,7 +1793,7 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
-              <div v-else-if="!selectedItem.trait && !selectedItem.action" class="text-gray-400 italic text-xs py-2">
+              <div v-else-if="!selectedItem.trait && !selectedItem.action && selectedItem._category !== 'monsters' && selectedItem.cr === undefined" class="text-gray-400 italic text-xs py-2">
                 No additional rules text recorded for this entry.
               </div>
             </div>

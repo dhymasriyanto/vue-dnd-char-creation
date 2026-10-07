@@ -312,7 +312,7 @@ export function format5eEntries(entries) {
           if (it.type === 'refSubclassFeature') return `<li>{@subclassFeature ${it.subclassFeature}}</li>`
           if (it.type === 'refFeat') return `<li>{@feat ${it.feat}}</li>`
           const title = it.name ? formatItemHeader(it.name) : ''
-          const body = it.entry !== undefined ? String(it.entry) : (it.entries ? format5eEntries(it.entries) : '')
+          const body = it.entry !== undefined ? (typeof it.entry === 'string' ? it.entry : format5eEntries(it.entry)) : (it.entries ? format5eEntries(it.entries) : '')
           return `<li>${title}${body}</li>`
         }
         return `<li>${String(it)}</li>`
@@ -328,7 +328,7 @@ export function format5eEntries(entries) {
           if (it.type === 'refSubclassFeature') return `<li>{@subclassFeature ${it.subclassFeature}}</li>`
           if (it.type === 'refFeat') return `<li>{@feat ${it.feat}}</li>`
           const title = it.name ? formatItemHeader(it.name) : ''
-          const body = it.entry !== undefined ? String(it.entry) : (it.entries ? format5eEntries(it.entries) : '')
+          const body = it.entry !== undefined ? (typeof it.entry === 'string' ? it.entry : format5eEntries(it.entry)) : (it.entries ? format5eEntries(it.entries) : '')
           return `<li>${title}${body}</li>`
         }
         return `<li>${String(it)}</li>`
@@ -337,7 +337,7 @@ export function format5eEntries(entries) {
     }
     if (entries.type === 'item') {
       const title = entries.name ? formatItemHeader(entries.name) : ''
-      const body = entries.entry !== undefined ? String(entries.entry) : (entries.entries ? format5eEntries(entries.entries) : '')
+      const body = entries.entry !== undefined ? (typeof entries.entry === 'string' ? entries.entry : format5eEntries(entries.entry)) : (entries.entries ? format5eEntries(entries.entries) : (entries.text ? format5eEntries(entries.text) : ''))
       return `<p class="mb-2 leading-relaxed">${title}${body}</p>`
     }
     if (entries.type === 'entries' || entries.type === 'inset') {
@@ -368,6 +368,17 @@ export function format5eEntries(entries) {
       const header = entries.name ? formatItemHeader(entries.name) : ''
       return `<p class="mb-2 leading-relaxed">${header}${format5eEntries(entries.entry)}</p>`
     }
+  }
+  if (typeof entries === 'object' && entries !== null) {
+    if (entries.name && entries.text) {
+      return `<p class="mb-2 leading-relaxed"><b>${entries.name}.</b> ${entries.text}</p>`
+    }
+    if (entries.text) {
+      return `<p class="mb-2 leading-relaxed">${entries.text}</p>`
+    }
+    if (entries.entry !== undefined) return format5eEntries(entries.entry)
+    if (entries.entries) return format5eEntries(entries.entries)
+    return ''
   }
   return `<p class="mb-2 leading-relaxed">${String(entries)}</p>`
 }
@@ -720,4 +731,236 @@ export function synthesizeItemEntries(item) {
   }
 
   return entries
+}
+
+const ABILITY_NAME_MAP = {
+  str: 'Strength',
+  dex: 'Dexterity',
+  con: 'Constitution',
+  int: 'Intelligence',
+  wis: 'Wisdom',
+  cha: 'Charisma'
+}
+
+export function formatBackgroundAbility(ability) {
+  if (!ability) return '—'
+  if (typeof ability === 'string') {
+    try {
+      const parsed = JSON.parse(ability)
+      return formatBackgroundAbility(parsed)
+    } catch (_) {
+      return ability.toUpperCase()
+    }
+  }
+
+  if (Array.isArray(ability)) {
+    if (!ability.length) return '—'
+
+    // Detect 2024 background pattern: array of weighted choices sharing same abilities
+    const weightedFromSets = ability
+      .map(a => a?.choose?.weighted?.from)
+      .filter(Boolean)
+
+    if (weightedFromSets.length > 0) {
+      const firstSet = [...weightedFromSets[0]].map(s => String(s).toLowerCase()).sort().join(',')
+      const allSame = weightedFromSets.every(s => [...s].map(x => String(x).toLowerCase()).sort().join(',') === firstSet)
+      if (allSame) {
+        const names = weightedFromSets[0].map(k => ABILITY_NAME_MAP[k.toLowerCase()] || k.toUpperCase())
+        return `${names.join(', ')} (+2/+1 or +1/+1/+1)`
+      }
+    }
+
+    const formattedItems = ability.map(a => {
+      if (typeof a === 'string') return ABILITY_NAME_MAP[a.toLowerCase()] || a.toUpperCase()
+      if (typeof a === 'object' && a !== null) {
+        if (a.choose?.weighted?.from) {
+          const names = a.choose.weighted.from.map(k => ABILITY_NAME_MAP[k.toLowerCase()] || k.toUpperCase())
+          const w = a.choose.weighted.weights ? ` (+${a.choose.weighted.weights.join('/+')})` : ''
+          return `${names.join(', ')}${w}`
+        }
+        if (a.choose?.from) {
+          const names = a.choose.from.map(k => ABILITY_NAME_MAP[k.toLowerCase()] || k.toUpperCase())
+          const count = a.choose.count || a.choose.amount || 1
+          const amt = a.choose.amount && a.choose.count ? ` (+${a.choose.amount})` : ''
+          return `Choose ${count} from ${names.join(', ')}${amt}`
+        }
+        const pairs = []
+        for (const [k, v] of Object.entries(a)) {
+          const lower = k.toLowerCase()
+          if (ABILITY_NAME_MAP[lower] && typeof v === 'number') {
+            pairs.push(`${lower.toUpperCase()} ${v > 0 ? `+${v}` : v}`)
+          }
+        }
+        if (pairs.length) return pairs.join(', ')
+      }
+      return ''
+    }).filter(Boolean)
+
+    const unique = [...new Set(formattedItems)]
+    return unique.join('; ') || '—'
+  }
+
+  if (typeof ability === 'object' && ability !== null) {
+    if (ability.choose?.weighted?.from) {
+      const names = ability.choose.weighted.from.map(k => ABILITY_NAME_MAP[k.toLowerCase()] || k.toUpperCase())
+      return `${names.join(', ')} (+2/+1 or +1/+1/+1)`
+    }
+    if (ability.choose?.from) {
+      const names = ability.choose.from.map(k => ABILITY_NAME_MAP[k.toLowerCase()] || k.toUpperCase())
+      const count = ability.choose.count || 1
+      return `Choose ${count} from ${names.join(', ')}`
+    }
+    const pairs = []
+    for (const [k, v] of Object.entries(ability)) {
+      const lower = k.toLowerCase()
+      if (ABILITY_NAME_MAP[lower] && typeof v === 'number') {
+        pairs.push(`${lower.toUpperCase()} ${v > 0 ? `+${v}` : v}`)
+      }
+    }
+    if (pairs.length) return pairs.join(', ')
+  }
+
+  return String(ability)
+}
+
+function toTitleCase(str) {
+  if (typeof str !== 'string') return ''
+  return str.replace(/\b([a-zA-Z]+)\b/g, txt => txt.charAt(0).toUpperCase() + txt.slice(1).toLowerCase())
+}
+
+function formatSingleFeat(str) {
+  if (typeof str !== 'string') return ''
+  const clean = clean5eToolsMarkup(str)
+  const name = clean.split('|')[0].trim()
+  if (name.includes(';')) {
+    const [main, sub] = name.split(';').map(s => s.trim())
+    return `${toTitleCase(main)} (${toTitleCase(sub)})`
+  }
+  return toTitleCase(name)
+}
+
+export function formatBackgroundFeats(feats) {
+  if (!feats) return '—'
+  if (typeof feats === 'string') {
+    try {
+      const parsed = JSON.parse(feats)
+      return formatBackgroundFeats(parsed)
+    } catch (_) {
+      return formatSingleFeat(feats)
+    }
+  }
+
+  const list = Array.isArray(feats) ? feats : [feats]
+  const results = []
+
+  for (const f of list) {
+    if (!f) continue
+    if (typeof f === 'string') {
+      results.push(formatSingleFeat(f))
+    } else if (typeof f === 'object' && f !== null) {
+      if (f.anyFromCategory) {
+        const cat = f.anyFromCategory.category
+        if (Array.isArray(cat) && cat.includes('DG')) {
+          results.push('Any Dragonmark Feat')
+        } else {
+          results.push('Any Feat')
+        }
+      } else if (f.choose) {
+        const count = f.choose.count || 1
+        const from = (f.choose.from || []).map(formatSingleFeat).join(', ')
+        results.push(`Choose ${count} from ${from}`)
+      } else if (f.feat) {
+        results.push(formatSingleFeat(f.feat))
+      } else {
+        const keys = Object.keys(f).filter(k => k !== 'choose' && k !== 'anyFromCategory')
+        for (const k of keys) {
+          results.push(formatSingleFeat(k))
+        }
+      }
+    }
+  }
+
+  return [...new Set(results)].filter(Boolean).join(', ') || '—'
+}
+
+const SPECIAL_PROF_MAP = {
+  anyartisanstool: "Any Artisan's Tool",
+  anygamingset: 'Any Gaming Set',
+  anymusicalinstrument: 'Any Musical Instrument',
+  anystandard: 'Any Standard Language',
+  anyskill: 'Any Skill',
+  anytool: 'Any Tool',
+  anylanguage: 'Any Language',
+  any: 'Any'
+}
+
+const SPECIAL_PROF_PLURAL_MAP = {
+  anyartisanstool: "Artisan's Tools",
+  anygamingset: 'Gaming Sets',
+  anymusicalinstrument: 'Musical Instruments',
+  anystandard: 'Standard Languages',
+  anyskill: 'Skills',
+  anytool: 'Tools',
+  anylanguage: 'Languages',
+  any: 'Any'
+}
+
+function formatSingleProf(str) {
+  if (typeof str !== 'string') return ''
+  const clean = clean5eToolsMarkup(str).split('|')[0].trim()
+  const lowerClean = clean.toLowerCase().replace(/[\s_-]+/g, '')
+  if (SPECIAL_PROF_MAP[lowerClean]) return SPECIAL_PROF_MAP[lowerClean]
+  return clean.replace(/\b([a-zA-Z]+)\b/g, m => m.charAt(0).toUpperCase() + m.slice(1).toLowerCase())
+}
+
+export function formatProficiencies(prof) {
+  if (!prof) return '—'
+  if (typeof prof === 'string') {
+    try {
+      const parsed = JSON.parse(prof)
+      return formatProficiencies(parsed)
+    } catch (_) {
+      return formatSingleProf(prof)
+    }
+  }
+
+  const list = Array.isArray(prof) ? prof : [prof]
+  const results = []
+
+  for (const p of list) {
+    if (!p) continue
+    if (typeof p === 'string') {
+      results.push(formatSingleProf(p))
+    } else if (typeof p === 'object' && p !== null) {
+      if (p.choose) {
+        const count = p.choose.count || 1
+        const from = (p.choose.from || []).map(formatSingleProf).join(', ')
+        results.push(`Choose ${count} from ${from}`)
+      }
+      for (const [k, v] of Object.entries(p)) {
+        if (k === 'choose') continue
+        const lowerK = k.toLowerCase().replace(/[\s_-]+/g, '')
+        if (SPECIAL_PROF_MAP[lowerK]) {
+          const count = typeof v === 'number' && v > 1 ? `${v} ` : ''
+          const label = (typeof v === 'number' && v > 1) ? (SPECIAL_PROF_PLURAL_MAP[lowerK] || SPECIAL_PROF_MAP[lowerK]) : SPECIAL_PROF_MAP[lowerK]
+          results.push(`${count}${label}`)
+        } else {
+          results.push(formatSingleProf(k))
+        }
+      }
+    }
+  }
+
+  return [...new Set(results)].filter(Boolean).join(', ') || '—'
+}
+
+export function formatFeatCategory(cat) {
+  if (!cat) return 'Feat'
+  const map = {
+    O: 'Origin Feat',
+    G: 'General Feat',
+    FS: 'Fighting Style Feat',
+    EB: 'Epic Boon Feat'
+  }
+  return map[cat] || (String(cat).endsWith('Feat') ? cat : `${cat} Feat`)
 }

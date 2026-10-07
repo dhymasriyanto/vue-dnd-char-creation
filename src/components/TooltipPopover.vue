@@ -1,7 +1,16 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import { formatPrerequisite, format5eEntries, renderAnnotatedText, synthesizeItemEntries } from '../utils/textRenderer'
+import {
+  formatPrerequisite,
+  format5eEntries,
+  renderAnnotatedText,
+  synthesizeItemEntries,
+  formatBackgroundAbility,
+  formatBackgroundFeats,
+  formatProficiencies,
+  formatFeatCategory
+} from '../utils/textRenderer'
 import { useConfig } from '../config'
 import { useCharacterStore } from '../stores/character'
 import { useCompendiumModal } from '../composables/useCompendiumModal'
@@ -129,7 +138,18 @@ const showTooltip = async (targetEl) => {
 const applyData = (data) => {
   isLoading.value = false
   popoverTitle.value = data.name || popoverTitle.value
-  popoverBadge.value = (data.school || data.itemType || data.type || popoverBadge.value).toUpperCase()
+
+  let rawBadge = data.school || data.itemType
+  if (!rawBadge) {
+    if (typeof data.type === 'object' && data.type !== null) {
+      rawBadge = data.type.type || 'MONSTER'
+    } else if (typeof data.type === 'string') {
+      rawBadge = data.type
+    } else {
+      rawBadge = popoverBadge.value || 'INFO'
+    }
+  }
+  popoverBadge.value = String(rawBadge).toUpperCase()
 
   if (data.name && popoverCompendiumUrl.value) {
     try {
@@ -140,6 +160,7 @@ const applyData = (data) => {
   }
 
   const sub = []
+  if (data.cr !== undefined) sub.push(`CR ${data.cr}`)
   if (data.level) sub.push(data.level)
   if (data.source) sub.push(data.source.toUpperCase())
   if (data.rarity) sub.push(data.rarity)
@@ -161,9 +182,89 @@ const applyData = (data) => {
   }
   if (dmgVal) stats.push({ label: 'Damage', value: dmgVal })
 
-  // AC
+  // AC (unpack arrays/objects cleanly)
   const acVal = data.ac || data.baseAc
-  if (acVal && String(acVal) !== '0') stats.push({ label: 'AC', value: String(acVal) })
+  if (acVal) {
+    let formattedAc = ''
+    if (Array.isArray(acVal)) {
+      formattedAc = acVal.map(a => {
+        if (typeof a === 'object' && a !== null) {
+          if (a.special) return a.special
+          const val = a.ac !== undefined ? a.ac : ''
+          const from = Array.isArray(a.from) ? ` (${a.from.join(', ')})` : (a.from ? ` (${a.from})` : '')
+          const cond = a.condition ? ` ${a.condition}` : ''
+          const res = `${val}${from}${cond}`.trim()
+          return a.braces ? `(${res})` : res
+        }
+        return String(a)
+      }).filter(Boolean).join(', ')
+    } else if (typeof acVal === 'object' && acVal !== null) {
+      if (acVal.special) {
+        formattedAc = acVal.special
+      } else {
+        const val = acVal.ac !== undefined ? acVal.ac : ''
+        const from = Array.isArray(acVal.from) ? ` (${acVal.from.join(', ')})` : (acVal.from ? ` (${acVal.from})` : '')
+        const cond = acVal.condition ? ` ${acVal.condition}` : ''
+        const res = `${val}${from}${cond}`.trim()
+        formattedAc = acVal.braces ? `(${res})` : res
+      }
+    } else {
+      formattedAc = String(acVal)
+    }
+    if (formattedAc && formattedAc !== '0') {
+      stats.push({ label: 'AC', value: formattedAc })
+    }
+  }
+
+  // HP (Monsters)
+  if (data.hp) {
+    let formattedHp = ''
+    if (typeof data.hp === 'object' && data.hp !== null) {
+      if (data.hp.special) {
+        formattedHp = data.hp.special
+      } else {
+        const avg = data.hp.average || ''
+        const formula = data.hp.formula ? ` (${data.hp.formula})` : ''
+        formattedHp = `${avg}${formula}`.trim()
+      }
+    } else {
+      formattedHp = String(data.hp)
+    }
+    if (formattedHp) {
+      stats.push({ label: 'HP', value: formattedHp })
+    }
+  }
+
+  // Speed (Monsters & Vehicles)
+  if (data.speed) {
+    let formattedSpeed = ''
+    if (typeof data.speed === 'object' && data.speed !== null) {
+      const parts = []
+      const canHover = data.speed.canHover
+      for (const [k, v] of Object.entries(data.speed)) {
+        if (k === 'canHover') continue
+        if (typeof v === 'object' && v !== null) {
+          let cond = v.condition ? ` ${v.condition}` : ''
+          if (k === 'fly' && canHover && !cond.includes('hover')) {
+            cond = cond ? `${cond} (hover)` : ' (hover)'
+          }
+          parts.push(`${k === 'walk' ? '' : `${k} `}${v.number || 30} ft.${cond}`.trim())
+        } else if (typeof v === 'number' || typeof v === 'string') {
+          let cond = ''
+          if (k === 'fly' && canHover) {
+            cond = ' (hover)'
+          }
+          parts.push(`${k === 'walk' ? '' : `${k} `}${v}${typeof v === 'number' ? ' ft.' : ''}${cond}`.trim())
+        }
+      }
+      formattedSpeed = parts.join(', ')
+    } else {
+      formattedSpeed = String(data.speed)
+    }
+    if (formattedSpeed) {
+      stats.push({ label: 'Speed', value: formattedSpeed })
+    }
+  }
 
   // Mastery
   const masteryVal = Array.isArray(data.mastery)
@@ -180,11 +281,65 @@ const applyData = (data) => {
   if (data.weight) stats.push({ label: 'Weight', value: String(data.weight).includes('lb') ? data.weight : `${data.weight} lb` })
   if (data.cost || data.value) stats.push({ label: 'Cost', value: data.cost || (data.value ? `${data.value} cp` : '') })
   if (data.prerequisite) stats.push({ label: 'Prerequisite', value: formatPrerequisite(data.prerequisite) })
+
+  // Feat Category
+  if (data.category && (data.type === 'feat' || popoverBadge.value === 'FEAT')) {
+    stats.push({ label: 'Category', value: formatFeatCategory(data.category) })
+  }
+
+  // Background & Race Ability Scores
+  if (data.ability && (Array.isArray(data.ability) ? data.ability.length : true)) {
+    const abStr = formatBackgroundAbility(data.ability)
+    if (abStr && abStr !== '—') stats.push({ label: 'Ability Scores', value: abStr })
+  } else if (data.abilityBonuses && (Array.isArray(data.abilityBonuses) ? data.abilityBonuses.length : true)) {
+    const abStr = formatBackgroundAbility(data.abilityBonuses)
+    if (abStr && abStr !== '—') stats.push({ label: 'Ability Scores', value: abStr })
+  }
+
+  // Background Feats
+  if (data.feats && (Array.isArray(data.feats) ? data.feats.length : true)) {
+    const fStr = formatBackgroundFeats(data.feats)
+    if (fStr && fStr !== '—') stats.push({ label: 'Feat', value: fStr })
+  }
+
+  // Skills, Tools, Languages
+  if (data.skillProficiencies && (Array.isArray(data.skillProficiencies) ? data.skillProficiencies.length : true)) {
+    const sStr = formatProficiencies(data.skillProficiencies)
+    if (sStr && sStr !== '—') stats.push({ label: 'Skills', value: sStr })
+  }
+  if (data.toolProficiencies && (Array.isArray(data.toolProficiencies) ? data.toolProficiencies.length : true)) {
+    const tStr = formatProficiencies(data.toolProficiencies)
+    if (tStr && tStr !== '—') stats.push({ label: 'Tools', value: tStr })
+  }
+  if (data.languageProficiencies && (Array.isArray(data.languageProficiencies) ? data.languageProficiencies.length : true)) {
+    const lStr = formatProficiencies(data.languageProficiencies)
+    if (lStr && lStr !== '—') stats.push({ label: 'Languages', value: lStr })
+  }
+
+  // Hit Die
+  if (data.hitDice) {
+    stats.push({ label: 'Hit Die', value: `1${data.hitDice}` })
+  }
+
+  // Size
+  if (data.size && !data.cr && !data.hp) {
+    const szList = Array.isArray(data.size) ? data.size : [data.size]
+    const sizeMap = { T: 'Tiny', S: 'Small', M: 'Medium', L: 'Large', H: 'Huge', G: 'Gargantuan' }
+    const szStr = szList.map(s => sizeMap[String(s).toUpperCase()] || s).join(', ')
+    if (szStr) stats.push({ label: 'Size', value: szStr })
+  }
+
   popoverStats.value = stats
 
   const rawEntries = data.entries && (Array.isArray(data.entries) ? data.entries.length > 0 : true) ? data.entries : []
   if (rawEntries.length > 0) {
     popoverEntries.value = [format5eEntries(rawEntries)]
+  } else if ((data.trait && data.trait.length) || (data.action && data.action.length)) {
+    const monsterEntries = [
+      ...(data.trait || []).map(t => ({ type: 'entries', name: t.name, entries: Array.isArray(t.entries) ? t.entries : [t.entries || ''] })),
+      ...(data.action || []).map(a => ({ type: 'entries', name: a.name, entries: Array.isArray(a.entries) ? a.entries : [a.entries || ''] }))
+    ]
+    popoverEntries.value = [format5eEntries(monsterEntries)]
   } else {
     const synth = synthesizeItemEntries(data)
     if (synth.length > 0) {
