@@ -30,10 +30,18 @@ import {
   IconMinus,
   IconHome,
   IconCamera,
-  IconDice
+  IconDice,
+  IconShare,
+  IconPrinter,
+  IconDownload,
+  IconLink,
+  IconCopy,
+  IconBrandDiscord,
+  IconFileTypePdf
 } from '@tabler/icons-vue'
 import { compressImage } from '../utils/imageCompressor'
 import { LIFESTYLES } from '../utils/characteristicsHelper'
+import { buildAvraeJson, buildAvraeAttackMacro } from '../utils/avraeExport'
 
 const API_URL = useConfig().API_URL
 const { openCompendium } = useCompendiumNav()
@@ -42,6 +50,10 @@ const props = defineProps({
   character: {
     type: Object,
     required: true
+  },
+  readOnly: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -71,11 +83,13 @@ const resolvedImageUrl = computed(() => {
 })
 
 const triggerAvatarUpload = () => {
+  if (props.readOnly) return
   if (isUploadingAvatar.value) return
   avatarFileInput.value?.click()
 }
 
 const handleAvatarFileChange = async (event) => {
+  if (props.readOnly) return
   const file = event.target?.files?.[0]
   if (!file) return
   try {
@@ -143,6 +157,7 @@ watch(() => parsedCharacteristics.value, (val) => {
 }, { immediate: true })
 
 const saveSheetNotes = async () => {
+  if (props.readOnly) return
   if (!char.value?.id) return
   try {
     isSavingNotes.value = true
@@ -256,6 +271,106 @@ const showToast = (msg) => {
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 2500)
 }
 
+// Export & Share modal state
+const showExportModal = ref(false)
+const exportTab = ref('pdf') // 'pdf' | 'link' | 'avrae'
+const copiedLink = ref(false)
+const copiedAvraeJson = ref(false)
+const copiedAvraeMacro = ref(false)
+const copiedAvraeApiUrl = ref(false)
+
+const openExportModal = (tab = 'pdf') => {
+  exportTab.value = tab
+  copiedLink.value = false
+  copiedAvraeJson.value = false
+  copiedAvraeMacro.value = false
+  copiedAvraeApiUrl.value = false
+  showExportModal.value = true
+}
+
+const publicShareUrl = computed(() => {
+  if (typeof window === 'undefined') return ''
+  return `${window.location.origin}/?character=${char.value?.id}`
+})
+
+const avraeApiUrl = computed(() => {
+  if (!char.value?.id) return ''
+  return `${API_URL}/character/${char.value.id}/avrae`
+})
+
+const copyShareLink = async () => {
+  try {
+    await navigator.clipboard.writeText(publicShareUrl.value)
+    copiedLink.value = true
+    showToast('Public link copied to clipboard')
+    setTimeout(() => { copiedLink.value = false }, 2500)
+  } catch (err) {
+    console.error('Failed to copy share link:', err)
+  }
+}
+
+const copyAvraeApiUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(avraeApiUrl.value)
+    copiedAvraeApiUrl.value = true
+    showToast('Avrae endpoint URL copied')
+    setTimeout(() => { copiedAvraeApiUrl.value = false }, 2500)
+  } catch (err) {
+    console.error('Failed to copy avrae api url:', err)
+  }
+}
+
+const copyAvraeJson = async () => {
+  try {
+    const data = buildAvraeJson(char.value)
+    await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+    copiedAvraeJson.value = true
+    showToast('Avrae character JSON copied')
+    setTimeout(() => { copiedAvraeJson.value = false }, 2500)
+  } catch (err) {
+    console.error('Failed to copy Avrae JSON:', err)
+  }
+}
+
+const copyAvraeMacro = async () => {
+  try {
+    const macro = buildAvraeAttackMacro(vtt.value?.attacks || [])
+    await navigator.clipboard.writeText(macro)
+    copiedAvraeMacro.value = true
+    showToast('Avrae attack macro copied')
+    setTimeout(() => { copiedAvraeMacro.value = false }, 2500)
+  } catch (err) {
+    console.error('Failed to copy Avrae macro:', err)
+  }
+}
+
+const downloadAvraeJson = () => {
+  try {
+    const data = buildAvraeJson(char.value)
+    const jsonStr = JSON.stringify(data, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const safeName = (char.value?.name || 'character').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+    a.href = url
+    a.download = `${safeName}-avrae.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    showToast('Avrae JSON downloaded')
+  } catch (err) {
+    console.error('Failed to download Avrae JSON:', err)
+  }
+}
+
+const printSheet = () => {
+  showExportModal.value = false
+  setTimeout(() => {
+    window.print()
+  }, 150)
+}
+
 watch(effectiveMaxHp, (newVal) => {
   maxHp.value = newVal
   if (currentHp.value > newVal) {
@@ -282,6 +397,7 @@ watch(() => [vtt.value?.campaign_name, char.value?.campaign_name], () => {
 })
 
 const saveVitals = async (updates) => {
+  if (props.readOnly) return
   if (!char.value?.id) return
   try {
     await axios.put(`${API_URL}/character/${char.value.id}`, updates)
@@ -817,6 +933,7 @@ const isSavingCurrency = ref(false)
 const currencySavedToast = ref(false)
 
 const saveCurrency = async () => {
+  if (props.readOnly) return
   if (!char.value?.id) return
   isSavingCurrency.value = true
   try {
@@ -1173,6 +1290,7 @@ const isSavingEquipment = ref(false)
 const equipmentSavedToast = ref(false)
 
 const saveEquipment = async () => {
+  if (props.readOnly) return
   if (!char.value?.id) return
   isSavingEquipment.value = true
   try {
@@ -2699,7 +2817,7 @@ watch(() => charSpells.value, (list) => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-2 sm:mx-auto my-4 sm:my-6 p-3.5 sm:p-6 bg-white text-gray-800 rounded border border-gray-200 shadow-sm font-sans pb-24">
+  <div class="max-w-4xl mx-2 sm:mx-auto my-4 sm:my-6 p-3.5 sm:p-6 bg-white text-gray-800 rounded border border-gray-200 shadow-sm font-sans pb-24 print:hidden">
     
     <!-- Top Header Bar -->
     <div class="flex flex-row justify-between items-start pb-4 border-b border-gray-200 gap-3 relative">
@@ -2707,8 +2825,9 @@ watch(() => charSpells.value, (list) => {
         <!-- Avatar / Initial with interactive click to change -->
         <div
           @click="triggerAvatarUpload"
-          class="w-11 h-11 sm:w-12 sm:h-12 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-base sm:text-lg overflow-hidden shrink-0 shadow-xs cursor-pointer relative group hover:border-gray-500 transition"
-          title="Click to change portrait (Max 2MB)"
+          :class="readOnly ? 'cursor-default' : 'cursor-pointer hover:border-gray-500'"
+          class="w-11 h-11 sm:w-12 sm:h-12 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-base sm:text-lg overflow-hidden shrink-0 shadow-xs relative group transition"
+          :title="readOnly ? 'Character Portrait' : 'Click to change portrait (Max 2MB)'"
         >
           <img
             v-if="resolvedImageUrl"
@@ -2719,7 +2838,7 @@ watch(() => charSpells.value, (list) => {
           <span v-else>{{ (char.name || 'H').charAt(0).toUpperCase() }}</span>
 
           <!-- Hover overlay -->
-          <div class="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px] font-semibold text-center leading-tight p-0.5">
+          <div v-if="!readOnly" class="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px] font-semibold text-center leading-tight p-0.5">
             <span v-if="isUploadingAvatar">...</span>
             <template v-else>
               <IconCamera class="w-3.5 h-3.5 mb-0.5" />
@@ -2810,6 +2929,18 @@ watch(() => charSpells.value, (list) => {
           <IconBook class="w-4 h-4 text-gray-700" />
         </button>
 
+        <!-- Export / Share -->
+        <button
+          type="button"
+          @click="openExportModal('pdf')"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center gap-1 text-xs font-semibold px-2"
+          title="Export / Share Character (PDF, Link, Avrae)"
+          aria-label="Export / Share Character"
+        >
+          <IconShare class="w-4 h-4 text-gray-700" />
+          <span class="hidden md:inline">Export</span>
+        </button>
+
         <!-- Home -->
         <button
           type="button"
@@ -2821,8 +2952,9 @@ watch(() => charSpells.value, (list) => {
           <IconHome class="w-4 h-4 text-gray-700" />
         </button>
 
-        <!-- Edit Character -->
+        <!-- Edit Character (hidden in read-only) -->
         <button
+          v-if="!readOnly"
           type="button"
           @click="emit('edit', char.id)"
           class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
@@ -2831,6 +2963,14 @@ watch(() => charSpells.value, (list) => {
         >
           <IconEdit class="w-4 h-4 text-gray-700" />
         </button>
+
+        <!-- Read Only Badge -->
+        <span
+          v-else
+          class="px-2 py-1 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-semibold select-none"
+        >
+          Read Only
+        </span>
       </div>
 
       <!-- Mobile Hamburger Button & Dropdown Menu -->
@@ -2902,6 +3042,18 @@ watch(() => charSpells.value, (list) => {
             </button>
           </div>
 
+          <!-- Export & Share -->
+          <div class="py-1">
+            <button
+              type="button"
+              @click="openExportModal('pdf'); isMobileMenuOpen = false"
+              class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
+            >
+              <IconShare class="w-4 h-4 text-gray-600" />
+              <span>Export & Share</span>
+            </button>
+          </div>
+
           <!-- Navigation & Edit -->
           <div class="py-1">
             <button
@@ -2913,6 +3065,7 @@ watch(() => charSpells.value, (list) => {
               <span>Compendium</span>
             </button>
             <button
+              v-if="!readOnly"
               type="button"
               @click="emit('edit', char.id); isMobileMenuOpen = false"
               class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
@@ -6721,6 +6874,203 @@ watch(() => charSpells.value, (list) => {
       </div>
     </div>
 
+    <!-- Export / Share Modal -->
+    <div v-if="showExportModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
+        <!-- Modal Header -->
+        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/70">
+          <div class="flex items-center gap-2">
+            <IconShare class="w-5 h-5 text-gray-800" />
+            <h3 class="font-bold text-gray-900 text-sm">Export & Share Character</h3>
+          </div>
+          <button
+            type="button"
+            @click="showExportModal = false"
+            class="text-gray-400 hover:text-gray-700 transition cursor-pointer p-1"
+          >
+            <IconX class="w-5 h-5" />
+          </button>
+        </div>
+
+        <!-- Tab Selector -->
+        <div class="flex border-b border-gray-200 bg-gray-50/40 text-xs font-semibold px-4 pt-2 gap-2">
+          <button
+            type="button"
+            @click="exportTab = 'pdf'"
+            :class="exportTab === 'pdf' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
+          >
+            <IconFileTypePdf class="w-4 h-4 text-red-600" />
+            <span>Print / PDF</span>
+          </button>
+          <button
+            type="button"
+            @click="exportTab = 'link'"
+            :class="exportTab === 'link' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
+          >
+            <IconLink class="w-4 h-4 text-blue-600" />
+            <span>Public Link</span>
+          </button>
+          <button
+            type="button"
+            @click="exportTab = 'avrae'"
+            :class="exportTab === 'avrae' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
+          >
+            <IconBrandDiscord class="w-4 h-4 text-indigo-600" />
+            <span>Discord Avrae</span>
+          </button>
+        </div>
+
+        <!-- Modal Body -->
+        <div class="p-5 overflow-y-auto space-y-4 text-xs">
+          <!-- 1. PDF / Print Tab -->
+          <div v-if="exportTab === 'pdf'" class="space-y-4">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
+              <div class="font-bold text-gray-900 text-sm flex items-center gap-2">
+                <IconPrinter class="w-4 h-4 text-gray-700" />
+                <span>Print or Save as PDF</span>
+              </div>
+              <p class="text-xs text-gray-600 leading-relaxed">
+                Generates a clean, print-optimized character sheet containing ability scores, combat stats, attacks, skills, traits, and characteristics. You can save directly as a PDF from your browser's print dialog.
+              </p>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button
+                type="button"
+                @click="printSheet"
+                class="w-full py-2.5 px-4 bg-gray-900 hover:bg-black text-white rounded font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+              >
+                <IconPrinter class="w-4 h-4" />
+                <span>Print / Save as PDF</span>
+              </button>
+            </div>
+            <p class="text-[11px] text-gray-500 italic text-center">
+              Tip: In the print dialog, select <b>Save as PDF</b> and ensure "Background graphics" is enabled.
+            </p>
+          </div>
+
+          <!-- 2. Public Link Tab -->
+          <div v-else-if="exportTab === 'link'" class="space-y-4">
+            <div class="bg-blue-50/70 border border-blue-200 rounded-lg p-4 space-y-1.5">
+              <div class="font-bold text-blue-900 text-xs flex items-center gap-1.5">
+                <IconWorld class="w-4 h-4 text-blue-700" />
+                <span>Shareable Character Sheet</span>
+              </div>
+              <p class="text-xs text-blue-800 leading-relaxed">
+                Anyone with this link can view this character sheet in read-only mode without needing to register or sign in.
+              </p>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-gray-700 mb-1.5">Direct Public URL</label>
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  readonly
+                  :value="publicShareUrl"
+                  class="flex-1 bg-gray-50 border border-gray-300 rounded px-3 py-2 text-xs font-mono text-gray-800 focus:outline-none select-all"
+                />
+                <button
+                  type="button"
+                  @click="copyShareLink"
+                  class="px-4 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                >
+                  <IconCheck v-if="copiedLink" class="w-4 h-4 text-emerald-400" />
+                  <IconCopy v-else class="w-4 h-4" />
+                  <span>{{ copiedLink ? 'Copied!' : 'Copy Link' }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Discord Avrae Tab -->
+          <div v-else-if="exportTab === 'avrae'" class="space-y-4">
+            <div class="bg-indigo-50/70 border border-indigo-200 rounded-lg p-3.5 space-y-1">
+              <div class="font-bold text-indigo-900 text-xs flex items-center gap-1.5">
+                <IconBrandDiscord class="w-4 h-4 text-indigo-700" />
+                <span>Avrae Discord Bot Integration</span>
+              </div>
+              <p class="text-xs text-indigo-800 leading-relaxed">
+                Export character stats, attacks, and spellbook into Avrae's character format or import combat attacks directly into your active character.
+              </p>
+            </div>
+
+            <!-- Avrae Character JSON Box -->
+            <div class="border border-gray-200 rounded-lg p-3.5 space-y-2.5">
+              <div class="font-bold text-gray-900 text-xs">Full Character JSON</div>
+              <p class="text-[11px] text-gray-600">
+                Download the complete character JSON or copy the API endpoint URL for custom Avrae GVAR or bot integrations.
+              </p>
+              <div class="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  @click="downloadAvraeJson"
+                  class="px-3 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <IconDownload class="w-4 h-4" />
+                  <span>Download .json</span>
+                </button>
+                <button
+                  type="button"
+                  @click="copyAvraeJson"
+                  class="px-3 py-2 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <IconCheck v-if="copiedAvraeJson" class="w-4 h-4 text-emerald-600" />
+                  <IconCopy v-else class="w-4 h-4" />
+                  <span>{{ copiedAvraeJson ? 'JSON Copied!' : 'Copy JSON' }}</span>
+                </button>
+                <button
+                  type="button"
+                  @click="copyAvraeApiUrl"
+                  class="px-3 py-2 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <IconCheck v-if="copiedAvraeApiUrl" class="w-4 h-4 text-emerald-600" />
+                  <IconLink v-else class="w-4 h-4" />
+                  <span>{{ copiedAvraeApiUrl ? 'URL Copied!' : 'Copy API URL' }}</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Attack Automation Macro (!a import) -->
+            <div class="border border-gray-200 rounded-lg p-3.5 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div class="font-bold text-gray-900 text-xs">Attack Automation (<code class="font-mono text-indigo-700">!a import</code>)</div>
+                <button
+                  type="button"
+                  @click="copyAvraeMacro"
+                  class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                >
+                  <IconCheck v-if="copiedAvraeMacro" class="w-3.5 h-3.5 text-emerald-300" />
+                  <IconCopy v-else class="w-3.5 h-3.5" />
+                  <span>{{ copiedAvraeMacro ? 'Macro Copied!' : 'Copy Command' }}</span>
+                </button>
+              </div>
+              <p class="text-[11px] text-gray-600">
+                Paste into your Discord channel to instantly register your weapon attacks with correct damage dice, bonuses, and damage types:
+              </p>
+              <div class="bg-gray-900 text-gray-100 p-2.5 rounded font-mono text-[10px] max-h-24 overflow-y-auto whitespace-pre-wrap select-all">
+                {{ buildAvraeAttackMacro(vtt.attacks || []) || '!a import []' }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="px-5 py-3 border-t border-gray-200 bg-gray-50 flex justify-end">
+          <button
+            type="button"
+            @click="showExportModal = false"
+            class="px-4 py-2 border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 rounded text-xs font-semibold cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Action Feedback Toast -->
     <transition name="fade">
       <div
@@ -6733,6 +7083,378 @@ watch(() => charSpells.value, (list) => {
     </transition>
 
   </div>
+
+  <!-- Dedicated Printable Character Sheet (Visible only when printing) -->
+  <div class="hidden print:block printable-sheet w-full p-4 text-xs font-sans text-gray-900 bg-white">
+    <!-- Header Block -->
+    <div class="border-2 border-gray-800 rounded p-3 mb-3 bg-white">
+      <div class="flex items-center justify-between gap-4">
+        <!-- Character Name & Avatar -->
+        <div class="flex items-center gap-3">
+          <div v-if="resolvedImageUrl" class="w-14 h-14 rounded border border-gray-400 overflow-hidden shrink-0">
+            <img :src="resolvedImageUrl" :alt="char.name" class="w-full h-full object-cover" />
+          </div>
+          <div>
+            <h1 class="text-xl font-bold uppercase tracking-wide text-gray-900 leading-tight">{{ char.name || 'Unnamed Character' }}</h1>
+            <div class="text-[11px] text-gray-600 font-medium">Character Name</div>
+          </div>
+        </div>
+
+        <!-- Metadata Grid -->
+        <div class="grid grid-cols-3 gap-x-4 gap-y-1 text-[11px] border-l border-gray-300 pl-4">
+          <div>
+            <div class="font-bold text-gray-900">{{ classSummary }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Class & Level</div>
+          </div>
+          <div>
+            <div class="font-bold text-gray-900">{{ char.background || '—' }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Background</div>
+          </div>
+          <div>
+            <div class="font-bold text-gray-900">{{ char.player_name || '—' }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Player Name</div>
+          </div>
+          <div>
+            <div class="font-bold text-gray-900">{{ char.race?.name || (typeof char.race === 'string' ? char.race : '') || '—' }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Race</div>
+          </div>
+          <div>
+            <div class="font-bold text-gray-900">{{ parsedCharacteristics.alignment || char.alignment || '—' }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Alignment</div>
+          </div>
+          <div>
+            <div class="font-bold text-gray-900">{{ char.experience_points || '0' }}</div>
+            <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Experience Points</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Core Vitals Summary Bar -->
+    <div class="grid grid-cols-6 gap-2 mb-3 text-center">
+      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
+        <div class="text-[9px] font-bold uppercase text-gray-600">Armor Class</div>
+        <div class="text-base font-bold text-gray-900">{{ vtt.combat?.armor_class || 10 }}</div>
+      </div>
+      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
+        <div class="text-[9px] font-bold uppercase text-gray-600">Initiative</div>
+        <div class="text-base font-bold text-gray-900">{{ (vtt.combat?.initiative >= 0 ? '+' : '') + (vtt.combat?.initiative || 0) }}</div>
+      </div>
+      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
+        <div class="text-[9px] font-bold uppercase text-gray-600">Speed</div>
+        <div class="text-base font-bold text-gray-900">{{ vtt.combat?.speed || 30 }} ft.</div>
+      </div>
+      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
+        <div class="text-[9px] font-bold uppercase text-gray-600">Prof. Bonus</div>
+        <div class="text-base font-bold text-gray-900">+{{ vtt.proficiency_bonus || 2 }}</div>
+      </div>
+      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50 col-span-2">
+        <div class="text-[9px] font-bold uppercase text-gray-600">Hit Points (Current / Max)</div>
+        <div class="text-base font-bold text-gray-900">
+          {{ char.hp != null ? char.hp : (vtt.combat?.hp?.max || 10) }} / {{ vtt.combat?.hp?.max || 10 }}
+          <span v-if="char.temp_hp" class="text-xs font-normal text-gray-600">(+{{ char.temp_hp }} Temp)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3-Column Sheet Layout -->
+    <div class="grid grid-cols-12 gap-3 mb-3">
+      <!-- Left Column: Abilities & Saves, Senses, Proficiencies (span 4) -->
+      <div class="col-span-4 space-y-2.5">
+        <!-- Ability Scores & Saving Throws -->
+        <div class="border border-gray-800 rounded p-2">
+          <div class="text-[10px] font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 text-gray-800 tracking-wider">Abilities & Saving Throws</div>
+          <div class="space-y-1">
+            <div
+              v-for="ability in ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']"
+              :key="ability"
+              class="flex items-center justify-between p-1 border border-gray-200 rounded text-[11px]"
+            >
+              <div class="w-10">
+                <span class="font-bold uppercase text-[10px] text-gray-700">{{ ability.slice(0, 3) }}</span>
+                <span class="text-xs font-semibold ml-1 text-gray-900">{{ vtt.abilities?.[ability]?.score || 10 }}</span>
+              </div>
+              <div class="font-bold text-sm px-1.5 py-0.5 rounded bg-gray-100 border border-gray-300">
+                {{ vtt.abilities?.[ability]?.modifier >= 0 ? '+' : '' }}{{ vtt.abilities?.[ability]?.modifier || 0 }}
+              </div>
+              <div class="text-right text-[10px] flex items-center gap-1">
+                <span class="text-gray-500 text-[9px]">SAVE</span>
+                <span :class="vtt.saving_throws?.[ability]?.proficient ? 'font-bold text-gray-900' : 'text-gray-600'">
+                  {{ vtt.saving_throws?.[ability]?.proficient ? '●' : '○' }}
+                  {{ vtt.saving_throws?.[ability]?.modifier_string || '+0' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Passive Senses -->
+        <div class="border border-gray-800 rounded p-2 text-[10px]">
+          <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Passive Senses</div>
+          <div class="space-y-0.5">
+            <div class="flex justify-between">
+              <span class="text-gray-600">Passive Perception (WIS)</span>
+              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_perception || 10 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Passive Investigation (INT)</span>
+              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_investigation || 10 }}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-600">Passive Insight (WIS)</span>
+              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_insight || 10 }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Proficiencies & Languages -->
+        <div class="border border-gray-800 rounded p-2 text-[10px]">
+          <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Proficiencies & Languages</div>
+          <div v-if="char.language?.length" class="mb-1.5">
+            <span class="font-bold text-gray-700">Languages: </span>
+            <span class="text-gray-600">{{ char.language.map(l => l.name).join(', ') }}</span>
+          </div>
+          <div v-if="char.proficiency?.length">
+            <span class="font-bold text-gray-700">Proficiencies: </span>
+            <span class="text-gray-600">{{ char.proficiency.map(p => cleanProficiencyName(p.name)).join(', ') }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Middle Column: Attacks, Spellcasting, Equipment & Currency (span 4) -->
+      <div class="col-span-4 space-y-2.5">
+        <!-- Attacks & Weapons -->
+        <div class="border border-gray-800 rounded p-2 text-[10px]">
+          <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Attacks & Spellcasting</div>
+          
+          <!-- Spellcasting overview if caster -->
+          <div v-if="isCaster" class="grid grid-cols-3 gap-1 mb-2 p-1.5 bg-gray-50 border border-gray-200 rounded text-center">
+            <div>
+              <div class="text-[8px] uppercase text-gray-500 font-bold">Ability</div>
+              <div class="font-bold text-gray-900 uppercase text-[10px]">{{ (vtt.spellcasting?.ability || 'INT').slice(0, 3) }}</div>
+            </div>
+            <div>
+              <div class="text-[8px] uppercase text-gray-500 font-bold">Save DC</div>
+              <div class="font-bold text-gray-900 text-[10px]">{{ charSpellSaveDc }}</div>
+            </div>
+            <div>
+              <div class="text-[8px] uppercase text-gray-500 font-bold">Atk Bonus</div>
+              <div class="font-bold text-gray-900 text-[10px]">+{{ charSpellAttackBonus }}</div>
+            </div>
+          </div>
+
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-gray-200 text-[8px] uppercase text-gray-500 font-bold">
+                <th class="pb-1">Name</th>
+                <th class="pb-1 text-center">Atk</th>
+                <th class="pb-1 text-right">Damage / Type</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="atk in (vtt.attacks || [])" :key="atk.name" class="text-[10px]">
+                <td class="py-1 font-semibold text-gray-900 truncate max-w-[90px]">{{ atk.name }}</td>
+                <td class="py-1 text-center font-bold text-gray-800">{{ atk.attack_bonus >= 0 ? '+' : '' }}{{ atk.attack_bonus }}</td>
+                <td class="py-1 text-right text-gray-700 truncate max-w-[90px]">{{ atk.damage_roll }} {{ atk.damage_type }}</td>
+              </tr>
+              <tr v-if="!vtt.attacks || vtt.attacks.length === 0" class="text-[10px] text-gray-400 italic">
+                <td colspan="3" class="py-1">No equipped weapons</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Equipment & Coins -->
+        <div class="border border-gray-800 rounded p-2 text-[10px]">
+          <div class="flex justify-between items-center border-b border-gray-300 pb-1 mb-1.5">
+            <span class="font-bold uppercase tracking-wider text-gray-800">Equipment & Coins</span>
+          </div>
+
+          <!-- Coin purse -->
+          <div class="grid grid-cols-5 gap-1 mb-2 text-center text-[9px] font-bold">
+            <div class="border border-gray-200 rounded p-1 bg-amber-50/50">CP: {{ char.treasure?.copper || 0 }}</div>
+            <div class="border border-gray-200 rounded p-1 bg-gray-50">SP: {{ char.treasure?.silver || 0 }}</div>
+            <div class="border border-gray-200 rounded p-1 bg-blue-50/50">EP: {{ char.treasure?.electrum || 0 }}</div>
+            <div class="border border-gray-200 rounded p-1 bg-yellow-50">GP: {{ char.treasure?.gold || 0 }}</div>
+            <div class="border border-gray-200 rounded p-1 bg-purple-50/50">PP: {{ char.treasure?.platinum || 0 }}</div>
+          </div>
+
+          <div class="max-h-56 overflow-hidden space-y-0.5">
+            <div
+              v-for="eq in (liveEquipment || []).slice(0, 15)"
+              :key="eq.id || eq.name"
+              class="flex justify-between text-[10px] text-gray-700 border-b border-gray-50 py-0.5"
+            >
+              <span class="truncate max-w-[140px]">{{ eq.name }} <span v-if="eq.quantity > 1">({{ eq.quantity }}x)</span></span>
+              <span class="text-gray-400 text-[9px] shrink-0">{{ eq.weight ? eq.weight + ' lb' : '—' }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Skills & Characteristics (span 4) -->
+      <div class="col-span-4 space-y-2.5">
+        <!-- Skills List -->
+        <div class="border border-gray-800 rounded p-2 text-[10px]">
+          <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Skills</div>
+          <div class="space-y-0.5">
+            <div
+              v-for="(sData, sKey) in computedSkills"
+              :key="sKey"
+              class="flex items-center justify-between py-0.5 text-[10px]"
+            >
+              <div class="flex items-center gap-1 truncate max-w-[150px]">
+                <span class="text-[9px] font-mono text-gray-800 w-3 text-center">
+                  {{ sData.expertise ? '★' : (sData.proficient ? '●' : '○') }}
+                </span>
+                <span :class="sData.proficient ? 'font-bold text-gray-900' : 'text-gray-700'" class="capitalize truncate">
+                  {{ sKey.replace(/_/g, ' ') }}
+                </span>
+                <span class="text-[8px] text-gray-400 uppercase font-semibold">({{ sData.ability.slice(0, 3) }})</span>
+              </div>
+              <span :class="sData.proficient ? 'font-bold text-gray-900' : 'text-gray-600'">
+                {{ sData.total >= 0 ? '+' : '' }}{{ sData.total }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Personality & Characteristics -->
+        <div class="border border-gray-800 rounded p-2 text-[10px] space-y-1.5">
+          <div class="font-bold uppercase border-b border-gray-300 pb-1 tracking-wider text-gray-800">Characteristics</div>
+          
+          <!-- Details Grid -->
+          <div class="grid grid-cols-3 gap-1 text-[9px] text-gray-600 border-b border-gray-100 pb-1.5">
+            <div><span class="font-bold text-gray-800">Gender: </span>{{ parsedCharacteristics.gender || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Age: </span>{{ parsedCharacteristics.age || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Size: </span>{{ parsedCharacteristics.size || 'Medium' }}</div>
+            <div><span class="font-bold text-gray-800">Height: </span>{{ parsedCharacteristics.height || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Weight: </span>{{ parsedCharacteristics.weight || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Faith: </span>{{ parsedCharacteristics.faith || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Eyes: </span>{{ parsedCharacteristics.eyes || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Skin: </span>{{ parsedCharacteristics.skin || '—' }}</div>
+            <div><span class="font-bold text-gray-800">Hair: </span>{{ parsedCharacteristics.hair || '—' }}</div>
+          </div>
+
+          <div v-if="parsedCharacteristics.personalityTraits?.length" class="text-[9px]">
+            <div class="font-bold text-gray-800 uppercase text-[8px]">Personality Traits</div>
+            <p class="text-gray-600 italic leading-snug">{{ parsedCharacteristics.personalityTraits.join(' ') }}</p>
+          </div>
+
+          <div v-if="parsedCharacteristics.ideals?.length" class="text-[9px]">
+            <div class="font-bold text-gray-800 uppercase text-[8px]">Ideals</div>
+            <p class="text-gray-600 italic leading-snug">{{ parsedCharacteristics.ideals.join(' ') }}</p>
+          </div>
+
+          <div v-if="parsedCharacteristics.bonds?.length" class="text-[9px]">
+            <div class="font-bold text-gray-800 uppercase text-[8px]">Bonds</div>
+            <p class="text-gray-600 italic leading-snug">{{ parsedCharacteristics.bonds.join(' ') }}</p>
+          </div>
+
+          <div v-if="parsedCharacteristics.flaws?.length" class="text-[9px]">
+            <div class="font-bold text-gray-800 uppercase text-[8px]">Flaws</div>
+            <p class="text-gray-600 italic leading-snug">{{ parsedCharacteristics.flaws.join(' ') }}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Second Section (Page 2 / Features, Traits, Spells) -->
+    <div class="page-break-before break-inside-avoid space-y-3 mt-4 pt-3 border-t-2 border-gray-800">
+      <!-- Features & Traits -->
+      <div class="border border-gray-800 rounded p-2.5 text-[10px]">
+        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-2 tracking-wider text-gray-800">Features & Traits</div>
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Class & Subclass Features -->
+          <div>
+            <h4 class="font-bold text-gray-900 text-[10px] mb-1">Class Features</h4>
+            <div class="space-y-1">
+              <div v-for="cf in (filteredClassFeatures || [])" :key="cf.name" class="border-b border-gray-100 pb-0.5">
+                <span class="font-semibold text-gray-900">{{ cf.name }}</span>
+                <span v-if="cf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ cf.level }})</span>
+              </div>
+              <div v-for="scf in (filteredSubClassFeatures || [])" :key="scf.name" class="border-b border-gray-100 pb-0.5">
+                <span class="font-semibold text-gray-900">{{ scf.name }}</span>
+                <span v-if="scf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ scf.level }})</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Racial Traits & Feats -->
+          <div>
+            <h4 class="font-bold text-gray-900 text-[10px] mb-1">Racial Traits & Feats</h4>
+            <div class="space-y-1">
+              <div v-for="tr in (char.trait || [])" :key="tr.name" class="border-b border-gray-100 pb-0.5">
+                <span class="font-semibold text-gray-900">{{ tr.name }}</span>
+              </div>
+              <div v-for="ft in (char.feat || [])" :key="ft.name" class="border-b border-gray-100 pb-0.5">
+                <span class="font-semibold text-gray-900">{{ ft.name }}</span>
+                <span class="text-[9px] text-gray-500 ml-1">(Feat)</span>
+              </div>
+              <div v-for="bf in (char.feature || [])" :key="bf.name" class="border-b border-gray-100 pb-0.5">
+                <span class="font-semibold text-gray-900">{{ bf.name }}</span>
+                <span class="text-[9px] text-gray-500 ml-1">(Background)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Spells Section (if caster or has spells) -->
+      <div v-if="charSpells?.length" class="border border-gray-800 rounded p-2.5 text-[10px]">
+        <div class="flex justify-between items-center border-b border-gray-300 pb-1 mb-2">
+          <span class="font-bold uppercase tracking-wider text-gray-800">Spells Known & Prepared</span>
+          <span class="text-[9px] text-gray-600">DC {{ charSpellSaveDc }} &bull; Atk +{{ charSpellAttackBonus }}</span>
+        </div>
+
+        <!-- Cantrips -->
+        <div v-if="sheetCantrips?.length" class="mb-2">
+          <div class="font-bold text-gray-800 text-[9px] uppercase mb-1">Cantrips</div>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="s in sheetCantrips"
+              :key="s.name"
+              class="px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-[10px] text-gray-800 font-medium"
+            >
+              {{ s.name }}
+            </span>
+          </div>
+        </div>
+
+        <!-- Leveled Spells -->
+        <div v-if="sheetLeveledSpells?.length" class="space-y-2">
+          <div v-for="lvl in activeSpellsByLevel" :key="lvl" class="border-t border-gray-100 pt-1.5">
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-gray-800 text-[9px] uppercase">Level {{ lvl }} Spells</span>
+              <span class="text-[9px] text-gray-500">Slots: {{ getMaxSlots(lvl) }}</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="s in getSpellsAtLevel(lvl)"
+                :key="s.name"
+                class="px-1.5 py-0.5 rounded border border-gray-200 bg-gray-50 text-[10px] text-gray-800 font-medium"
+              >
+                {{ s.name }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Appearance & Backstory -->
+      <div v-if="parsedCharacteristics.appearance || sheetNotes.backstory" class="border border-gray-800 rounded p-2.5 text-[10px]">
+        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Appearance & Backstory</div>
+        <div v-if="parsedCharacteristics.appearance" class="mb-2">
+          <div class="font-semibold text-gray-800 text-[9px] uppercase mb-0.5">Physical Appearance</div>
+          <p class="text-gray-600 leading-relaxed whitespace-pre-wrap text-[10px]">{{ parsedCharacteristics.appearance }}</p>
+        </div>
+        <div v-if="sheetNotes.backstory">
+          <div class="font-semibold text-gray-800 text-[9px] uppercase mb-0.5">Backstory</div>
+          <p class="text-gray-600 leading-relaxed whitespace-pre-wrap text-[10px]">{{ sheetNotes.backstory }}</p>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -6744,5 +7466,33 @@ watch(() => charSpells.value, (list) => {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+  body, html {
+    background: white !important;
+    color: #111827 !important;
+  }
+  .printable-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    color: #111827 !important;
+  }
+  .break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .page-break-before {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
 }
 </style>

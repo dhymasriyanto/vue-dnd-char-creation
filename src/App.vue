@@ -117,10 +117,12 @@ watch([isAuthReady, isAuthenticated], ([ready, auth]) => {
     syncStateFromUrl()
   } else if (ready && !auth) {
     const params = new URLSearchParams(window.location.search)
-    if (!params.has('compendium')) {
+    if (!params.has('compendium') && !params.get('character') && !params.get('id')) {
       selectedCharacter.value = null
       characterToEdit.value = null
       currentView.value = 'list'
+    } else if (params.get('character') || params.get('id')) {
+      syncStateFromUrl()
     }
   }
 })
@@ -257,9 +259,12 @@ const onCharacterSaved = (charData) => {
 
 watch(isAuthenticated, (authenticated) => {
   if (!authenticated) {
-    selectedCharacter.value = null
-    characterToEdit.value = null
-    currentView.value = 'list'
+    const params = new URLSearchParams(window.location.search)
+    if (!params.get('character') && !params.get('id')) {
+      selectedCharacter.value = null
+      characterToEdit.value = null
+      currentView.value = 'list'
+    }
   }
 })
 </script>
@@ -273,6 +278,32 @@ watch(isAuthenticated, (authenticated) => {
       <div v-if="!isAuthReady" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-50 flex items-center justify-center">
         <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
       </div>
+
+      <div v-if="isLoadingDetail" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-50 flex items-center justify-center">
+        <div class="bg-white border border-gray-200 shadow-md rounded px-6 py-4 text-center">
+          <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+          <p class="text-xs text-gray-600">Loading character sheet...</p>
+        </div>
+      </div>
+
+      <div v-if="errorMessage" class="max-w-2xl mx-auto mt-4 px-4">
+        <div class="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs flex justify-between items-center">
+          <span>{{ errorMessage }}</span>
+          <button type="button" @click="errorMessage = ''" class="text-red-500 hover:text-red-700 font-bold ml-2">x</button>
+        </div>
+      </div>
+
+      <!-- Public or Authenticated Sheet View -->
+      <template v-if="currentView === 'sheet' && selectedCharacter">
+        <VttSheetView
+          :character="selectedCharacter"
+          :read-only="!isAuthenticated || (Boolean(selectedCharacter.user_id) && user?.id !== selectedCharacter.user_id)"
+          @back="backToList"
+          @create="openWizard"
+          @edit="editCharacter"
+          @open-campaign="openCampaignFromSheet"
+        />
+      </template>
 
       <!-- Auth Gate when unauthenticated -->
       <div v-else-if="!isAuthenticated" class="max-w-md mx-auto pt-24 px-4 text-center">
@@ -306,20 +337,6 @@ watch(isAuthenticated, (authenticated) => {
 
       <!-- Authenticated Views -->
       <template v-else>
-        <div v-if="isLoadingDetail" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-50 flex items-center justify-center">
-          <div class="bg-white border border-gray-200 shadow-md rounded px-6 py-4 text-center">
-            <div class="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-            <p class="text-xs text-gray-600">Loading character sheet...</p>
-          </div>
-        </div>
-
-        <div v-if="errorMessage" class="max-w-2xl mx-auto mt-4 px-4">
-          <div class="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs flex justify-between items-center">
-            <span>{{ errorMessage }}</span>
-            <button type="button" @click="errorMessage = ''" class="text-red-500 hover:text-red-700 font-bold ml-2">x</button>
-          </div>
-        </div>
-
         <!-- Main Menu & Content Views -->
         <template v-if="currentView === 'list'">
           <!-- Top Navigation Header -->
@@ -478,15 +495,6 @@ watch(isAuthenticated, (authenticated) => {
           :character-to-edit="characterToEdit"
           @back="backToList"
           @created="onCharacterSaved"
-        />
-
-        <VttSheetView
-          v-else-if="currentView === 'sheet' && selectedCharacter"
-          :character="selectedCharacter"
-          @back="backToList"
-          @create="openWizard"
-          @edit="editCharacter"
-          @open-campaign="openCampaignFromSheet"
         />
       </template>
     </template>
