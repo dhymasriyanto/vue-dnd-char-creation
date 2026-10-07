@@ -954,6 +954,73 @@ export function formatProficiencies(prof) {
   return [...new Set(results)].filter(Boolean).join(', ') || '—'
 }
 
+function formatSingleEquipmentItem(it) {
+  if (!it) return ''
+  if (typeof it === 'string') {
+    return clean5eToolsMarkup(it).split('|')[0].trim()
+  }
+  if (typeof it === 'object' && it !== null) {
+    if (it.displayName) return clean5eToolsMarkup(it.displayName).split('|')[0].trim()
+    if (it.item) {
+      let name = clean5eToolsMarkup(it.item).split('|')[0].trim()
+      if (it.quantity && it.quantity > 1) name = `${it.quantity} ${name}`
+      if (it.containsValue) name += ` (with ${Math.floor(it.containsValue / 100)} GP)`
+      return name
+    }
+    if (it.special) {
+      const qty = it.quantity && it.quantity > 1 ? `${it.quantity} ` : ''
+      return `${qty}${clean5eToolsMarkup(it.special).split('|')[0].trim()}`
+    }
+    if (it.value != null) {
+      return `${Math.floor(it.value / 100)} GP`
+    }
+    if (it.equipmentType) {
+      const eqMap = {
+        setGaming: 'Gaming set',
+        instrumentMusical: 'Musical instrument',
+        toolArtisan: "Artisan's tools",
+        toolThieves: "Thieves' tools"
+      }
+      return eqMap[it.equipmentType] || clean5eToolsMarkup(it.equipmentType)
+    }
+  }
+  return ''
+}
+
+export function formatBackgroundEquipment(eq) {
+  if (!eq) return '—'
+  if (typeof eq === 'string') {
+    try {
+      const parsed = JSON.parse(eq)
+      return formatBackgroundEquipment(parsed)
+    } catch (_) {
+      return clean5eToolsMarkup(eq)
+    }
+  }
+
+  const list = Array.isArray(eq) ? eq : [eq]
+  const parts = []
+
+  for (const group of list) {
+    if (!group || typeof group !== 'object') continue
+    if (group._) {
+      const baseItems = group._.map(formatSingleEquipmentItem).filter(Boolean).join(', ')
+      if (baseItems) parts.push(baseItems)
+    }
+    const hasA = group.a || group.A
+    const hasB = group.b || group.B
+    if (hasA && hasB) {
+      const optA = (group.a || group.A).map(formatSingleEquipmentItem).filter(Boolean).join(', ')
+      const optB = (group.b || group.B).map(formatSingleEquipmentItem).filter(Boolean).join(', ')
+      parts.push(`Choice: (A) ${optA}; or (B) ${optB}`)
+    } else if (hasA) {
+      parts.push((group.a || group.A).map(formatSingleEquipmentItem).filter(Boolean).join(', '))
+    }
+  }
+
+  return parts.filter(Boolean).join('; ') || '—'
+}
+
 export function formatFeatCategory(cat) {
   if (!cat) return 'Feat'
   const map = {

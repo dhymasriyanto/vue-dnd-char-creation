@@ -8,6 +8,7 @@ import {
   synthesizeItemEntries,
   formatBackgroundAbility,
   formatBackgroundFeats,
+  formatBackgroundEquipment,
   formatProficiencies,
   formatFeatCategory
 } from '../utils/textRenderer'
@@ -314,6 +315,12 @@ const applyData = (data) => {
   if (data.languageProficiencies && (Array.isArray(data.languageProficiencies) ? data.languageProficiencies.length : true)) {
     const lStr = formatProficiencies(data.languageProficiencies)
     if (lStr && lStr !== '—') stats.push({ label: 'Languages', value: lStr })
+  }
+
+  // Equipment
+  if (data.startingEquipment || data.equipment) {
+    const eqStr = formatBackgroundEquipment(data.startingEquipment || data.equipment)
+    if (eqStr && eqStr !== '—') stats.push({ label: 'Equipment', value: eqStr })
   }
 
   // Hit Die

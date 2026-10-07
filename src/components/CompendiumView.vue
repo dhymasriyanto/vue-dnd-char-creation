@@ -11,6 +11,7 @@ import {
   format5eEntries,
   formatBackgroundAbility,
   formatBackgroundFeats,
+  formatBackgroundEquipment,
   formatProficiencies,
   formatFeatCategory,
   getItemCategoryAndRange,
@@ -1556,6 +1557,10 @@ onBeforeUnmount(() => {
               <div v-if="selectedItem.languageProficiencies && selectedItem.languageProficiencies.length">
                 <span class="text-gray-400 block font-medium">Languages</span>
                 <span class="font-semibold text-gray-800">{{ formatProficiencies(selectedItem.languageProficiencies) }}</span>
+              </div>
+              <div v-if="selectedItem.startingEquipment || selectedItem.equipment" class="sm:col-span-2">
+                <span class="text-gray-400 block font-medium">Starting Equipment</span>
+                <span class="font-semibold text-gray-800 leading-relaxed">{{ formatBackgroundEquipment(selectedItem.startingEquipment || selectedItem.equipment) }}</span>
               </div>
             </div>
 

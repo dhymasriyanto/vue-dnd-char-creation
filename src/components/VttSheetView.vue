@@ -1,7 +1,15 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
-import { renderAnnotatedText, renderTableCell, clean5eToolsMarkup, format5eEntries } from '../utils/textRenderer'
+import {
+  renderAnnotatedText,
+  renderTableCell,
+  clean5eToolsMarkup,
+  format5eEntries,
+  formatBackgroundEquipment,
+  formatBackgroundAbility,
+  formatProficiencies
+} from '../utils/textRenderer'
 import { useConfig } from '../config'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
 import {
@@ -832,6 +840,94 @@ const conMod = computed(() => {
 const spentHitDice = ref(0)
 const remainingHitDice = computed(() => Math.max(0, maxHitDiceCount.value - spentHitDice.value))
 
+// Expended slots & class resources trackers in state
+const expendedSlots = ref({})
+const expendedFeatFreeCasts = ref({})
+const spentClassResources = ref({})
+const activeClassStates = ref({})
+
+const restoreAllSlots = () => {
+  expendedSlots.value = {}
+  expendedFeatFreeCasts.value = {}
+}
+
+let isInitializingSheetResources = false
+let persistDebounceTimer = null
+
+const loadPersistedSheetState = () => {
+  isInitializingSheetResources = true
+  const raw = char.value?.sheet_resources
+  let res = raw
+  if (typeof res === 'string') {
+    try { res = JSON.parse(res) } catch (_) { res = {} }
+  }
+  if (res && typeof res === 'object') {
+    expendedSlots.value = res.expended_slots ? { ...res.expended_slots } : {}
+    expendedFeatFreeCasts.value = res.expended_feat_free_casts ? { ...res.expended_feat_free_casts } : {}
+    spentClassResources.value = res.spent_resources ? { ...res.spent_resources } : {}
+    activeClassStates.value = res.active_states ? { ...res.active_states } : {}
+    spentHitDice.value = Number(res.spent_hit_dice) || 0
+  } else {
+    expendedSlots.value = {}
+    expendedFeatFreeCasts.value = {}
+    spentClassResources.value = {}
+    activeClassStates.value = {}
+    spentHitDice.value = 0
+  }
+
+  // Clear legacy localStorage cache
+  try {
+    if (char.value?.id) {
+      localStorage.removeItem(`dnd_sheet_slots_${char.value.id}`)
+      localStorage.removeItem(`dnd_sheet_res_${char.value.id}`)
+      localStorage.removeItem(`dnd_sheet_states_${char.value.id}`)
+    }
+  } catch (_) {}
+
+  nextTick(() => {
+    isInitializingSheetResources = false
+  })
+}
+
+const persistSheetState = (immediate = false) => {
+  if (props.readOnly || !char.value?.id || isInitializingSheetResources) return
+
+  const payload = {
+    expended_slots: { ...expendedSlots.value },
+    expended_feat_free_casts: { ...expendedFeatFreeCasts.value },
+    spent_resources: { ...spentClassResources.value },
+    active_states: { ...activeClassStates.value },
+    spent_hit_dice: spentHitDice.value
+  }
+
+  if (char.value) {
+    char.value.sheet_resources = payload
+  }
+  if (props.character) {
+    props.character.sheet_resources = payload
+  }
+
+  if (immediate) {
+    if (persistDebounceTimer) clearTimeout(persistDebounceTimer)
+    saveVitals({ sheet_resources: payload })
+    return
+  }
+
+  if (persistDebounceTimer) clearTimeout(persistDebounceTimer)
+  persistDebounceTimer = setTimeout(() => {
+    saveVitals({ sheet_resources: payload })
+  }, 400)
+}
+
+watch([expendedSlots, expendedFeatFreeCasts, spentClassResources, activeClassStates, spentHitDice], () => {
+  if (isInitializingSheetResources) return
+  persistSheetState()
+}, { deep: true })
+
+watch(() => char.value?.id, () => {
+  loadPersistedSheetState()
+}, { immediate: true })
+
 const showShortRestModal = ref(false)
 const shortRestRollResult = ref(null)
 
@@ -865,8 +961,51 @@ const rollHitDie = () => {
 }
 
 const completeShortRest = () => {
+  // 1. Warlock: restore Pact Magic spell slots!
+  if (charClassName.value === 'warlock') {
+    restoreAllSlots()
+  } else {
+    const pactSlots = (sheetSpellSlots.value || []).filter(s => s.isPact)
+    pactSlots.forEach(s => {
+      for (let i = 1; i <= s.total; i++) {
+        delete expendedSlots.value[`${s.level}_${i}`]
+      }
+    })
+  }
+
+  // 2. Class resources recharge
+  const restoredNames = []
+  const lvl = Number(char.value?.level) || 1
+
+  for (const res of (classResourceTrackers.value || [])) {
+    if (res.recharge === 'short') {
+      if (getResourceSpent(res.id) > 0) {
+        spentClassResources.value[res.id] = 0
+        restoredNames.push(res.name)
+      }
+    } else if (res.recharge === 'long_regain1') {
+      if (getResourceSpent(res.id) > 0) {
+        spentClassResources.value[res.id] = Math.max(0, (spentClassResources.value[res.id] || 0) - 1)
+        restoredNames.push(`${res.name} (+1 use)`)
+      }
+    } else if (res.id === 'bard_inspiration' && lvl >= 5) {
+      if (getResourceSpent(res.id) > 0) {
+        spentClassResources.value[res.id] = 0
+        restoredNames.push(res.name)
+      }
+    }
+  }
+
+  if (activeClassStates.value) {
+    activeClassStates.value.barb_rage = false
+  }
+
+  persistSheetState(true)
   showShortRestModal.value = false
-  showToast('Short rest completed')
+  const msg = restoredNames.length
+    ? `Short rest completed! Restored: ${restoredNames.join(', ')}`
+    : 'Short rest completed'
+  showToast(msg)
 }
 
 const showLongRestModal = ref(false)
@@ -899,6 +1038,13 @@ const recoverSummaryText = computed(() => {
   } else if (allSpellLevels?.value?.length > 0) {
     parts.push(`All Spell Slots`)
   }
+  let countRes = 0
+  for (const k of Object.keys(spentClassResources?.value || {})) {
+    if (spentClassResources.value[k] > 0) countRes++
+  }
+  if (countRes > 0) {
+    parts.push(`All Class Resources`)
+  }
   return parts.join(', ')
 })
 
@@ -922,6 +1068,9 @@ const executeLongRest = async () => {
   }
 
   restoreAllSlots()
+  spentClassResources.value = {}
+  activeClassStates.value = {}
+  persistSheetState(true)
 
   // Long rest removes 1 level of exhaustion
   if (exhaustionLevel.value !== null) {
@@ -1856,11 +2005,8 @@ const formatOriginFeatName = () => {
 }
 
 const formatBgAbilityScores = () => {
-  if (bgCompendiumData.value?.ability?.length) {
-    const from = bgCompendiumData.value.ability[0]?.choose?.weighted?.from
-    if (Array.isArray(from) && from.length) {
-      return from.map(a => a.toUpperCase()).join(' / ')
-    }
+  if (bgCompendiumData.value?.ability?.length || bgCompendiumData.value?.abilityBonuses?.length) {
+    return formatBackgroundAbility(bgCompendiumData.value.ability || bgCompendiumData.value.abilityBonuses)
   }
   return 'Any 3 or +2/+1'
 }
@@ -1868,13 +2014,8 @@ const formatBgAbilityScores = () => {
 const formatBgSkills = () => {
   const list = []
   if (bgCompendiumData.value?.skillProficiencies?.length) {
-    for (const sp of bgCompendiumData.value.skillProficiencies) {
-      if (typeof sp === 'object') {
-        Object.keys(sp).forEach(k => {
-          if (k !== 'choose') list.push(k.charAt(0).toUpperCase() + k.slice(1))
-        })
-      }
-    }
+    const res = formatProficiencies(bgCompendiumData.value.skillProficiencies)
+    if (res && res !== '—') return res.split(', ')
   }
   if (!list.length && computedSkills.value) {
     Object.entries(computedSkills.value).forEach(([name, sk]) => {
@@ -1886,18 +2027,8 @@ const formatBgSkills = () => {
 
 const formatBgTools = () => {
   if (bgCompendiumData.value?.toolProficiencies?.length) {
-    const parts = []
-    for (const tp of bgCompendiumData.value.toolProficiencies) {
-      if (tp.anyArtisansTool) parts.push("Artisan's Tools")
-      else if (tp.anyMusicalInstrument) parts.push('Musical Instrument')
-      else if (tp.anyGamingSet) parts.push('Gaming Set')
-      else if (typeof tp === 'object') {
-        Object.keys(tp).forEach(k => {
-          if (k !== 'choose') parts.push(cleanProficiencyName(k))
-        })
-      }
-    }
-    if (parts.length) return parts.join(', ')
+    const res = formatProficiencies(bgCompendiumData.value.toolProficiencies)
+    if (res && res !== '—') return res
   }
   const toolProfs = vtt.value.proficiencies?.tools || []
   return toolProfs.map(cleanProficiencyName).join(', ') || 'None'
@@ -1905,24 +2036,16 @@ const formatBgTools = () => {
 
 const formatBgLanguages = () => {
   if (bgCompendiumData.value?.languageProficiencies?.length) {
-    const parts = []
-    for (const lp of bgCompendiumData.value.languageProficiencies) {
-      if (typeof lp === 'object') {
-        Object.keys(lp).forEach(k => {
-          if (k === 'anyStandard' || k === 'any' || k === 'other') parts.push('1 of choice')
-          else parts.push(k.charAt(0).toUpperCase() + k.slice(1))
-        })
-      }
-    }
-    if (parts.length) return parts.join(', ')
+    const res = formatProficiencies(bgCompendiumData.value.languageProficiencies)
+    if (res && res !== '—') return res
   }
   const langs = vtt.value.proficiencies?.languages || []
   return langs.map(cleanProficiencyName).join(', ') || 'Common'
 }
 
 const formatBgEquipmentSummary = () => {
-  if (bgCompendiumData.value?.startingEquipment?.length) {
-    return 'Official background starting kit & gold package'
+  if (bgCompendiumData.value?.startingEquipment || bgCompendiumData.value?.equipment) {
+    return formatBackgroundEquipment(bgCompendiumData.value.startingEquipment || bgCompendiumData.value.equipment)
   }
   return 'Standard background items'
 }
@@ -1930,10 +2053,18 @@ const formatBgEquipmentSummary = () => {
 // D&D Beyond Style Attack Table calculation
 const attackTableEntries = computed(() => {
   const entries = []
+  const isRaging = Boolean(activeClassStates.value?.barb_rage)
+  const rageDmg = isRaging ? rageBonusDamage.value : 0
+  const lvl = Number(char.value?.level) || 1
 
   // 1. Equipped weapons
   for (const w of equippedWeapons.value) {
     const isRanged = w.properties.some(p => p && p.toLowerCase().includes('ranged')) || (w.range && w.range.includes('/'))
+    const finalMod = w.statMod + (!isRanged ? rageDmg : 0)
+    const dmgLabel = (!isRanged && isRaging)
+      ? `${w.damageDice}${finalMod >= 0 ? '+' : ''}${finalMod} ${w.damageType} (Rage +${rageDmg})`
+      : `${w.damageDice}${w.statMod >= 0 ? '+' : ''}${w.statMod} ${w.damageType}`
+
     entries.push({
       id: 'wpn_' + w.name,
       type: 'weapon',
@@ -1945,16 +2076,21 @@ const attackTableEntries = computed(() => {
       isDc: false,
       dcText: '',
       damageDice: w.damageDice,
-      damageMod: w.statMod,
+      damageMod: finalMod,
       damageFormula: w.damageDice,
       damageType: w.damageType,
-      damageLabel: `${w.damageDice}${w.statMod >= 0 ? '+' : ''}${w.statMod} ${w.damageType}`,
+      damageLabel: dmgLabel,
       notes: w.properties.join(', ') || '—'
     })
   }
 
   // 2. Unarmed Strike
   const us = unarmedStrikeDetails.value
+  const usMod = us.statMod + rageDmg
+  const usLabel = isRaging
+    ? `${us.damageDice}${usMod >= 0 ? '+' : ''}${usMod} bludgeoning (Rage +${rageDmg})`
+    : `${us.damageDice}${us.statMod >= 0 ? '+' : ''}${us.statMod} bludgeoning`
+
   entries.push({
     id: 'unarmed_strike',
     type: 'unarmed',
@@ -1966,14 +2102,79 @@ const attackTableEntries = computed(() => {
     isDc: false,
     dcText: '',
     damageDice: us.damageDice,
-    damageMod: us.statMod,
+    damageMod: usMod,
     damageFormula: us.damageDice,
     damageType: us.damageType,
-    damageLabel: `${us.damageDice}${us.statMod >= 0 ? '+' : ''}${us.statMod} bludgeoning`,
+    damageLabel: usLabel,
     notes: 'Free hand'
   })
 
-  // 3. Attack Spells & Cantrips (hasAttack or diceFormula)
+  // 3. Rogue Sneak Attack
+  if (charClassName.value === 'rogue') {
+    const saFormula = rogueSneakAttackFormula.value
+    entries.push({
+      id: 'rogue_sneak_attack',
+      type: 'feature',
+      name: 'Sneak Attack',
+      subtitle: 'Once per turn with Finesse or Ranged',
+      range: 'With Attack',
+      toHit: null,
+      toHitLabel: null,
+      isDc: false,
+      dcText: '',
+      damageDice: saFormula,
+      damageMod: 0,
+      damageFormula: saFormula,
+      damageType: 'Extra Damage',
+      damageLabel: saFormula,
+      notes: 'Advantage or adjacent ally required'
+    })
+  }
+
+  // 4. Paladin Divine Smite
+  if (charClassName.value === 'paladin' && lvl >= 2) {
+    entries.push({
+      id: 'paladin_divine_smite',
+      type: 'feature',
+      name: 'Divine Smite',
+      subtitle: 'On melee hit (1st lvl slot base)',
+      range: 'On Hit',
+      toHit: null,
+      toHitLabel: null,
+      isDc: false,
+      dcText: '',
+      damageDice: '2d8',
+      damageMod: 0,
+      damageFormula: '2d8',
+      damageType: 'Radiant',
+      damageLabel: '2d8 (+1d8/slot > 1st)',
+      notes: 'Expend spell slot on weapon hit (+1d8 vs Fiend/Undead)'
+    })
+  }
+
+  // 5. Battle Master Superiority Die
+  if ((charSubClassName.value.includes('battle master') || charSubClassName.value.includes('battlemaster')) && lvl >= 3) {
+    const die = lvl >= 18 ? 'd12' : (lvl >= 10 ? 'd10' : 'd8')
+    entries.push({
+      id: 'bm_superiority_die',
+      type: 'feature',
+      name: 'Superiority Die',
+      subtitle: 'Battle Master Maneuver',
+      range: 'Special',
+      toHit: null,
+      toHitLabel: null,
+      isDc: false,
+      dcText: '',
+      damageDice: `1${die}`,
+      damageMod: 0,
+      damageFormula: `1${die}`,
+      damageType: 'Maneuver',
+      damageLabel: `1${die}`,
+      notes: 'Add to damage roll or maneuver DC 8+PB+STR/DEX'
+    })
+  }
+
+  // 6. Attack Spells & Cantrips (hasAttack or diceFormula)
   for (const sp of charSpells.value) {
     const mechanics = extractSpellMechanics(sp, char.value.level, charCasterMod.value)
     if (mechanics.hasAttack || mechanics.diceFormula) {
@@ -2302,6 +2503,451 @@ const charProfBonus = computed(() => {
 const charSpellSaveDc = computed(() => 8 + charProfBonus.value + charCasterMod.value)
 const charSpellAttackBonus = computed(() => charProfBonus.value + charCasterMod.value)
 
+// Helper to get ability modifiers
+const getAbilityMod = (ab) => {
+  const norm = ab.toLowerCase()
+  const map = { str: 'strength', dex: 'dexterity', con: 'constitution', int: 'intelligence', wis: 'wisdom', cha: 'charisma' }
+  const full = map[norm] || norm
+  if (vtt.value?.abilities?.[full]?.modifier != null) return Number(vtt.value.abilities[full].modifier)
+  if (vtt.value?.abilities?.[norm]?.modifier != null) return Number(vtt.value.abilities[norm].modifier)
+  const val = Number(char.value.ability_score?.[full] || char.value.ability_score?.[norm] || 10)
+  return Math.floor((val - 10) / 2)
+}
+
+// Barbarian Rage damage bonus
+const rageBonusDamage = computed(() => {
+  const lvl = Number(char.value?.level) || 1
+  if (lvl >= 16) return 4
+  if (lvl >= 9) return 3
+  return 2
+})
+
+// Comprehensive Class Resource Trackers
+const classResourceTrackers = computed(() => {
+  const list = []
+  const c = charClassName.value
+  const sc = charSubClassName.value
+  const lvl = Number(char.value?.level) || 1
+  const is2024 = (char.value?.edition || '2024') === '2024'
+  const chaMod = getAbilityMod('cha')
+  const wisMod = getAbilityMod('wis')
+  const intMod = getAbilityMod('int')
+
+  // 1. BARBARIAN: Rage
+  if (c === 'barbarian') {
+    let maxRage = 2
+    if (lvl >= 20) maxRage = 999
+    else if (lvl >= 17) maxRage = 6
+    else if (lvl >= 12) maxRage = 5
+    else if (lvl >= 6) maxRage = 4
+    else if (lvl >= 3) maxRage = 3
+
+    list.push({
+      id: 'barb_rage',
+      name: 'Rage',
+      subtitle: `Bonus Damage: +${rageBonusDamage.value} · Adv on STR Checks/Saves · B/P/S Resistance`,
+      max: maxRage,
+      displayMax: maxRage === 999 ? '∞' : maxRage,
+      recharge: is2024 ? 'long_regain1' : 'long',
+      rechargeLabel: is2024 ? 'Long Rest (Regains 1 on Short Rest)' : 'Long Rest',
+      type: 'counter',
+      hasActiveToggle: true,
+      actionType: 'bonus'
+    })
+  }
+
+  // 2. FIGHTER: Second Wind, Action Surge, Indomitable, Battle Master Superiority
+  if (c === 'fighter') {
+    let swMax = 1
+    if (is2024) {
+      if (lvl >= 10) swMax = 4
+      else if (lvl >= 4) swMax = 3
+      else swMax = 2
+    }
+    list.push({
+      id: 'fighter_second_wind',
+      name: 'Second Wind',
+      subtitle: `Heal 1d10 + ${lvl} HP as Bonus Action`,
+      max: swMax,
+      displayMax: swMax,
+      recharge: is2024 ? 'long_regain1' : 'short',
+      rechargeLabel: is2024 ? 'Long Rest (Regains 1 on Short Rest)' : 'Short & Long Rest',
+      type: 'counter',
+      actionType: 'bonus',
+      healFormula: '1d10',
+      healBonus: lvl
+    })
+
+    if (lvl >= 2) {
+      const asMax = lvl >= 17 ? 2 : 1
+      list.push({
+        id: 'fighter_action_surge',
+        name: 'Action Surge',
+        subtitle: 'Take 1 additional Action on your turn',
+        max: asMax,
+        displayMax: asMax,
+        recharge: 'short',
+        rechargeLabel: 'Short & Long Rest',
+        type: 'counter',
+        actionType: 'action'
+      })
+    }
+
+    if (lvl >= 9) {
+      let indomMax = 1
+      if (lvl >= 17) indomMax = 3
+      else if (lvl >= 13) indomMax = 2
+      list.push({
+        id: 'fighter_indomitable',
+        name: 'Indomitable',
+        subtitle: is2024 ? `Reroll failed save with +${lvl} bonus` : 'Reroll a failed saving throw',
+        max: indomMax,
+        displayMax: indomMax,
+        recharge: 'long',
+        rechargeLabel: 'Long Rest',
+        type: 'counter',
+        actionType: 'reaction'
+      })
+    }
+
+    if (sc.includes('battle master') || sc.includes('battlemaster')) {
+      if (lvl >= 3) {
+        let sdCount = 4
+        if (lvl >= 15) sdCount = 6
+        else if (lvl >= 7) sdCount = 5
+
+        let dieSize = 'd8'
+        if (lvl >= 18) dieSize = 'd12'
+        else if (lvl >= 10) dieSize = 'd10'
+
+        list.push({
+          id: 'fighter_superiority_dice',
+          name: 'Superiority Dice',
+          subtitle: `Die: 1${dieSize} (Maneuvers: Menacing, Trip, Riposte, etc.)`,
+          max: sdCount,
+          displayMax: sdCount,
+          die: dieSize,
+          recharge: 'short',
+          rechargeLabel: 'Short & Long Rest',
+          type: 'counter',
+          rollFormula: `1${dieSize}`,
+          actionType: 'other'
+        })
+      }
+    }
+  }
+
+  // 3. MONK: Ki / Focus Points
+  if (c === 'monk' && lvl >= 2) {
+    const resourceName = is2024 ? 'Focus Points' : 'Ki Points'
+    list.push({
+      id: 'monk_ki',
+      name: resourceName,
+      subtitle: 'Flurry of Blows (1), Patient Defense (1), Step of the Wind (1), Stunning Strike (1)',
+      max: lvl,
+      displayMax: lvl,
+      recharge: 'short',
+      rechargeLabel: 'Short & Long Rest',
+      type: 'points',
+      actionType: 'bonus'
+    })
+  }
+
+  // 4. CLERIC: Channel Divinity
+  if (c === 'cleric' && lvl >= 2) {
+    let cdMax = 1
+    if (is2024) {
+      if (lvl >= 18) cdMax = 4
+      else if (lvl >= 6) cdMax = 3
+      else cdMax = 2
+    } else {
+      if (lvl >= 18) cdMax = 3
+      else if (lvl >= 6) cdMax = 2
+      else cdMax = 1
+    }
+    list.push({
+      id: 'cleric_channel_divinity',
+      name: 'Channel Divinity',
+      subtitle: 'Turn Undead, Divine Spark / Domain Feature, Harness Divine Power',
+      max: cdMax,
+      displayMax: cdMax,
+      recharge: 'short',
+      rechargeLabel: 'Short & Long Rest',
+      type: 'counter',
+      actionType: 'action'
+    })
+  }
+
+  // 5. PALADIN: Lay on Hands & Channel Divinity
+  if (c === 'paladin') {
+    const lohPool = 5 * lvl
+    list.push({
+      id: 'paladin_lay_on_hands',
+      name: 'Lay on Hands',
+      subtitle: 'Healing Pool (Heal 1 HP per point, or 5 points to cure Poison/Disease)',
+      max: lohPool,
+      displayMax: `${lohPool} HP`,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'pool',
+      actionType: 'action'
+    })
+
+    if (lvl >= 3) {
+      const cdMax = is2024 ? 2 : 1
+      list.push({
+        id: 'paladin_channel_divinity',
+        name: 'Channel Divinity',
+        subtitle: 'Sacred Weapon / Vow of Enmity / Subclass Channel Divinity',
+        max: cdMax,
+        displayMax: cdMax,
+        recharge: 'short',
+        rechargeLabel: 'Short & Long Rest',
+        type: 'counter',
+        actionType: 'action'
+      })
+    }
+  }
+
+  // 6. DRUID: Wild Shape
+  if (c === 'druid' && lvl >= 2) {
+    const wsMax = lvl >= 20 ? 999 : 2
+    list.push({
+      id: 'druid_wild_shape',
+      name: 'Wild Shape',
+      subtitle: is2024 ? 'Assume Beast Shape (Bonus Action) · Regains 1 on Short Rest' : 'Assume Beast Shape (Action / Bonus Action for Moon)',
+      max: wsMax,
+      displayMax: wsMax === 999 ? '∞' : wsMax,
+      recharge: is2024 ? 'long_regain1' : 'short',
+      rechargeLabel: is2024 ? 'Long Rest (Regains 1 on Short Rest)' : 'Short & Long Rest',
+      type: 'counter',
+      actionType: 'action'
+    })
+  }
+
+  // 7. BARD: Bardic Inspiration
+  if (c === 'bard') {
+    const biUses = Math.max(1, chaMod)
+    let biDie = 'd6'
+    if (lvl >= 15) biDie = 'd12'
+    else if (lvl >= 10) biDie = 'd10'
+    else if (lvl >= 5) biDie = 'd8'
+
+    const biRecharge = lvl >= 5 ? 'short' : 'long'
+    list.push({
+      id: 'bard_inspiration',
+      name: 'Bardic Inspiration',
+      subtitle: `Die: 1${biDie} · Range 60 ft. (Bonus Action to inspire ally)`,
+      max: biUses,
+      displayMax: biUses,
+      die: biDie,
+      recharge: biRecharge,
+      rechargeLabel: lvl >= 5 ? 'Short & Long Rest (Font of Inspiration)' : 'Long Rest',
+      type: 'counter',
+      rollFormula: `1${biDie}`,
+      actionType: 'bonus'
+    })
+  }
+
+  // 8. SORCERER: Sorcery Points & Innate Sorcery
+  if (c === 'sorcerer') {
+    if (lvl >= 2) {
+      list.push({
+        id: 'sorcerer_sorcery_points',
+        name: 'Sorcery Points',
+        subtitle: 'Font of Magic (Slot conversion) & Metamagic options',
+        max: lvl,
+        displayMax: lvl,
+        recharge: 'long',
+        rechargeLabel: 'Long Rest',
+        type: 'points',
+        actionType: 'bonus'
+      })
+    }
+    if (is2024) {
+      list.push({
+        id: 'sorcerer_innate_sorcery',
+        name: 'Innate Sorcery',
+        subtitle: 'Bonus Action: 1 min buff (+1 Spell DC, Advantage on Sorcerer Spell Attacks)',
+        max: 2,
+        displayMax: 2,
+        recharge: 'long',
+        rechargeLabel: 'Long Rest',
+        type: 'counter',
+        hasActiveToggle: true,
+        actionType: 'bonus'
+      })
+    }
+  }
+
+  // 9. WARLOCK: Mystic Arcanum
+  if (c === 'warlock') {
+    if (lvl >= 11) {
+      let arcanumCount = 1
+      if (lvl >= 17) arcanumCount = 4
+      else if (lvl >= 15) arcanumCount = 3
+      else if (lvl >= 13) arcanumCount = 2
+      list.push({
+        id: 'warlock_mystic_arcanum',
+        name: 'Mystic Arcanum',
+        subtitle: `Free 6th${lvl >= 13 ? '+7th' : ''}${lvl >= 15 ? '+8th' : ''}${lvl >= 17 ? '+9th' : ''} Level Spells (1 cast each / Long Rest)`,
+        max: arcanumCount,
+        displayMax: arcanumCount,
+        recharge: 'long',
+        rechargeLabel: 'Long Rest',
+        type: 'counter',
+        actionType: 'action'
+      })
+    }
+  }
+
+  return list
+})
+
+const getResourceSpent = (id) => {
+  return Number(spentClassResources.value?.[id]) || 0
+}
+
+const getResourceAvailable = (res) => {
+  if (!res) return 0
+  if (res.max === 999) return 999
+  return Math.max(0, res.max - getResourceSpent(res.id))
+}
+
+const isResourceSlotExpended = (res, slotIdx) => {
+  if (!res) return false
+  return slotIdx > getResourceAvailable(res)
+}
+
+const toggleResourceSlot = (res, slotIdx) => {
+  if (!res) return
+  const currentAvail = getResourceAvailable(res)
+  if (currentAvail >= slotIdx) {
+    spentClassResources.value[res.id] = res.max - slotIdx + 1
+  } else {
+    spentClassResources.value[res.id] = res.max - slotIdx
+  }
+}
+
+const spendResource = (resOrId, amount = 1) => {
+  const id = typeof resOrId === 'string' ? resOrId : resOrId.id
+  const res = classResourceTrackers.value.find(r => r.id === id)
+  if (!res) return
+  if (res.max === 999) return
+  const currentSpent = getResourceSpent(id)
+  spentClassResources.value[id] = Math.min(res.max, currentSpent + amount)
+}
+
+const restoreResource = (resOrId, amount = 1) => {
+  const id = typeof resOrId === 'string' ? resOrId : resOrId.id
+  const currentSpent = getResourceSpent(id)
+  spentClassResources.value[id] = Math.max(0, currentSpent - amount)
+}
+
+const isClassStateActive = (key) => {
+  return Boolean(activeClassStates.value?.[key])
+}
+
+const toggleClassState = (key, resId = null) => {
+  const newState = !activeClassStates.value[key]
+  activeClassStates.value[key] = newState
+  if (newState && resId) {
+    spendResource(resId, 1)
+  }
+}
+
+const activateSecondWind = () => {
+  const res = classResourceTrackers.value.find(r => r.id === 'fighter_second_wind')
+  if (res && getResourceAvailable(res) <= 0) {
+    showToast('No Second Wind uses remaining!')
+    return
+  }
+  const lvl = Number(char.value?.level) || 1
+  spendResource('fighter_second_wind', 1)
+  rollFormula('Second Wind Healing', '1d10', lvl)
+}
+
+const rollResourceDie = (res) => {
+  if (!res || !res.rollFormula) return
+  if (getResourceAvailable(res) <= 0) {
+    showToast(`No ${res.name} uses remaining!`)
+    return
+  }
+  spendResource(res.id, 1)
+  rollFormula(`${res.name} Roll`, res.rollFormula)
+}
+
+const activateMonkKiAction = (actionName, cost = 1) => {
+  const res = classResourceTrackers.value.find(r => r.id === 'monk_ki')
+  if (res && getResourceAvailable(res) < cost) {
+    showToast(`Not enough ${res.name} remaining!`)
+    return
+  }
+  if (res) spendResource('monk_ki', cost)
+  showToast(`${actionName} activated! (Spent ${cost} ${res?.name || 'Ki'})`)
+}
+
+const activateActionSurge = () => {
+  const res = classResourceTrackers.value.find(r => r.id === 'fighter_action_surge')
+  if (res && getResourceAvailable(res) <= 0) {
+    showToast('No Action Surge uses remaining!')
+    return
+  }
+  spendResource('fighter_action_surge', 1)
+  showToast('Action Surge activated! Take 1 additional Action on your turn.')
+}
+
+const activateIndomitable = () => {
+  const res = classResourceTrackers.value.find(r => r.id === 'fighter_indomitable')
+  if (res && getResourceAvailable(res) <= 0) {
+    showToast('No Indomitable uses remaining!')
+    return
+  }
+  spendResource('fighter_indomitable', 1)
+  const is2024 = (char.value?.edition || '2024') === '2024'
+  const bonus = is2024 ? Number(char.value?.level || 1) : 0
+  rollDice(`Indomitable Saving Throw Reroll${bonus ? ` (+${bonus})` : ''}`, bonus)
+}
+
+const activateLayOnHands = (amount) => {
+  const res = classResourceTrackers.value.find(r => r.id === 'paladin_lay_on_hands')
+  if (!res) return
+  const available = getResourceAvailable(res)
+  if (available < amount) {
+    showToast(`Not enough Lay on Hands points remaining! (Available: ${available})`)
+    return
+  }
+  spendResource('paladin_lay_on_hands', amount)
+  showToast(`Lay on Hands: Expended ${amount} HP pool (Remaining: ${available - amount} HP).`)
+}
+
+const activateChannelDivinity = (featureName) => {
+  const clericRes = classResourceTrackers.value.find(r => r.id === 'cleric_channel_divinity')
+  const paladinRes = classResourceTrackers.value.find(r => r.id === 'paladin_channel_divinity')
+  const res = clericRes || paladinRes
+  if (res && getResourceAvailable(res) <= 0) {
+    showToast('No Channel Divinity uses remaining!')
+    return
+  }
+  if (res) spendResource(res.id, 1)
+  showToast(`${featureName} activated! (Expended 1 Channel Divinity)`)
+}
+
+const rogueSneakAttackFormula = computed(() => {
+  const lvl = Number(char.value?.level) || 1
+  const diceCount = Math.ceil(lvl / 2)
+  return `${diceCount}d6`
+})
+
+const rollSneakAttack = () => {
+  rollFormula('Sneak Attack Damage', rogueSneakAttackFormula.value)
+}
+
+const rollDivineSmite = (slotLvl = 1) => {
+  const dice = 1 + slotLvl
+  rollFormula(`Divine Smite (Level ${slotLvl} Slot)`, `${dice}d8`)
+}
+
 // Slots calculation for sheet
 const sheetSpellSlots = computed(() => {
   const c = charClassName.value
@@ -2343,9 +2989,6 @@ const sheetSpellSlots = computed(() => {
   return arr.map((qty, idx) => ({ level: idx + 1, total: qty }))
 })
 
-// Expended slots tracker in state
-const expendedSlots = ref({})
-
 const isSlotExpended = (lvl, slotIdx) => {
   return Boolean(expendedSlots.value[`${lvl}_${slotIdx}`])
 }
@@ -2376,8 +3019,6 @@ const getAvailableSlots = (lvl) => {
   return count
 }
 
-const expendedFeatFreeCasts = ref({})
-
 const isFeatCastExpended = (sp) => {
   const key = sp?.name || sp?.id
   return Boolean(expendedFeatFreeCasts.value[key])
@@ -2386,11 +3027,6 @@ const isFeatCastExpended = (sp) => {
 const toggleFeatFreeCast = (sp) => {
   const key = sp?.name || sp?.id
   expendedFeatFreeCasts.value[key] = !expendedFeatFreeCasts.value[key]
-}
-
-const restoreAllSlots = () => {
-  expendedSlots.value = {}
-  expendedFeatFreeCasts.value = {}
 }
 
 const activeSpellsByLevel = computed(() => {
@@ -3584,6 +4220,143 @@ watch(() => charSpells.value, (list) => {
         </button>
       </div>
 
+      <!-- Class Features & Resources Tracker Bar -->
+      <div v-if="classResourceTrackers.length > 0" class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+        <div class="flex items-center justify-between border-b border-gray-200 pb-1.5">
+          <div class="flex items-center gap-2">
+            <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
+              Class Resources & Trackers
+            </h3>
+            <span class="text-[10px] bg-gray-200 text-gray-700 px-1.5 py-0.2 rounded font-mono font-semibold">
+              {{ classSummary }}
+            </span>
+          </div>
+          <span class="text-[10px] text-gray-500 hidden sm:inline">
+            Click bubbles to spend/restore
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+          <div
+            v-for="res in classResourceTrackers"
+            :key="res.id"
+            class="p-2.5 bg-white border border-gray-200 rounded shadow-xs flex flex-col justify-between gap-2"
+          >
+            <!-- Title & Recharge -->
+            <div class="flex items-start justify-between gap-1.5">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-gray-900 text-xs">{{ res.name }}</span>
+                  <span
+                    v-if="res.hasActiveToggle && isClassStateActive(res.id)"
+                    class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-red-600 text-white animate-pulse"
+                  >
+                    ACTIVE
+                  </span>
+                </div>
+                <p class="text-[10px] text-gray-500 mt-0.5 leading-tight line-clamp-2" :title="res.subtitle">{{ res.subtitle }}</p>
+              </div>
+              <span class="text-[9px] font-mono px-1.5 py-0.5 bg-gray-100 border border-gray-200 text-gray-600 rounded shrink-0">
+                {{ res.recharge === 'short' ? 'SHORT REST' : (res.recharge === 'long_regain1' ? 'SR+1 / LR' : 'LONG REST') }}
+              </span>
+            </div>
+
+            <!-- Tracker Controls -->
+            <div class="flex items-center justify-between gap-2 pt-1 border-t border-gray-100">
+              <!-- Bubble Counter for small pools (<= 8) -->
+              <div v-if="res.max <= 8 && res.type === 'counter'" class="flex items-center gap-1.5 flex-wrap">
+                <button
+                  v-for="idx in res.max"
+                  :key="idx"
+                  type="button"
+                  @click="toggleResourceSlot(res, idx)"
+                  class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                  :title="isResourceSlotExpended(res, idx) ? 'Click to restore use' : 'Click to spend use'"
+                >
+                  <span
+                    v-if="!isResourceSlotExpended(res, idx)"
+                    class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                  ></span>
+                </button>
+                <span class="font-mono text-[10px] font-semibold text-gray-700 ml-1">
+                  {{ getResourceAvailable(res) }}/{{ res.max }}
+                </span>
+              </div>
+
+              <!-- Number counter for pools or points (Ki, Lay on Hands, Sorcery Points) -->
+              <div v-else class="flex items-center gap-1">
+                <button
+                  type="button"
+                  @click="spendResource(res.id, res.type === 'pool' ? 5 : 1)"
+                  :disabled="getResourceAvailable(res) <= 0"
+                  class="w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 flex items-center justify-center text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  :title="res.type === 'pool' ? 'Spend 5' : 'Spend 1'"
+                >
+                  -
+                </button>
+                <span class="font-mono text-xs font-bold text-gray-900 px-1">
+                  {{ getResourceAvailable(res) }} / {{ res.displayMax }}
+                </span>
+                <button
+                  type="button"
+                  @click="restoreResource(res.id, res.type === 'pool' ? 5 : 1)"
+                  :disabled="getResourceSpent(res.id) <= 0"
+                  class="w-5 h-5 rounded bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 flex items-center justify-center text-xs font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                  :title="res.type === 'pool' ? 'Restore 5' : 'Restore 1'"
+                >
+                  +
+                </button>
+              </div>
+
+              <!-- Quick action button -->
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  v-if="res.id === 'barb_rage'"
+                  type="button"
+                  @click="toggleClassState('barb_rage', 'barb_rage')"
+                  class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition cursor-pointer"
+                  :class="isClassStateActive('barb_rage') ? 'bg-red-600 text-white shadow-xs' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'"
+                >
+                  {{ isClassStateActive('barb_rage') ? 'End' : 'Rage' }}
+                </button>
+
+                <button
+                  v-else-if="res.id === 'fighter_second_wind'"
+                  type="button"
+                  @click="activateSecondWind"
+                  :disabled="getResourceAvailable(res) <= 0"
+                  class="px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer"
+                  :class="getResourceAvailable(res) > 0 ? 'bg-gray-900 hover:bg-black text-white' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
+                >
+                  Heal
+                </button>
+
+                <button
+                  v-else-if="res.rollFormula"
+                  type="button"
+                  @click="rollResourceDie(res)"
+                  :disabled="getResourceAvailable(res) <= 0"
+                  class="px-2 py-0.5 rounded text-[10px] font-bold transition cursor-pointer"
+                  :class="getResourceAvailable(res) > 0 ? 'bg-gray-900 hover:bg-black text-white' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
+                >
+                  Roll
+                </button>
+
+                <button
+                  v-else-if="res.hasActiveToggle"
+                  type="button"
+                  @click="toggleClassState(res.id, res.id)"
+                  class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition cursor-pointer"
+                  :class="isClassStateActive(res.id) ? 'bg-purple-600 text-white shadow-xs' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'"
+                >
+                  {{ isClassStateActive(res.id) ? 'Active' : 'Activate' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Attacks Section (Structured Table) -->
       <div v-if="actionSubFilter === 'all' || actionSubFilter === 'attack'" class="space-y-2">
         <div class="flex items-center justify-between pb-1 border-b border-gray-200">
@@ -3619,6 +4392,7 @@ watch(() => charSpells.value, (list) => {
                     >
                       <IconBolt v-if="entry.type === 'spell'" class="w-3.5 h-3.5" />
                       <IconHandStop v-else-if="entry.type === 'unarmed'" class="w-3.5 h-3.5" />
+                      <IconDice v-else-if="entry.type === 'feature'" class="w-3.5 h-3.5" />
                       <IconSword v-else class="w-3.5 h-3.5" />
                     </span>
                     <div class="min-w-0">
@@ -3873,6 +4647,116 @@ watch(() => charSpells.value, (list) => {
             <div class="font-bold text-gray-900">Utilize</div>
             <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Use an item, piece of equipment, or object that requires an Action.</p>
           </div>
+
+          <!-- Fighter Action Surge -->
+          <div v-if="charClassName.includes('fighter') && Number(char.level || 1) >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+            <div>
+              <div class="font-bold text-gray-900 flex items-center justify-between">
+                <span>Action Surge</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  {{ getResourceAvailable({ id: 'fighter_action_surge', max: Number(char.level || 1) >= 17 ? 2 : 1 }) }} left
+                </span>
+              </div>
+              <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Take 1 additional Action on your turn (Short Rest recharge).</p>
+            </div>
+            <button
+              type="button"
+              @click="activateActionSurge"
+              :disabled="getResourceAvailable({ id: 'fighter_action_surge', max: Number(char.level || 1) >= 17 ? 2 : 1 }) <= 0"
+              class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+            >
+              Surge &rarr;
+            </button>
+          </div>
+
+          <!-- Cleric / Paladin Channel Divinity -->
+          <div v-if="(charClassName.includes('cleric') || charClassName.includes('paladin')) && Number(char.level || 1) >= (charClassName.includes('cleric') ? 2 : 3)" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+            <div>
+              <div class="font-bold text-gray-900 flex items-center justify-between">
+                <span>Channel Divinity</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  {{ getResourceAvailable({ id: charClassName.includes('cleric') ? 'cleric_channel_divinity' : 'paladin_channel_divinity', max: 2 }) }} left
+                </span>
+              </div>
+              <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Turn Undead / Sacred Weapon / Harness Divine Power.</p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+              <button
+                v-if="charClassName.includes('cleric')"
+                type="button"
+                @click="activateChannelDivinity('Turn Undead')"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Turn Undead (DC {{ charSpellSaveDc }})
+              </button>
+              <button
+                type="button"
+                @click="activateChannelDivinity('Channel Divinity')"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Invoke Feature
+              </button>
+            </div>
+          </div>
+
+          <!-- Paladin Lay on Hands -->
+          <div v-if="charClassName.includes('paladin')" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+            <div>
+              <div class="font-bold text-gray-900 flex items-center justify-between">
+                <span>Lay on Hands</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  {{ getResourceAvailable({ id: 'paladin_lay_on_hands', max: 5 * Number(char.level || 1) }) }} HP left
+                </span>
+              </div>
+              <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Heal damage from pool, or spend 5 HP to cure 1 poison or disease.</p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+              <button
+                type="button"
+                @click="activateLayOnHands(1)"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Heal 1
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                @click="activateLayOnHands(5)"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Heal 5
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                @click="activateLayOnHands(5)"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Cure Disease (5)
+              </button>
+            </div>
+          </div>
+
+          <!-- Druid Wild Shape -->
+          <div v-if="charClassName.includes('druid') && Number(char.level || 1) >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+            <div>
+              <div class="font-bold text-gray-900 flex items-center justify-between">
+                <span>Wild Shape</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  {{ getResourceAvailable({ id: 'druid_wild_shape', max: 2 }) }} left
+                </span>
+              </div>
+              <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Magically assume the shape of a beast you have seen before.</p>
+            </div>
+            <button
+              type="button"
+              @click="spendResource('druid_wild_shape', 1); showToast('Wild Shape assumed! Expended 1 use.')"
+              :disabled="getResourceAvailable({ id: 'druid_wild_shape', max: 2 }) <= 0"
+              class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+            >
+              Assume Form &rarr;
+            </button>
+          </div>
         </div>
       </div>
 
@@ -4049,18 +4933,125 @@ watch(() => charSpells.value, (list) => {
             </button>
           </div>
 
+          <!-- Barbarian Rage -->
+          <div v-if="charClassName.includes('barbarian')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-bold text-gray-900 text-xs">Rage</span>
+                <span
+                  v-if="isClassStateActive('barb_rage')"
+                  class="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-red-600 text-white animate-pulse"
+                >
+                  ACTIVE (+{{ rageBonusDamage }} DMG)
+                </span>
+              </div>
+              <p class="text-[10px] text-gray-500">Bonus Damage +{{ rageBonusDamage }} · Adv on STR Checks/Saves · B/P/S Resistance</p>
+            </div>
+            <button
+              type="button"
+              @click="toggleClassState('barb_rage', 'barb_rage')"
+              class="px-2.5 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              :class="isClassStateActive('barb_rage') ? 'bg-red-600 hover:bg-red-700 text-white shadow-xs' : 'bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800'"
+            >
+              {{ isClassStateActive('barb_rage') ? 'End Rage' : 'Enter Rage' }}
+            </button>
+          </div>
+
           <!-- Second Wind (if Fighter) -->
           <div v-if="charClassName.includes('fighter')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
-              <span class="font-bold text-gray-900 text-xs">Second Wind</span>
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-gray-900 text-xs">Second Wind</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  ({{ getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) }} left)
+                </span>
+              </div>
               <p class="text-[10px] text-gray-500">Regain 1d10 + {{ char.level || 1 }} HP as a Bonus Action</p>
             </div>
             <button
               type="button"
-              @click="rollFormula('Second Wind Healing', '1d10', Number(char.level || 1))"
-              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              @click="activateSecondWind"
+              :disabled="getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) <= 0"
+              class="px-2 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              :class="getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) > 0 ? 'bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
             >
               Heal (1d10+{{ char.level || 1 }})
+            </button>
+          </div>
+
+          <!-- Monk Ki Bonus Actions -->
+          <template v-if="charClassName.includes('monk') && Number(char.level || 1) >= 2">
+            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">Flurry of Blows</span>
+                <p class="text-[10px] text-gray-500">Make 2 Unarmed Strikes as a Bonus Action (Costs 1 Ki)</p>
+              </div>
+              <button
+                type="button"
+                @click="activateMonkKiAction('Flurry of Blows', 1)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Flurry (1 Ki)
+              </button>
+            </div>
+            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">Patient Defense</span>
+                <p class="text-[10px] text-gray-500">Take Dodge action as a Bonus Action (Costs 1 Ki)</p>
+              </div>
+              <button
+                type="button"
+                @click="activateMonkKiAction('Patient Defense', 1)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Dodge (1 Ki)
+              </button>
+            </div>
+            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">Step of the Wind</span>
+                <p class="text-[10px] text-gray-500">Disengage & Dash, jump distance doubled (Costs 1 Ki)</p>
+              </div>
+              <button
+                type="button"
+                @click="activateMonkKiAction('Step of the Wind', 1)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Dash/Disengage (1 Ki)
+              </button>
+            </div>
+          </template>
+
+          <!-- Rogue Cunning Action -->
+          <div v-if="charClassName.includes('rogue') && Number(char.level || 1) >= 2" class="p-2 bg-gray-50 border border-gray-200 rounded flex flex-col justify-between gap-1.5">
+            <div>
+              <span class="font-bold text-gray-900 text-xs">Cunning Action</span>
+              <p class="text-[10px] text-gray-500">Take Dash, Disengage, or Hide as a Bonus Action.</p>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button type="button" @click="showToast('Cunning Dash activated!')" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Dash</button>
+              <button type="button" @click="showToast('Cunning Disengage activated!')" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Disengage</button>
+              <button type="button" @click="rollDice('Stealth Check (Cunning Hide)', computedSkills.stealth?.total || 0)" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Hide</button>
+            </div>
+          </div>
+
+          <!-- Bard Bardic Inspiration -->
+          <div v-if="charClassName.includes('bard')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-gray-900 text-xs">Bardic Inspiration</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  ({{ getResourceAvailable({ id: 'bard_inspiration', max: Math.max(1, getAbilityMod('cha')) }) }} left)
+                </span>
+              </div>
+              <p class="text-[10px] text-gray-500">Grant inspiration die to an ally within 60 ft</p>
+            </div>
+            <button
+              type="button"
+              @click="rollResourceDie(classResourceTrackers.find(r => r.id === 'bard_inspiration'))"
+              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+            >
+              Roll Inspiration
             </button>
           </div>
 
@@ -4147,6 +5138,49 @@ watch(() => charSpells.value, (list) => {
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <!-- Fighter Indomitable -->
+          <div v-if="charClassName.includes('fighter') && Number(char.level || 1) >= 9" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="font-bold text-gray-900 text-xs">Indomitable</span>
+                <span class="text-[9px] font-mono text-gray-500">
+                  ({{ getResourceAvailable({ id: 'fighter_indomitable', max: 1 }) }} left)
+                </span>
+              </div>
+              <p class="text-[10px] text-gray-500">Reroll a failed saving throw as a reaction</p>
+            </div>
+            <button
+              type="button"
+              @click="activateIndomitable"
+              :disabled="getResourceAvailable({ id: 'fighter_indomitable', max: 1 }) <= 0"
+              class="px-2 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              :class="getResourceAvailable({ id: 'fighter_indomitable', max: 1 }) > 0 ? 'bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
+            >
+              Reroll Save
+            </button>
+          </div>
+
+          <!-- Rogue Uncanny Dodge -->
+          <div v-if="charClassName.includes('rogue') && Number(char.level || 1) >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded">
+            <span class="font-bold text-gray-900 text-xs">Uncanny Dodge</span>
+            <p class="text-[10px] text-gray-500 mt-0.5">When hit by an attacker you can see, use your reaction to halve the attack's damage.</p>
+          </div>
+
+          <!-- Monk Stunning Strike -->
+          <div v-if="charClassName.includes('monk') && Number(char.level || 1) >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+            <div>
+              <span class="font-bold text-gray-900 text-xs">Stunning Strike</span>
+              <p class="text-[10px] text-gray-500">Target must make CON save or be Stunned until end of next turn (Costs 1 Ki)</p>
+            </div>
+            <button
+              type="button"
+              @click="activateMonkKiAction('Stunning Strike', 1)"
+              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+            >
+              Stun (DC {{ 8 + charProfBonus + getAbilityMod('wis') }})
+            </button>
+          </div>
+
           <!-- Opportunity Attack -->
           <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
@@ -4322,7 +5356,10 @@ watch(() => charSpells.value, (list) => {
                 class="bg-white border border-gray-200 rounded p-2 flex flex-col justify-between"
               >
                 <div class="flex justify-between items-center mb-1.5">
-                  <span class="font-bold text-gray-800 text-[11px]">Level {{ lvl }}</span>
+                  <span class="font-bold text-gray-800 text-[11px]">
+                    Level {{ lvl }}
+                    <span v-if="sheetSpellSlots.find(s => s.level === lvl)?.isPact" class="text-[9px] font-mono text-purple-700 ml-1 font-semibold">(Pact · Short Rest)</span>
+                  </span>
                   <span class="font-mono text-[10px] text-gray-500">
                     {{ getAvailableSlots(lvl) }} / {{ getMaxSlots(lvl) }}
                   </span>
@@ -4473,6 +5510,7 @@ watch(() => charSpells.value, (list) => {
             <div class="flex items-center justify-between pb-1 border-b border-gray-200">
               <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">
                 Level {{ lvl }} Spells
+                <span v-if="sheetSpellSlots.find(s => s.level === lvl)?.isPact" class="text-[9px] font-mono text-purple-700 ml-1 font-semibold">(Pact Magic)</span>
               </h3>
               <span class="text-[10px] text-gray-500 font-mono">
                 Slots Available: {{ getAvailableSlots(lvl) }} / {{ getMaxSlots(lvl) }}
