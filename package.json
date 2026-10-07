@@ -12,7 +12,8 @@
     "@tabler/icons-vue": "^3.49.0",
     "axios": "^1.6.3",
     "pinia": "^2.1.7",
-    "vue": "^3.3.11"
+    "vue": "^3.3.11",
+    "vue-select": "^4.0.0-beta.6"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.5.2",
