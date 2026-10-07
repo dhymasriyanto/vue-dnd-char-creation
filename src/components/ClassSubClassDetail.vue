@@ -450,22 +450,14 @@ const combinedFeatures = computed(() => {
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div v-for="slotIdx in classToolConfig.count" :key="'tool-' + slotIdx">
-                <select
-                  :value="chosenClassTools[slotIdx - 1] || ''"
-                  @change="emit('updateClassTool', { index: slotIdx - 1, value: $event.target.value })"
-                  :class="toolError && !chosenClassTools[slotIdx - 1] ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-                  class="p-2 border rounded w-full bg-white text-xs"
-                >
-                  <option value="">Select Option #{{ slotIdx }}</option>
-                  <option
-                    v-for="opt in classToolConfig.options"
-                    :key="opt"
-                    :value="opt"
-                    :disabled="chosenClassTools.includes(opt) && chosenClassTools[slotIdx - 1] !== opt"
-                  >
-                    {{ opt }}
-                  </option>
-                </select>
+                <v-select
+                  :model-value="chosenClassTools[slotIdx - 1] || null"
+                  :options="classToolConfig.options"
+                  :selectable="opt => !chosenClassTools.includes(opt) || chosenClassTools[slotIdx - 1] === opt"
+                  :placeholder="`Select Option #${slotIdx}...`"
+                  @update:model-value="val => emit('updateClassTool', { index: slotIdx - 1, value: val || '' })"
+                  :class="{ 'has-error': toolError && !chosenClassTools[slotIdx - 1] }"
+                />
               </div>
             </div>
             <p v-if="toolError" class="text-xs text-red-600 font-medium">
@@ -634,20 +626,15 @@ const combinedFeatures = computed(() => {
           <div v-else-if="ensureAsiTier(classFeature.level || 4).type === 'feat'" class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2.5">
             <div>
               <label class="block font-semibold text-gray-800 text-xs mb-1">Select Feat:</label>
-              <select
+              <v-select
                 v-model="ensureAsiTier(classFeature.level || 4).featName"
-                :class="getAsiError(classFeature.level) ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-                class="p-2 border rounded w-full bg-white text-xs"
-              >
-                <option value="">Select a feat...</option>
-                <option
-                  v-for="f in filteredFeats"
-                  :key="f.name + '|' + (f.source || '')"
-                  :value="f.name"
-                >
-                  {{ f.name }} ({{ f.source || 'PHB' }})
-                </option>
-              </select>
+                :options="filteredFeats"
+                :reduce="f => f.name"
+                :get-option-label="f => `${f.name} (${f.source || 'PHB'})`"
+                :get-option-key="f => f.name + '|' + (f.source || '')"
+                placeholder="Select a feat..."
+                :class="{ 'has-error': getAsiError(classFeature.level) }"
+              />
             </div>
 
             <!-- Preview of selected Feat description -->

@@ -792,7 +792,8 @@ const attackTableEntries = computed(() => {
     const mechanics = extractSpellMechanics(sp, char.value.level, charCasterMod.value)
     if (mechanics.hasAttack || mechanics.diceFormula) {
       const isCantrip = Number(sp.level) === 0 || sp.is_cantrip
-      const subtitle = `${isCantrip ? 'Cantrip' : 'Level ' + sp.level}${sp.school ? ' · ' + sp.school : ''}`
+      const featTag = isFeatSpell(sp) ? ` (${getFeatName(sp)})` : ''
+      const subtitle = `${isCantrip ? 'Cantrip' : 'Level ' + sp.level}${sp.school ? ' · ' + sp.school : ''}${featTag}`
       const range = getSpellRange(sp)
       const notesList = []
       const comp = getSpellComponents(sp)
@@ -1041,12 +1042,28 @@ const charSpells = computed(() => {
   return Array.isArray(sp) ? sp : []
 })
 
+const isFeatSpell = (sp) => {
+  return Boolean(sp?.is_feat_spell || sp?.isFeatSpell || sp?.source_feat || sp?.sourceFeat)
+}
+
+const getFeatName = (sp) => {
+  return sp?.source_feat || sp?.sourceFeat || 'Feat'
+}
+
+const classSpells = computed(() => {
+  return charSpells.value.filter(s => !isFeatSpell(s))
+})
+
+const featSpells = computed(() => {
+  return charSpells.value.filter(s => isFeatSpell(s))
+})
+
 const sheetCantrips = computed(() => {
-  return charSpells.value.filter(s => Number(s.level) === 0 || s.is_cantrip)
+  return classSpells.value.filter(s => Number(s.level) === 0 || s.is_cantrip)
 })
 
 const sheetLeveledSpells = computed(() => {
-  return charSpells.value.filter(s => Number(s.level) > 0 && !s.is_cantrip)
+  return classSpells.value.filter(s => Number(s.level) > 0 && !s.is_cantrip)
 })
 
 const charClassName = computed(() => {
@@ -1060,7 +1077,7 @@ const charSubClassName = computed(() => {
 })
 
 const isCaster = computed(() => {
-  if (charSpells.value.length > 0) return true
+  if (classSpells.value.length > 0) return true
   const c = charClassName.value
   const sc = charSubClassName.value
   if (['wizard', 'cleric', 'druid', 'sorcerer', 'bard', 'warlock', 'artificer'].includes(c)) return true
@@ -1146,25 +1163,9 @@ const isSlotExpended = (lvl, slotIdx) => {
   return Boolean(expendedSlots.value[`${lvl}_${slotIdx}`])
 }
 
-const isSlotDisabled = (lvl, slotIdx) => {
-  const isExp = isSlotExpended(lvl, slotIdx)
-  if (isExp) {
-    // When expended (empty), it can ONLY be restored if all slots to its left (< slotIdx) are already active
-    for (let i = 1; i < slotIdx; i++) {
-      if (isSlotExpended(lvl, i)) return true
-    }
-    return false
-  } else {
-    // When active, it can only be spent if all slots to its left (< slotIdx) are already expended
-    for (let i = 1; i < slotIdx; i++) {
-      if (!isSlotExpended(lvl, i)) return true
-    }
-    return false
-  }
-}
+const isSlotDisabled = () => false
 
 const toggleSlot = (lvl, slotIdx) => {
-  if (isSlotDisabled(lvl, slotIdx)) return
   const key = `${lvl}_${slotIdx}`
   expendedSlots.value[key] = !expendedSlots.value[key]
 }
@@ -1188,8 +1189,21 @@ const getAvailableSlots = (lvl) => {
   return count
 }
 
+const expendedFeatFreeCasts = ref({})
+
+const isFeatCastExpended = (sp) => {
+  const key = sp?.name || sp?.id
+  return Boolean(expendedFeatFreeCasts.value[key])
+}
+
+const toggleFeatFreeCast = (sp) => {
+  const key = sp?.name || sp?.id
+  expendedFeatFreeCasts.value[key] = !expendedFeatFreeCasts.value[key]
+}
+
 const restoreAllSlots = () => {
   expendedSlots.value = {}
+  expendedFeatFreeCasts.value = {}
 }
 
 const activeSpellsByLevel = computed(() => {
@@ -1307,15 +1321,22 @@ const formatSpellEntry = (ent) => {
   return String(ent)
 }
 
-const castSpell = (sp) => {
+const castSpell = (sp, useSlot = false) => {
   const mechanics = extractSpellMechanics(sp, char.value.level, charCasterMod.value)
   const lvl = Number(sp.level) || 0
-  if (lvl > 0 && getMaxSlots(lvl) > 0) {
-    const max = getMaxSlots(lvl)
-    for (let i = 1; i <= max; i++) {
-      if (!expendedSlots.value[`${lvl}_${i}`]) {
-        expendedSlots.value[`${lvl}_${i}`] = true
-        break
+  const isFeat = isFeatSpell(sp)
+
+  if (lvl > 0) {
+    if (isFeat && !useSlot) {
+      const key = sp.name || sp.id
+      expendedFeatFreeCasts.value[key] = true
+    } else if (getMaxSlots(lvl) > 0) {
+      const max = getMaxSlots(lvl)
+      for (let i = 1; i <= max; i++) {
+        if (!expendedSlots.value[`${lvl}_${i}`]) {
+          expendedSlots.value[`${lvl}_${i}`] = true
+          break
+        }
       }
     }
   }
@@ -1590,6 +1611,16 @@ const toggleSpellCard = (sp) => {
     fetchSpellDetailsIfNeeded(sp)
   }
 }
+
+const featActionSpells = computed(() => {
+  return featSpells.value.filter(s => {
+    const full = getFullSpell(s)
+    const time = full?.time?.[0]
+    const unit = time?.unit || ''
+    const ct = (s.castingTime || '').toLowerCase()
+    return unit !== 'bonus' && unit !== 'reaction' && !ct.includes('bonus') && !ct.includes('reaction')
+  })
+})
 
 const bonusActionSpells = computed(() => {
   return charSpells.value.filter(s => {
@@ -2238,6 +2269,155 @@ watch(() => charSpells.value, (list) => {
         </div>
       </div>
 
+      <!-- Feat Spells (Action) -->
+      <div v-if="(actionSubFilter === 'all' || actionSubFilter === 'action') && featActionSpells.length > 0" class="space-y-2 pt-2 border-t border-gray-200">
+        <div class="flex items-center justify-between pb-1 border-b border-gray-200">
+          <div class="flex items-center gap-2">
+            <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
+              Feat Spells (Action)
+            </h3>
+            <span class="text-[10px] bg-gray-900 text-white px-1.5 py-0.2 rounded font-semibold font-mono">
+              {{ featActionSpells.length }}
+            </span>
+          </div>
+          <span class="text-[10px] text-gray-500">Innate & feat-granted magic (1 Action)</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="sp in featActionSpells"
+            :key="sp.id || sp.name"
+            class="p-2.5 bg-gray-50 border border-gray-200 rounded flex flex-col justify-between gap-2"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-gray-900 text-xs">{{ sp.name }}</span>
+                  <span class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 font-semibold px-1 rounded whitespace-nowrap">
+                    {{ getFeatName(sp) }}
+                  </span>
+                  <span v-if="Number(sp.level) === 0 || sp.is_cantrip" class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 px-1 rounded font-semibold whitespace-nowrap">
+                    Cantrip (At Will)
+                  </span>
+                  <span v-else class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 px-1 rounded font-semibold whitespace-nowrap">
+                    Level {{ sp.level }} (1/LR)
+                  </span>
+                </div>
+                <div class="text-[10px] text-gray-500 mt-0.5">
+                  1 Action • Range: {{ getSpellRange(sp) }}
+                  <span v-if="Number(sp.level) > 0" class="ml-1 font-mono">
+                    • {{ isFeatCastExpended(sp) ? 'Free Cast Expended' : '1/LR Free Cast Ready' }}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                @click="toggleSpell('sp_' + (sp.id || sp.name))"
+                class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer shrink-0"
+              >
+                {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
+              </button>
+            </div>
+
+            <div class="flex items-center gap-1.5 flex-wrap pt-1 border-t border-gray-200">
+              <!-- Slot tracker bubble for leveled feat spell -->
+              <div v-if="Number(sp.level) > 0" class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
+                <span class="text-gray-500 font-medium">Slot:</span>
+                <button
+                  type="button"
+                  @click.stop="toggleFeatFreeCast(sp)"
+                  class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                  :title="isFeatCastExpended(sp) ? 'Click to restore slot' : 'Click to expend slot'"
+                >
+                  <span
+                    v-if="!isFeatCastExpended(sp)"
+                    class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                  ></span>
+                </button>
+                <span class="font-mono font-semibold text-gray-800">
+                  {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
+                </span>
+              </div>
+
+              <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
+                <button
+                  type="button"
+                  @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
+                  class="px-2 py-0.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
+                >
+                  Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                </button>
+              </template>
+              <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula">
+                <button
+                  type="button"
+                  @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
+                  class="px-2 py-0.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
+                >
+                  Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                </button>
+              </template>
+
+              <!-- Cast Free / Cast Slot -->
+              <template v-if="Number(sp.level) > 0">
+                <button
+                  type="button"
+                  @click="castSpell(sp, false)"
+                  :disabled="isFeatCastExpended(sp)"
+                  :class="[
+                    'px-2.5 py-0.5 rounded text-[10px] font-semibold transition ml-auto',
+                    !isFeatCastExpended(sp)
+                      ? 'bg-gray-900 hover:bg-black text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                  ]"
+                >
+                  {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                </button>
+                <button
+                  v-if="allSpellLevels.length > 0"
+                  type="button"
+                  @click="castSpell(sp, true)"
+                  :disabled="getAvailableSlots(sp.level) === 0"
+                  :class="[
+                    'px-2.5 py-0.5 rounded text-[10px] font-semibold transition',
+                    getAvailableSlots(sp.level) > 0
+                      ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer'
+                      : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                  ]"
+                  title="Cast using a spell slot"
+                >
+                  Cast (Slot)
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  type="button"
+                  @click="castSpell(sp)"
+                  class="px-2.5 py-0.5 bg-gray-800 hover:bg-gray-900 text-white rounded text-[10px] font-semibold transition cursor-pointer ml-auto"
+                >
+                  Cast
+                </button>
+              </template>
+            </div>
+
+            <!-- Expanded spell description -->
+            <div
+              v-show="expandedSpells['sp_' + (sp.id || sp.name)]"
+              class="p-2 border-t border-gray-200 bg-white text-gray-700 space-y-1 text-[11px] rounded"
+            >
+              <div v-if="getSpellEntries(sp).length" class="space-y-1">
+                <div
+                  v-for="(ent, eIdx) in getSpellEntries(sp)"
+                  :key="eIdx"
+                  v-html="renderAnnotatedText(formatSpellEntry(ent))"
+                ></div>
+              </div>
+              <p v-else class="text-gray-400 italic">No rules text recorded.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Bonus Actions Section -->
       <div v-if="actionSubFilter === 'all' || actionSubFilter === 'bonus'" class="space-y-2 pt-2 border-t border-gray-200">
         <div class="flex items-center justify-between pb-1 border-b border-gray-200">
@@ -2278,18 +2458,75 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Bonus Action Spells if any -->
-          <div v-for="sp in bonusActionSpells" :key="sp.name" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-for="sp in bonusActionSpells" :key="sp.name" class="p-2 bg-gray-50 border border-gray-200 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <span class="font-bold text-gray-900 text-xs">{{ sp.name }}</span>
-              <span class="text-[10px] text-gray-500 ml-1.5">Level {{ sp.level || 'Cantrip' }} • Bonus Action</span>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-bold text-gray-900 text-xs">{{ sp.name }}</span>
+                <span v-if="isFeatSpell(sp)" class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 font-semibold px-1 rounded whitespace-nowrap">
+                  {{ getFeatName(sp) }}
+                </span>
+              </div>
+              <div class="text-[10px] text-gray-500">
+                Level {{ sp.level || 'Cantrip' }} • Bonus Action
+                <span v-if="isFeatSpell(sp) && Number(sp.level) > 0" class="ml-1 font-mono">
+                  • {{ isFeatCastExpended(sp) ? 'Free Cast Expended' : '1/LR Free Cast Ready' }}
+                </span>
+              </div>
             </div>
-            <button
-              type="button"
-              @click="castSpell(sp)"
-              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
-            >
-              Cast Spell
-            </button>
+            <div class="flex items-center gap-1.5 flex-wrap shrink-0 justify-end pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
+              <template v-if="isFeatSpell(sp) && Number(sp.level) > 0">
+                <!-- Slot tracker bubble -->
+                <div class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
+                  <span class="text-gray-500 font-medium">Slot:</span>
+                  <button
+                    type="button"
+                    @click.stop="toggleFeatFreeCast(sp)"
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                    :title="isFeatCastExpended(sp) ? 'Click to restore slot' : 'Click to expend slot'"
+                  >
+                    <span
+                      v-if="!isFeatCastExpended(sp)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </button>
+                  <span class="font-mono font-semibold text-gray-800">
+                    {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  @click="castSpell(sp, false)"
+                  :disabled="isFeatCastExpended(sp)"
+                  :class="[
+                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                    !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                  ]"
+                >
+                  {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                </button>
+                <button
+                  v-if="allSpellLevels.length > 0"
+                  type="button"
+                  @click="castSpell(sp, true)"
+                  :disabled="getAvailableSlots(sp.level) === 0"
+                  :class="[
+                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                    getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
+                  ]"
+                  title="Cast with spell slot"
+                >
+                  Cast (Slot)
+                </button>
+              </template>
+              <button
+                v-else
+                type="button"
+                @click="castSpell(sp)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Cast Spell
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2319,18 +2556,75 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Reaction Spells if any -->
-          <div v-for="sp in reactionSpells" :key="sp.name" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-for="sp in reactionSpells" :key="sp.name" class="p-2 bg-gray-50 border border-gray-200 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div>
-              <span class="font-bold text-gray-900 text-xs">{{ sp.name }}</span>
-              <span class="text-[10px] text-gray-500 ml-1.5">Reaction Spell</span>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-bold text-gray-900 text-xs">{{ sp.name }}</span>
+                <span v-if="isFeatSpell(sp)" class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 font-semibold px-1 rounded whitespace-nowrap">
+                  {{ getFeatName(sp) }}
+                </span>
+              </div>
+              <div class="text-[10px] text-gray-500">
+                Reaction Spell
+                <span v-if="isFeatSpell(sp) && Number(sp.level) > 0" class="ml-1 font-mono">
+                  • {{ isFeatCastExpended(sp) ? 'Free Cast Expended' : '1/LR Free Cast Ready' }}
+                </span>
+              </div>
             </div>
-            <button
-              type="button"
-              @click="castSpell(sp)"
-              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
-            >
-              Cast Spell
-            </button>
+            <div class="flex items-center gap-1.5 flex-wrap shrink-0 justify-end pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
+              <template v-if="isFeatSpell(sp) && Number(sp.level) > 0">
+                <!-- Slot tracker bubble -->
+                <div class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
+                  <span class="text-gray-500 font-medium">Slot:</span>
+                  <button
+                    type="button"
+                    @click.stop="toggleFeatFreeCast(sp)"
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                    :title="isFeatCastExpended(sp) ? 'Click to restore slot' : 'Click to expend slot'"
+                  >
+                    <span
+                      v-if="!isFeatCastExpended(sp)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </button>
+                  <span class="font-mono font-semibold text-gray-800">
+                    {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  @click="castSpell(sp, false)"
+                  :disabled="isFeatCastExpended(sp)"
+                  :class="[
+                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                    !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                  ]"
+                >
+                  {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                </button>
+                <button
+                  v-if="allSpellLevels.length > 0"
+                  type="button"
+                  @click="castSpell(sp, true)"
+                  :disabled="getAvailableSlots(sp.level) === 0"
+                  :class="[
+                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                    getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
+                  ]"
+                  title="Cast with spell slot"
+                >
+                  Cast (Slot)
+                </button>
+              </template>
+              <button
+                v-else
+                type="button"
+                @click="castSpell(sp)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Cast Spell
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -2360,7 +2654,7 @@ watch(() => charSpells.value, (list) => {
     <div v-else-if="activeTab === 'spells'" class="space-y-4 text-xs">
       <div v-if="charSpells.length > 0 || isCaster" class="space-y-4">
         <!-- Caster Stat Box -->
-        <div class="bg-gray-50 border border-gray-200 rounded p-3 text-xs space-y-2.5">
+        <div v-if="classSpells.length > 0 || isCaster" class="bg-gray-50 border border-gray-200 rounded p-3 text-xs space-y-2.5">
           <div class="flex items-center justify-between border-b border-gray-200 pb-2">
             <span class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
               Spellcasting & Slots
@@ -2397,7 +2691,7 @@ watch(() => charSpells.value, (list) => {
 
             <div class="bg-white border border-gray-200 rounded p-2">
               <div class="text-[10px] text-gray-500 uppercase font-semibold">Known / Prepared</div>
-              <div class="text-sm font-bold text-gray-900 font-mono">{{ charSpells.length }}</div>
+              <div class="text-sm font-bold text-gray-900 font-mono">{{ classSpells.length }}</div>
             </div>
           </div>
 
@@ -2427,25 +2721,19 @@ watch(() => charSpells.value, (list) => {
                   </span>
                 </div>
 
-                <div class="flex flex-wrap gap-1">
+                <div class="flex flex-wrap gap-1.5">
                   <button
                     v-for="slotIdx in getMaxSlots(lvl)"
                     :key="slotIdx"
                     type="button"
-                    :disabled="isSlotDisabled(lvl, slotIdx)"
                     @click="toggleSlot(lvl, slotIdx)"
-                    :class="[
-                      'w-4 h-4 rounded text-[9px] font-mono font-bold transition flex items-center justify-center',
-                      !isSlotExpended(lvl, slotIdx)
-                        ? 'bg-gray-800 text-white hover:bg-gray-900'
-                        : 'bg-gray-100 text-gray-400 border border-gray-200 hover:bg-gray-200',
-                      isSlotDisabled(lvl, slotIdx)
-                        ? 'opacity-40 cursor-not-allowed hover:bg-inherit'
-                        : 'cursor-pointer hover:scale-105 active:scale-95'
-                    ]"
-                    :title="isSlotDisabled(lvl, slotIdx) ? 'Click previous slot first' : (isSlotExpended(lvl, slotIdx) ? `Restore slot ${slotIdx}` : `Expend slot ${slotIdx}`)"
+                    class="w-5 h-5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                    :title="isSlotExpended(lvl, slotIdx) ? `Restore Level ${lvl} Slot ${slotIdx}` : `Expend Level ${lvl} Slot ${slotIdx}`"
                   >
-                    {{ slotIdx }}
+                    <span
+                      v-if="!isSlotExpended(lvl, slotIdx)"
+                      class="w-2.5 h-2.5 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
                   </button>
                 </div>
               </div>
@@ -2462,21 +2750,30 @@ watch(() => charSpells.value, (list) => {
               :key="sp.id || sp.name"
               class="border border-gray-200 rounded bg-white overflow-hidden"
             >
-              <div class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100/80 transition gap-2">
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2.5 bg-gray-50 hover:bg-gray-100/80 transition gap-2">
                 <div
                   @click="toggleSpell('sp_' + (sp.id || sp.name))"
-                  class="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0"
+                  class="flex items-center justify-between sm:justify-start gap-2 cursor-pointer select-none min-w-0 w-full sm:w-auto"
                 >
-                  <span class="font-bold text-gray-900 truncate">{{ sp.name }}</span>
-                  <span v-if="sp.school" class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.2 rounded text-gray-600">
-                    {{ sp.school }}
-                  </span>
-                  <span v-if="sp.source" class="text-[10px] font-mono text-gray-400">
-                    {{ sp.source }}
-                  </span>
+                  <div class="flex items-center gap-2 flex-wrap min-w-0">
+                    <span class="font-bold text-gray-900">{{ sp.name }}</span>
+                    <span v-if="sp.school" class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.2 rounded text-gray-600 whitespace-nowrap">
+                      {{ sp.school }}
+                    </span>
+                    <span v-if="sp.source" class="text-[10px] font-mono text-gray-400 whitespace-nowrap">
+                      {{ sp.source }}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="sm:hidden font-mono text-gray-400 font-bold text-xs p-1 shrink-0"
+                    aria-label="Toggle details"
+                  >
+                    {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
+                  </button>
                 </div>
 
-                <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0 pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
                   <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                     <button
                       type="button"
@@ -2527,7 +2824,7 @@ watch(() => charSpells.value, (list) => {
                   <button
                     type="button"
                     @click="toggleSpell('sp_' + (sp.id || sp.name))"
-                    class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer"
+                    class="hidden sm:inline-block font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer"
                   >
                     {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
                   </button>
@@ -2581,24 +2878,33 @@ watch(() => charSpells.value, (list) => {
                 :key="sp.id || sp.name"
                 class="border border-gray-200 rounded bg-white overflow-hidden"
               >
-                <div class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100/80 transition gap-2">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2.5 bg-gray-50 hover:bg-gray-100/80 transition gap-2">
                   <div
                     @click="toggleSpell('sp_' + (sp.id || sp.name))"
-                    class="flex items-center gap-2 cursor-pointer select-none flex-1 min-w-0"
+                    class="flex items-center justify-between sm:justify-start gap-2 cursor-pointer select-none min-w-0 w-full sm:w-auto"
                   >
-                    <span class="font-bold text-gray-900 truncate">{{ sp.name }}</span>
-                    <span v-if="sp.school" class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.2 rounded text-gray-600">
-                      {{ sp.school }}
-                    </span>
-                    <span v-if="sp.concentration" class="text-[10px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded font-semibold">
-                      Conc
-                    </span>
-                    <span v-if="sp.ritual" class="text-[10px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded font-semibold">
-                      Ritual
-                    </span>
+                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                      <span class="font-bold text-gray-900">{{ sp.name }}</span>
+                      <span v-if="sp.school" class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.2 rounded text-gray-600 whitespace-nowrap">
+                        {{ sp.school }}
+                      </span>
+                      <span v-if="sp.concentration" class="text-[10px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded font-semibold whitespace-nowrap">
+                        Conc
+                      </span>
+                      <span v-if="sp.ritual" class="text-[10px] bg-gray-100 text-gray-700 border border-gray-200 px-1 py-0.2 rounded font-semibold whitespace-nowrap">
+                        Ritual
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      class="sm:hidden font-mono text-gray-400 font-bold text-xs p-1 shrink-0"
+                      aria-label="Toggle details"
+                    >
+                      {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
+                    </button>
                   </div>
 
-                  <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                  <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0 pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
                     <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                       <button
                         type="button"
@@ -2655,7 +2961,7 @@ watch(() => charSpells.value, (list) => {
                     <button
                       type="button"
                       @click="toggleSpell('sp_' + (sp.id || sp.name))"
-                      class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer"
+                      class="hidden sm:inline-block font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer"
                     >
                       {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
                     </button>
@@ -2692,6 +2998,180 @@ watch(() => charSpells.value, (list) => {
                     ></div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feat Spells Section (Free Cast / Innate Magic) -->
+        <div v-if="featSpells.length > 0" class="space-y-2 pt-2 border-t border-gray-200">
+          <div class="flex items-center justify-between pb-1 border-b border-gray-200">
+            <div>
+              <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">
+                Feat Spells & Innate Magic
+              </h3>
+              <p class="text-[10px] text-gray-500">Granted by feats (e.g. Magic Initiate) • Does not consume class spell preparation slots</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="allSpellLevels.length === 0"
+                type="button"
+                @click="restoreAllSlots"
+                class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold cursor-pointer underline"
+              >
+                Restore Free Casts (Long Rest)
+              </button>
+              <span class="text-[10px] bg-gray-900 text-white px-1.5 py-0.2 rounded font-semibold font-mono">
+                {{ featSpells.length }}
+              </span>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <div
+              v-for="sp in featSpells"
+              :key="sp.id || sp.name"
+              class="border border-gray-200 rounded bg-white overflow-hidden"
+            >
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2.5 bg-gray-50 hover:bg-gray-100/80 transition gap-2">
+                <div
+                  @click="toggleSpell('sp_' + (sp.id || sp.name))"
+                  class="flex items-center justify-between sm:justify-start gap-2 cursor-pointer select-none min-w-0 w-full sm:w-auto"
+                >
+                  <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                    <span class="font-bold text-gray-900">{{ sp.name }}</span>
+                    <span class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 font-semibold px-1 rounded whitespace-nowrap">
+                      {{ getFeatName(sp) }}
+                    </span>
+                    <span v-if="Number(sp.level) === 0 || sp.is_cantrip" class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 px-1 rounded font-semibold whitespace-nowrap">
+                      Cantrip (At Will)
+                    </span>
+                    <span v-else class="text-[9px] bg-gray-100 text-gray-700 border border-gray-200 px-1 rounded font-semibold whitespace-nowrap">
+                      Level {{ sp.level }} (1/LR)
+                    </span>
+                    <span v-if="sp.school" class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.2 rounded text-gray-600 whitespace-nowrap">
+                      {{ sp.school }}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    class="sm:hidden font-mono text-gray-400 font-bold text-xs p-1 shrink-0"
+                    aria-label="Toggle details"
+                  >
+                    {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0 pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
+                  <!-- Slot tracker bubble for leveled feat spell -->
+                  <div v-if="Number(sp.level) > 0" class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
+                    <span class="text-gray-500 font-medium">Slot:</span>
+                    <button
+                      type="button"
+                      @click.stop="toggleFeatFreeCast(sp)"
+                      class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isFeatCastExpended(sp) ? 'Click to restore slot' : 'Click to expend slot'"
+                    >
+                      <span
+                        v-if="!isFeatCastExpended(sp)"
+                        class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                    <span class="font-mono font-semibold text-gray-800">
+                      {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
+                    </span>
+                  </div>
+
+                  <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
+                    <button
+                      type="button"
+                      @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
+                    >
+                      Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                    </button>
+                  </template>
+                  <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula">
+                    <button
+                      type="button"
+                      @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
+                    >
+                      Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                    </button>
+                  </template>
+
+                  <!-- Cast buttons -->
+                  <template v-if="Number(sp.level) > 0">
+                    <button
+                      type="button"
+                      @click="castSpell(sp, false)"
+                      :disabled="isFeatCastExpended(sp)"
+                      :class="[
+                        'px-2.5 py-0.5 rounded text-[10px] font-semibold transition',
+                        !isFeatCastExpended(sp)
+                          ? 'bg-gray-900 hover:bg-black text-white cursor-pointer'
+                          : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                      ]"
+                    >
+                      {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                    </button>
+                    <button
+                      v-if="allSpellLevels.length > 0"
+                      type="button"
+                      @click="castSpell(sp, true)"
+                      :disabled="getAvailableSlots(sp.level) === 0"
+                      :class="[
+                        'px-2.5 py-0.5 rounded text-[10px] font-semibold transition',
+                        getAvailableSlots(sp.level) > 0
+                          ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer'
+                          : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                      ]"
+                      title="Cast using a spell slot"
+                    >
+                      Cast (Slot)
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button
+                      type="button"
+                      @click="castSpell(sp)"
+                      class="px-2.5 py-0.5 bg-gray-800 hover:bg-gray-900 text-white rounded text-[10px] font-semibold transition cursor-pointer"
+                    >
+                      Cast
+                    </button>
+                  </template>
+
+                  <button
+                    type="button"
+                    @click="toggleSpell('sp_' + (sp.id || sp.name))"
+                    class="hidden sm:inline-block font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer"
+                  >
+                    {{ expandedSpells['sp_' + (sp.id || sp.name)] ? '-' : '+' }}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Spell Expanded Detail -->
+              <div
+                v-show="expandedSpells['sp_' + (sp.id || sp.name)]"
+                class="p-3 border-t border-gray-100 bg-white text-gray-700 space-y-2 text-xs"
+              >
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-gray-50 p-2 rounded text-[11px]">
+                  <div><strong class="text-gray-600">Cast Time:</strong> {{ getSpellCastingTime(sp) }}</div>
+                  <div><strong class="text-gray-600">Range:</strong> {{ getSpellRange(sp) }}</div>
+                  <div><strong class="text-gray-600">Duration:</strong> {{ getSpellDuration(sp) }}</div>
+                  <div><strong class="text-gray-600">Components:</strong> {{ getSpellComponents(sp) }}</div>
+                </div>
+
+                <div v-if="getSpellEntries(sp).length" class="space-y-1.5 leading-relaxed">
+                  <div
+                    v-for="(ent, eIdx) in getSpellEntries(sp)"
+                    :key="eIdx"
+                    v-html="renderAnnotatedText(formatSpellEntry(ent))"
+                  ></div>
+                </div>
+                <p v-else class="text-gray-400 italic">No rules text recorded.</p>
               </div>
             </div>
           </div>

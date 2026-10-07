@@ -43,7 +43,7 @@ export const clean5eToolsMarkup = (text) => {
 
 export const renderAnnotatedText = (text) => {
   if (typeof text !== 'string') return ''
-  let result = text
+  let result = text.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
   let iterations = 0
 
   while (/\{@([a-zA-Z0-9_]+)(?: ([^{}]+))?\}/.test(result) && iterations < 15) {
@@ -370,4 +370,354 @@ export function format5eEntries(entries) {
     }
   }
   return `<p class="mb-2 leading-relaxed">${String(entries)}</p>`
+}
+
+export const DAMAGE_TYPE_MAP = {
+  B: 'Bludgeoning',
+  P: 'Piercing',
+  S: 'Slashing',
+  A: 'Acid',
+  C: 'Cold',
+  F: 'Fire',
+  O: 'Force',
+  L: 'Lightning',
+  N: 'Necrotic',
+  I: 'Poison',
+  Y: 'Psychic',
+  R: 'Radiant',
+  T: 'Thunder'
+}
+
+export const PROPERTY_DEFINITIONS = {
+  '2H': {
+    name: 'Two-Handed',
+    desc: {
+      '2024': 'A Two-Handed weapon requires two hands when you attack with it.',
+      '2014': 'This weapon requires two hands to use. This property is relevant only when you attack with the weapon, not when you simply hold it.'
+    }
+  },
+  'A': {
+    name: 'Ammunition',
+    desc: {
+      '2024': 'You can use a weapon that has the Ammunition property to make a ranged attack only if you have ammunition to fire from it. Each attack expends one piece of ammunition. Drawing the ammunition is part of the attack. After a fight, you can spend 1 minute to recover half the ammunition used.',
+      '2014': 'You can use a weapon that has the ammunition property to make a ranged attack only if you have ammunition to fire from the weapon. Each time you attack, you expend one piece of ammunition. You can recover half your expended ammunition after combat.'
+    }
+  },
+  'AF': {
+    name: 'Ammunition (Firearms)',
+    desc: {
+      '2024': 'Firearm Bullets are destroyed upon use in a modern firearm. Futuristic firearms use Energy Cells that become depleted but can possibly be recharged.',
+      '2014': 'The ammunition of a firearm is destroyed upon use.'
+    }
+  },
+  'BF': {
+    name: 'Burst Fire',
+    desc: {
+      '2024': 'As an action, you can expend 10 pieces of ammunition to spray shots in a 10-foot Cube within normal range. Each creature in that area must succeed on a DC 15 Dexterity saving throw or take the weapon\'s normal damage.',
+      '2014': 'A weapon with burst fire can spray a 10-foot-cube area within normal range. Each creature in the area must succeed on a DC 15 Dexterity saving throw or take the weapon\'s normal damage (uses 10 pieces of ammunition).'
+    }
+  },
+  'F': {
+    name: 'Finesse',
+    desc: {
+      '2024': 'When making an attack with a Finesse weapon, use your choice of your Strength or Dexterity modifier for the attack and damage rolls. You must use the same modifier for both rolls.',
+      '2014': 'When making an attack with a finesse weapon, you use your choice of your Strength or Dexterity modifier for the attack and damage rolls. You must use the same modifier for both rolls.'
+    }
+  },
+  'H': {
+    name: 'Heavy',
+    desc: {
+      '2024': 'You have Disadvantage on attack rolls with a Heavy weapon if it\'s a Melee weapon and your Strength score isn\'t at least 13 or if it\'s a Ranged weapon and your Dexterity score isn\'t at least 13.',
+      '2014': 'Small creatures have disadvantage on attack rolls with heavy weapons. A heavy weapon\'s size and bulk make it too large for a Small creature to use effectively.'
+    }
+  },
+  'L': {
+    name: 'Light',
+    desc: {
+      '2024': 'When you take the Attack action on your turn and attack with a Light weapon, you can make one extra attack as a Bonus Action later on the same turn. That extra attack must be made with a different Light weapon, and you don\'t add your ability modifier to the extra attack\'s damage unless that modifier is negative.',
+      '2014': 'A light weapon is small and easy to handle, making it ideal for use when fighting with two weapons.'
+    }
+  },
+  'LD': {
+    name: 'Loading',
+    desc: {
+      '2024': 'You can fire only one piece of ammunition from a Loading weapon when you use an action, a Bonus Action, or a Reaction to fire it, regardless of the number of attacks you can normally make.',
+      '2014': 'Because of the time required to load this weapon, you can fire only one piece of ammunition from it when you use an action, bonus action, or reaction to fire it, regardless of the number of attacks you can normally make.'
+    }
+  },
+  'R': {
+    name: 'Reach',
+    desc: {
+      '2024': 'A Reach weapon adds 5 feet to your reach when you attack with it, as well as when determining your reach for Opportunity Attacks with it.',
+      '2014': 'This weapon adds 5 feet to your reach when you attack with it. This property also determines your reach for opportunity attacks with a reach weapon.'
+    }
+  },
+  'RLD': {
+    name: 'Reload',
+    desc: {
+      '2024': 'You can make a limited number of shots with a Reload weapon. You must then reload the weapon as an action or a Bonus Action.',
+      '2014': 'A limited number of shots can be made with a weapon that has the reload property. A character must then reload it using an action or a bonus action.'
+    }
+  },
+  'S': {
+    name: 'Special',
+    desc: {
+      '2024': 'A weapon with the Special property has unusual rules governing its use, explained in the weapon\'s description.',
+      '2014': 'A weapon with the special property has unusual rules governing its use, explained in the weapon\'s description.'
+    }
+  },
+  'T': {
+    name: 'Thrown',
+    desc: {
+      '2024': 'If a weapon has the Thrown property, you can throw the weapon to make a ranged attack, and you can draw that weapon as part of the attack. If the weapon is a Melee weapon, use the same ability modifier for the attack and damage rolls that you use for a melee attack with that weapon.',
+      '2014': 'If a weapon has the thrown property, you can throw the weapon to make a ranged attack. If the weapon is a melee weapon, use the same ability modifier for that attack roll and damage roll that you would use for a melee attack with the weapon.'
+    }
+  },
+  'V': {
+    name: 'Versatile',
+    desc: {
+      '2024': 'A Versatile weapon can be used with one or two hands. A damage value in parentheses appears with the property. The weapon deals that damage when used with two hands to make a melee attack.',
+      '2014': 'This weapon can be used with one or two hands. A damage value in parentheses appears with the property—the damage when the weapon is used with two hands to make a melee attack.'
+    }
+  }
+}
+
+export const MASTERY_DEFINITIONS = {
+  'Cleave': 'If you hit a creature with a melee attack roll using this weapon, you can make a melee attack roll with the weapon against a second creature within 5 feet of the first that is also within your reach. On a hit, the second creature takes the weapon\'s damage, but don\'t add your ability modifier to that damage unless that modifier is negative. You can make this extra attack only once per turn.',
+  'Graze': 'If your attack roll with this weapon misses a creature, you can deal damage to that creature equal to the ability modifier you used to make the attack roll. This damage is the same type dealt by the weapon, and the damage can be increased only by increasing the ability modifier.',
+  'Nick': 'When you make the extra attack of the Light property, you can make it as part of the Attack action instead of as a Bonus Action. You can make this extra attack only once per turn.',
+  'Push': 'If you hit a creature with this weapon, you can push the creature up to 10 feet straight away from yourself if it is Large or smaller.',
+  'Sap': 'If you hit a creature with this weapon, that creature has Disadvantage on its next attack roll before the start of your next turn.',
+  'Slow': 'If you hit a creature with this weapon and deal damage to it, you can reduce its Speed by 10 feet until the start of your next turn. If the creature is hit more than once by weapons that have this property, the Speed reduction doesn\'t exceed 10 feet.',
+  'Topple': 'If you hit a creature with this weapon, you can force the creature to make a Constitution saving throw (DC 8 + attack ability modifier + Proficiency Bonus). On a failed save, the creature has the Prone condition.',
+  'Vex': 'If you hit a creature with this weapon and deal damage to the creature, you have Advantage on your next attack roll against that creature before the end of your next turn.'
+}
+
+export const WEAPON_CATEGORY_MAP = {
+  club: 'Simple Melee Weapon',
+  dagger: 'Simple Melee Weapon',
+  greatclub: 'Simple Melee Weapon',
+  handaxe: 'Simple Melee Weapon',
+  javelin: 'Simple Melee Weapon',
+  'light hammer': 'Simple Melee Weapon',
+  mace: 'Simple Melee Weapon',
+  quarterstaff: 'Simple Melee Weapon',
+  sickle: 'Simple Melee Weapon',
+  spear: 'Simple Melee Weapon',
+  'light crossbow': 'Simple Ranged Weapon',
+  dart: 'Simple Ranged Weapon',
+  shortbow: 'Simple Ranged Weapon',
+  sling: 'Simple Ranged Weapon',
+  battleaxe: 'Martial Melee Weapon',
+  flail: 'Martial Melee Weapon',
+  glaive: 'Martial Melee Weapon',
+  greataxe: 'Martial Melee Weapon',
+  greatsword: 'Martial Melee Weapon',
+  halberd: 'Martial Melee Weapon',
+  lance: 'Martial Melee Weapon',
+  longsword: 'Martial Melee Weapon',
+  maul: 'Martial Melee Weapon',
+  morningstar: 'Martial Melee Weapon',
+  pike: 'Martial Melee Weapon',
+  rapier: 'Martial Melee Weapon',
+  scimitar: 'Martial Melee Weapon',
+  shortsword: 'Martial Melee Weapon',
+  trident: 'Martial Melee Weapon',
+  'war pick': 'Martial Melee Weapon',
+  warhammer: 'Martial Melee Weapon',
+  whip: 'Martial Melee Weapon',
+  blowgun: 'Martial Ranged Weapon',
+  'hand crossbow': 'Martial Ranged Weapon',
+  'heavy crossbow': 'Martial Ranged Weapon',
+  longbow: 'Martial Ranged Weapon',
+  musket: 'Martial Ranged Weapon',
+  pistol: 'Martial Ranged Weapon'
+}
+
+export const WEAPON_RANGE_MAP = {
+  dagger: '20/60',
+  handaxe: '20/60',
+  javelin: '30/120',
+  'light hammer': '20/60',
+  spear: '20/60',
+  dart: '20/60',
+  shortbow: '80/320',
+  sling: '30/120',
+  'light crossbow': '80/320',
+  blowgun: '25/100',
+  'hand crossbow': '30/120',
+  'heavy crossbow': '100/400',
+  longbow: '150/600',
+  trident: '20/60',
+  net: '5/15',
+  musket: '40/120',
+  pistol: '30/90'
+}
+
+export const ARMOR_CATEGORY_MAP = {
+  'padded armor': 'Light Armor',
+  padded: 'Light Armor',
+  'leather armor': 'Light Armor',
+  leather: 'Light Armor',
+  'studded leather armor': 'Light Armor',
+  'studded leather': 'Light Armor',
+  'hide armor': 'Medium Armor',
+  hide: 'Medium Armor',
+  'chain shirt': 'Medium Armor',
+  'scale mail': 'Medium Armor',
+  breastplate: 'Medium Armor',
+  'half plate armor': 'Medium Armor',
+  'half plate': 'Medium Armor',
+  'ring mail': 'Heavy Armor',
+  'chain mail': 'Heavy Armor',
+  splint: 'Heavy Armor',
+  'splint armor': 'Heavy Armor',
+  plate: 'Heavy Armor',
+  'plate armor': 'Heavy Armor',
+  shield: 'Shield'
+}
+
+export function formatItemPropertyNames(props, versatileDice = null, weaponName = '') {
+  if (!Array.isArray(props)) {
+    if (typeof props === 'string') props = props.split(',').map(s => s.trim())
+    else return []
+  }
+  const wName = (weaponName || '').toLowerCase()
+  const defaultRange = WEAPON_RANGE_MAP[wName] || null
+
+  return props.map(p => {
+    if (typeof p !== 'string') return ''
+    const code = p.split('|')[0].trim()
+    const def = PROPERTY_DEFINITIONS[code]
+    const name = def ? def.name : code
+    if ((code === 'V' || name.toLowerCase() === 'versatile') && versatileDice) {
+      return `${name} (${versatileDice})`
+    }
+    if ((code === 'T' || code === 'A') && defaultRange && !name.includes('(')) {
+      return `${name} (Range ${defaultRange} ft.)`
+    }
+    return name
+  }).filter(Boolean)
+}
+
+export function getItemCategoryAndRange(item) {
+  if (!item) return ''
+  const name = (item.name || '').toLowerCase()
+  const cat = WEAPON_CATEGORY_MAP[name] || ARMOR_CATEGORY_MAP[name]
+  const range = WEAPON_RANGE_MAP[name]
+  if (cat && range && !cat.includes('Ranged')) {
+    return `${cat} (Range ${range} ft.)`
+  }
+  if (cat) return cat
+  if (item.weaponCategory) {
+    const isRanged = item.type === 'R' || item.range
+    return `${item.weaponCategory.charAt(0).toUpperCase() + item.weaponCategory.slice(1)} ${isRanged ? 'Ranged' : 'Melee'} Weapon`
+  }
+  if (item.type === 'weapon' || item.itemType === 'weapon' || item.damageDice || item.dmg1) return 'Weapon'
+  if (item.type === 'armor' || item.itemType === 'armor' || Number(item.ac || item.baseAc) > 0) return 'Armor'
+  return ''
+}
+
+export function getItemExpandedProperties(item) {
+  if (!item) return []
+  const edition = item.edition || '2024'
+  const rawProps = Array.isArray(item.property || item.properties)
+    ? (item.property || item.properties)
+    : (typeof (item.property || item.properties) === 'string' ? (item.property || item.properties).split(',').map(s => s.trim()) : [])
+  const versatileDice = item.dmg2 || item.versatileDice || null
+  const wName = (item.name || '').toLowerCase()
+  const defaultRange = WEAPON_RANGE_MAP[wName] || null
+
+  const result = []
+  for (const p of rawProps) {
+    if (typeof p !== 'string') continue
+    const code = p.split('|')[0].trim()
+    const def = PROPERTY_DEFINITIONS[code] || Object.values(PROPERTY_DEFINITIONS).find(d => d.name.toLowerCase() === code.toLowerCase())
+    if (def) {
+      let title = def.name
+      if ((code === 'V' || title.toLowerCase() === 'versatile') && versatileDice) {
+        title += ` (${versatileDice})`
+      } else if ((code === 'T' || code === 'A') && defaultRange) {
+        title += ` (Range ${defaultRange} ft.)`
+      }
+      const desc = def.desc[edition] || def.desc['2024'] || def.desc['2014']
+      result.push({ name: title, desc })
+    } else if (p.trim()) {
+      result.push({ name: p.trim(), desc: '' })
+    }
+  }
+  return result
+}
+
+export function getItemMastery(item) {
+  if (!item) return null
+  const m = item.mastery
+  let mName = ''
+  if (typeof m === 'string') mName = m.split('|')[0].trim()
+  else if (Array.isArray(m) && m.length > 0) mName = String(m[0]).split('|')[0].trim()
+  if (!mName) return null
+  return {
+    name: mName,
+    desc: MASTERY_DEFINITIONS[mName] || ''
+  }
+}
+
+export function getItemArmorDetails(item) {
+  if (!item) return []
+  const ac = Number(item.ac || item.baseAc) || 0
+  const str = Number(item.strength || item.strength_requirement) || 0
+  const stealthDis = !!(item.stealth || item.stealth_disadvantage)
+  const isShield = (item.name || '').toLowerCase().includes('shield')
+
+  const details = []
+  if (isShield) {
+    details.push({
+      name: 'Shield',
+      desc: 'A shield increases your Armor Class by 2 while wielded. You can benefit from only one shield at a time.'
+    })
+  } else if (ac > 0) {
+    let desc = `Armor Class: ${ac}.`
+    if (item.dexMod || item.ac_dex_bonus === 'yes') {
+      desc += ' Adds Dexterity modifier.'
+    }
+    details.push({ name: 'Armor Class', desc })
+  }
+
+  if (str > 0) {
+    details.push({
+      name: 'Strength Requirement',
+      desc: `Requires Strength ${str}. If the wearer has a lower Strength score, their speed is reduced by 10 feet.`
+    })
+  }
+
+  if (stealthDis) {
+    details.push({
+      name: 'Stealth',
+      desc: 'The wearer has Disadvantage on Dexterity (Stealth) checks.'
+    })
+  }
+
+  return details
+}
+
+export function synthesizeItemEntries(item) {
+  if (!item) return []
+  const entries = []
+
+  const props = getItemExpandedProperties(item)
+  for (const p of props) {
+    entries.push(p.desc ? `<b>${p.name}.</b> ${p.desc}` : `<b>${p.name}</b>`)
+  }
+
+  const mastery = getItemMastery(item)
+  if (mastery) {
+    entries.push(mastery.desc ? `<b>Mastery: ${mastery.name}.</b> ${mastery.desc}` : `<b>Mastery: ${mastery.name}</b>`)
+  }
+
+  const armorDetails = getItemArmorDetails(item)
+  for (const a of armorDetails) {
+    entries.push(`<b>${a.name}.</b> ${a.desc}`)
+  }
+
+  return entries
 }

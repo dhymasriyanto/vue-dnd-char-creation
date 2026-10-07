@@ -11,7 +11,9 @@ import {
   IconEdit,
   IconTrash,
   IconUser,
-  IconLogout
+  IconLogout,
+  IconMenu2,
+  IconX
 } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
@@ -30,6 +32,28 @@ const errorMessage = ref('')
 const searchQuery = ref('')
 const editionFilter = ref('all') // 'all' | '2024' | '2014'
 const deletingId = ref(null)
+// ponytail: Mobile hamburger menu toggle inline, upgrade to sliding drawer if menu options grow
+const isMobileMenuOpen = ref(false)
+
+const handleCreate = () => {
+  isMobileMenuOpen.value = false
+  emit('create')
+}
+
+const handleOpenCompendium = () => {
+  isMobileMenuOpen.value = false
+  openCompendiumWindow()
+}
+
+const handleLogin = () => {
+  isMobileMenuOpen.value = false
+  openLoginModal()
+}
+
+const handleLogout = () => {
+  isMobileMenuOpen.value = false
+  logout()
+}
 
 const fetchCharacters = async () => {
   if (!isAuthenticated.value) {
@@ -98,69 +122,141 @@ onMounted(() => {
 <template>
   <div class="max-w-5xl mx-auto px-4 py-4">
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-200 gap-3">
-      <div>
-        <h1 class="text-xl font-bold text-gray-900 tracking-tight">Characters</h1>
-        <p class="text-xs text-gray-500 mt-0.5">
-          Select a character to view sheet or create a new one.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+    <div class="pb-4 border-b border-gray-200">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <h1 class="text-xl font-bold text-gray-900 tracking-tight">Characters</h1>
+          <p class="text-xs text-gray-500 mt-0.5">
+            Select a character to view sheet or create a new one.
+          </p>
+        </div>
+
+        <!-- Mobile Hamburger Toggle (< sm) -->
         <button
           type="button"
-          @click="openCompendiumWindow"
-          class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+          @click="isMobileMenuOpen = !isMobileMenuOpen"
+          aria-label="Toggle navigation menu"
+          class="sm:hidden p-2 rounded border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 transition cursor-pointer shrink-0"
+        >
+          <IconX v-if="isMobileMenuOpen" class="w-5 h-5" />
+          <IconMenu2 v-else class="w-5 h-5" />
+        </button>
+
+        <!-- Desktop Action Buttons (>= sm) -->
+        <div class="hidden sm:flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            @click="openCompendiumWindow"
+            class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+          >
+            <IconBook class="w-4 h-4 text-gray-700" />
+            <span>Compendium</span>
+            <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
+          </button>
+
+          <!-- Auth Status / Sign In -->
+          <template v-if="!isAuthenticated">
+            <button
+              type="button"
+              @click="openLoginModal"
+              class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+            >
+              <IconUser class="w-4 h-4 text-gray-700" />
+              <span>Sign In</span>
+            </button>
+          </template>
+          <template v-else>
+            <div class="flex items-center gap-2 bg-gray-100 border border-gray-300 px-2.5 py-1.5 rounded text-xs">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-semibold text-gray-900">{{ user.username }}</span>
+              <span
+                v-if="user.auth_provider && user.auth_provider !== 'local'"
+                class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
+              >
+                {{ user.auth_provider }}
+              </span>
+              <button
+                type="button"
+                @click="logout"
+                title="Sign Out"
+                class="text-gray-400 hover:text-gray-800 transition cursor-pointer ml-0.5"
+              >
+                <IconLogout class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </template>
+
+          <button
+            type="button"
+            @click="emit('create')"
+            class="bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer"
+          >
+            Create Character
+          </button>
+        </div>
+      </div>
+
+      <!-- Mobile Dropdown Menu (< sm) -->
+      <div
+        v-if="isMobileMenuOpen"
+        class="sm:hidden mt-3 pt-3 border-t border-gray-100 flex flex-col gap-2"
+      >
+        <button
+          type="button"
+          @click="handleCreate"
+          class="w-full bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2.5 rounded shadow-sm transition cursor-pointer text-center"
+        >
+          Create Character
+        </button>
+
+        <button
+          type="button"
+          @click="handleOpenCompendium"
+          class="w-full bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2.5 rounded shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
         >
           <IconBook class="w-4 h-4 text-gray-700" />
           <span>Compendium</span>
           <IconExternalLink class="w-3.5 h-3.5 text-gray-400" />
         </button>
 
-        <!-- Auth Status / Sign In -->
         <template v-if="!isAuthenticated">
           <button
             type="button"
-            @click="openLoginModal"
-            class="bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2 rounded shadow-xs transition cursor-pointer flex items-center gap-1.5"
+            @click="handleLogin"
+            class="w-full bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold px-3 py-2.5 rounded shadow-xs transition cursor-pointer flex items-center justify-center gap-1.5"
           >
             <IconUser class="w-4 h-4 text-gray-700" />
             <span>Sign In</span>
           </button>
         </template>
         <template v-else>
-          <div class="flex items-center gap-2 bg-gray-100 border border-gray-300 px-2.5 py-1.5 rounded text-xs">
-            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span class="font-semibold text-gray-900">{{ user.username }}</span>
-            <span
-              v-if="user.auth_provider && user.auth_provider !== 'local'"
-              class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
-            >
-              {{ user.auth_provider }}
-            </span>
+          <div class="flex items-center justify-between bg-gray-100 border border-gray-300 px-3 py-2 rounded text-xs">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span class="font-semibold text-gray-900">{{ user.username }}</span>
+              <span
+                v-if="user.auth_provider && user.auth_provider !== 'local'"
+                class="text-[10px] bg-gray-200 text-gray-600 px-1 py-0.5 rounded font-mono uppercase"
+              >
+                {{ user.auth_provider }}
+              </span>
+            </div>
             <button
               type="button"
-              @click="logout"
-              title="Sign Out"
-              class="text-gray-400 hover:text-gray-800 transition cursor-pointer ml-0.5"
+              @click="handleLogout"
+              class="flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-medium cursor-pointer"
             >
               <IconLogout class="w-3.5 h-3.5" />
+              <span>Sign Out</span>
             </button>
           </div>
         </template>
-
-        <button
-          type="button"
-          @click="emit('create')"
-          class="bg-gray-900 hover:bg-black text-white text-xs font-semibold px-4 py-2 rounded shadow-sm transition cursor-pointer"
-        >
-          Create Character
-        </button>
       </div>
     </div>
 
     <!-- Filters & Search Toolbar -->
     <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 my-4">
-      <div class="relative flex-1 max-w-sm">
+      <div class="relative flex-1 max-w-none sm:max-w-sm">
         <input
           type="text"
           v-model="searchQuery"
@@ -170,12 +266,12 @@ onMounted(() => {
       </div>
 
       <div class="flex items-center gap-2">
-        <div class="flex items-center gap-1 bg-gray-200 p-1 rounded">
+        <div class="flex items-center gap-1 bg-gray-200 p-1 rounded w-full sm:w-auto">
           <button
             type="button"
             @click="editionFilter = 'all'"
             :class="editionFilter === 'all' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+            class="flex-1 sm:flex-initial px-2.5 py-1 text-xs rounded transition cursor-pointer text-center"
           >
             All
           </button>
@@ -183,7 +279,7 @@ onMounted(() => {
             type="button"
             @click="editionFilter = '2024'"
             :class="editionFilter === '2024' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+            class="flex-1 sm:flex-initial px-2.5 py-1 text-xs rounded transition cursor-pointer text-center"
           >
             2024
           </button>
@@ -191,7 +287,7 @@ onMounted(() => {
             type="button"
             @click="editionFilter = '2014'"
             :class="editionFilter === '2014' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:text-gray-900'"
-            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+            class="flex-1 sm:flex-initial px-2.5 py-1 text-xs rounded transition cursor-pointer text-center"
           >
             2014
           </button>

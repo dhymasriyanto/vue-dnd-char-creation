@@ -98,3 +98,85 @@
   margin-bottom: 0.15rem !important;
   display: list-item !important;
 }
+
+/* vue-select styling */
+:root {
+  --vs-font-size: 0.75rem;
+  --vs-line-height: 1.25rem;
+  --vs-border-color: #d1d5db;
+  --vs-border-radius: 0.25rem;
+  --vs-dropdown-bg: #ffffff;
+  --vs-dropdown-color: #111827;
+  --vs-dropdown-option-color: #111827;
+  --vs-dropdown-option--active-bg: #111827;
+  --vs-dropdown-option--active-color: #ffffff;
+  --vs-search-input-placeholder-color: #9ca3af;
+}
+
+.v-select {
+  font-size: 0.75rem;
+  background-color: #ffffff;
+}
+
+.v-select.vs--open {
+  position: relative;
+  z-index: 50;
+}
+
+.v-select .vs__dropdown-toggle {
+  border-color: #d1d5db;
+  border-radius: 0.25rem;
+  padding: 1px 0 2px 0;
+  min-height: 34px;
+  background-color: #ffffff;
+}
+
+.v-select.vs--open .vs__dropdown-toggle {
+  border-color: #111827;
+}
+
+.v-select .vs__selected {
+  font-size: 0.75rem;
+  color: #111827;
+  margin: 3px 2px 0 2px;
+}
+
+.v-select .vs__search {
+  font-size: 0.75rem;
+  margin: 3px 0 0 2px;
+  padding: 0 4px;
+  color: #111827;
+}
+
+.v-select .vs__dropdown-menu {
+  font-size: 0.75rem;
+  border-color: #e5e7eb;
+  box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  border-radius: 0.25rem;
+  z-index: 9999;
+  max-height: 240px;
+}
+
+/* Elevate container when child vue-select is open */
+.grid > div:has(.v-select.vs--open),
+div:has(> .v-select.vs--open),
+div:has(> * > .v-select.vs--open) {
+  position: relative;
+  z-index: 50;
+}
+
+.v-select .vs__dropdown-option--highlight {
+  background-color: #111827;
+  color: #ffffff;
+}
+
+.v-select.has-error .vs__dropdown-toggle {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 1px #ef4444 !important;
+}
+
+.v-select .vs__clear,
+.v-select .vs__open-indicator {
+  fill: #6b7280;
+  transform: scale(0.85);
+}

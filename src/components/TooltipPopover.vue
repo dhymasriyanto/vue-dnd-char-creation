@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
-import { formatPrerequisite, format5eEntries, renderAnnotatedText } from '../utils/textRenderer'
+import { formatPrerequisite, format5eEntries, renderAnnotatedText, synthesizeItemEntries } from '../utils/textRenderer'
 import { useConfig } from '../config'
 import { useCharacterStore } from '../stores/character'
 import { useCompendiumModal } from '../composables/useCompendiumModal'
@@ -147,15 +147,48 @@ const applyData = (data) => {
   if (data.range) stats.push({ label: 'Range', value: data.range })
   if (data.duration) stats.push({ label: 'Duration', value: data.duration })
   if (data.components) stats.push({ label: 'Components', value: data.components })
-  if (data.weight) stats.push({ label: 'Weight', value: `${data.weight} lb` })
-  if (data.value) stats.push({ label: 'Value', value: data.value })
+
+  // Damage with versatile handling
+  const dmgBase = data.dmg1 || data.damageDice
+  const dmgVersatile = data.dmg2 || data.versatileDice
+  const dmgTypeStr = data.dmgType || ''
+  let dmgVal = data.damage
+  if (!dmgVal && dmgBase) {
+    dmgVal = `${dmgBase}${dmgVersatile ? ' (Versatile ' + dmgVersatile + ')' : ''}${dmgTypeStr ? ' ' + dmgTypeStr : ''}`
+  }
+  if (dmgVal) stats.push({ label: 'Damage', value: dmgVal })
+
+  // AC
+  const acVal = data.ac || data.baseAc
+  if (acVal && String(acVal) !== '0') stats.push({ label: 'AC', value: String(acVal) })
+
+  // Mastery
+  const masteryVal = Array.isArray(data.mastery)
+    ? data.mastery.filter(Boolean).join(', ')
+    : (data.mastery || null)
+  if (masteryVal) stats.push({ label: 'Mastery', value: masteryVal })
+
+  // Properties
+  const propVal = Array.isArray(data.properties || data.property)
+    ? (data.properties || data.property).filter(Boolean).join(', ')
+    : (data.properties || data.property || null)
+  if (propVal) stats.push({ label: 'Properties', value: propVal })
+
+  if (data.weight) stats.push({ label: 'Weight', value: String(data.weight).includes('lb') ? data.weight : `${data.weight} lb` })
+  if (data.cost || data.value) stats.push({ label: 'Cost', value: data.cost || (data.value ? `${data.value} cp` : '') })
   if (data.prerequisite) stats.push({ label: 'Prerequisite', value: formatPrerequisite(data.prerequisite) })
   popoverStats.value = stats
 
-  if (data.entries && (Array.isArray(data.entries) ? data.entries.length > 0 : true)) {
-    popoverEntries.value = [format5eEntries(data.entries)]
+  const rawEntries = data.entries && (Array.isArray(data.entries) ? data.entries.length > 0 : true) ? data.entries : []
+  if (rawEntries.length > 0) {
+    popoverEntries.value = [format5eEntries(rawEntries)]
   } else {
-    popoverEntries.value = []
+    const synth = synthesizeItemEntries(data)
+    if (synth.length > 0) {
+      popoverEntries.value = [format5eEntries(synth)]
+    } else {
+      popoverEntries.value = []
+    }
   }
 }
 

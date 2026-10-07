@@ -1121,6 +1121,19 @@ const SPELL_GRANTING_FEATS_CONFIG = [
   }
 ]
 
+const getEstimatedClassCantrips = (className, subclassName, level) => {
+  const c = (className || '').toLowerCase()
+  const sc = (subclassName || '').toLowerCase()
+  const lvl = Number(level) || 1
+  if (sc.includes('arcane trickster')) return lvl >= 10 ? 4 : 3
+  if (sc.includes('eldritch knight')) return lvl >= 10 ? 3 : 2
+  if (c === 'sorcerer') return lvl >= 10 ? 6 : (lvl >= 4 ? 5 : 4)
+  if (c === 'wizard' || c === 'cleric') return lvl >= 10 ? 5 : (lvl >= 4 ? 4 : 3)
+  if (c === 'druid' || c === 'bard' || c === 'warlock') return lvl >= 10 ? 4 : (lvl >= 4 ? 3 : 2)
+  if (c === 'artificer') return lvl >= 14 ? 4 : (lvl >= 10 ? 3 : 2)
+  return 0
+}
+
 const detectedFeatSpellSources = computed(() => {
   const sources = []
   const bg = selectedBackgroundObj.value
@@ -3141,8 +3154,75 @@ const loadCharacterForEdit = async (data) => {
     // Spells
     const spList = data.spells || data.character_spells || []
     if (Array.isArray(spList) && spList.length > 0) {
-      const featSps = spList.filter(s => s.sourceFeat || s.is_feat_spell)
-      const classSps = spList.filter(s => !s.sourceFeat && !s.is_feat_spell)
+      const normalizedSpList = spList.map(s => ({
+        ...s,
+        sourceFeat: s.sourceFeat || s.source_feat || null,
+        is_feat_spell: Boolean(s.is_feat_spell || s.source_feat || s.sourceFeat)
+      }))
+
+      let featSps = normalizedSpList.filter(s => s.sourceFeat || s.is_feat_spell)
+      let classSps = normalizedSpList.filter(s => !s.sourceFeat && !s.is_feat_spell)
+
+      // Fallback for legacy saved characters where source_feat was not persisted:
+      if (featSps.length === 0 && detectedFeatSpellSources.value.length > 0) {
+        const remainingClassSps = [...classSps]
+        const recoveredFeatSps = []
+
+        for (const fSrc of detectedFeatSpellSources.value) {
+          const cfg = fSrc.config
+          if (!cfg) continue
+
+          // 1. Recover fixed spells (e.g. Misty Step for Fey Touched)
+          if (Array.isArray(cfg.fixed)) {
+            for (const fixedName of cfg.fixed) {
+              const idx = remainingClassSps.findIndex(s => s.name && s.name.toLowerCase() === fixedName.toLowerCase())
+              if (idx !== -1) {
+                recoveredFeatSps.push({ ...remainingClassSps[idx], sourceFeat: fSrc.featName, is_feat_spell: true })
+                remainingClassSps.splice(idx, 1)
+              }
+            }
+          }
+
+          // 2. Recover cantrips (e.g. 2 cantrips for Magic Initiate)
+          const featCantripsNeeded = Number(cfg.cantrips || 0)
+          if (featCantripsNeeded > 0) {
+            const classMaxCantrips = getEstimatedClassCantrips(classSelected.value, selectedSubClassItem.value?.name, classLevel.value)
+            const cantripsInList = remainingClassSps.filter(s => Number(s.level) === 0 || s.is_cantrip)
+            const excessCantrips = isSpellcasterClass.value ? Math.max(0, cantripsInList.length - classMaxCantrips) : cantripsInList.length
+            const countToTake = Math.min(featCantripsNeeded, excessCantrips > 0 ? excessCantrips : (!isSpellcasterClass.value ? featCantripsNeeded : 0))
+
+            let taken = 0
+            for (let i = remainingClassSps.length - 1; i >= 0 && taken < countToTake; i--) {
+              const s = remainingClassSps[i]
+              if (Number(s.level) === 0 || s.is_cantrip) {
+                recoveredFeatSps.push({ ...s, sourceFeat: fSrc.featName, is_feat_spell: true })
+                remainingClassSps.splice(i, 1)
+                taken++
+              }
+            }
+          }
+
+          // 3. Recover 1st-level spells (e.g. 1 spell for Magic Initiate)
+          const featSpellsNeeded = Number(cfg.spells || 0)
+          if (featSpellsNeeded > 0) {
+            let taken = 0
+            for (let i = remainingClassSps.length - 1; i >= 0 && taken < featSpellsNeeded; i--) {
+              const s = remainingClassSps[i]
+              if (Number(s.level) === 1 && !s.is_cantrip) {
+                recoveredFeatSps.push({ ...s, sourceFeat: fSrc.featName, is_feat_spell: true })
+                remainingClassSps.splice(i, 1)
+                taken++
+              }
+            }
+          }
+        }
+
+        if (recoveredFeatSps.length > 0) {
+          featSps = recoveredFeatSps
+          classSps = remainingClassSps
+        }
+      }
+
       if (featSps.length > 0) {
         featChosenSpells.value = JSON.parse(JSON.stringify(featSps))
         chosenSpells.value = JSON.parse(JSON.stringify(classSps))
@@ -3969,10 +4049,12 @@ const submitForm = async () => {
         level: Number(classLevel.value),
         class: characterClass.value,
         sub_class: selectedSubClassItem.value || characterStore.characterSubClass || null,
-        spells: [
-          ...(chosenSpells.value || []),
-          ...(featChosenSpells.value || [])
-        ]
+        spells: (chosenSpells.value || []).map(s => ({
+          ...s,
+          is_feat_spell: false,
+          source_feat: null,
+          sourceFeat: null
+        }))
       }
     ]
 
@@ -3983,15 +4065,37 @@ const submitForm = async () => {
           level: Number(mc.classLevel) || 1,
           class: mc.characterClass,
           sub_class: mc.selectedSubClassItem || null,
-          spells: mc.chosenSpells || []
+          spells: (mc.chosenSpells || []).map(s => ({
+            ...s,
+            is_feat_spell: false,
+            source_feat: null,
+            sourceFeat: null
+          }))
         })
       }
     }
 
+    const preparedFeatSpells = (featChosenSpells.value || []).map(s => ({
+      ...s,
+      sourceFeat: s.sourceFeat || s.source_feat || 'Feat',
+      source_feat: s.source_feat || s.sourceFeat || 'Feat',
+      is_feat_spell: true
+    }))
+
     const allSpells = [
-      ...(chosenSpells.value || []),
-      ...multiclasses.value.flatMap(mc => mc.chosenSpells || []),
-      ...(featChosenSpells.value || [])
+      ...(chosenSpells.value || []).map(s => ({
+        ...s,
+        is_feat_spell: false,
+        source_feat: null,
+        sourceFeat: null
+      })),
+      ...multiclasses.value.flatMap(mc => (mc.chosenSpells || []).map(s => ({
+        ...s,
+        is_feat_spell: false,
+        source_feat: null,
+        sourceFeat: null
+      }))),
+      ...preparedFeatSpells
     ]
 
     const payload = {
@@ -4064,7 +4168,7 @@ const submitForm = async () => {
 </script>
 
 <template>
-  <div ref="scrollRef" class="max-w-2xl mx-2 sm:mx-auto mb-20 my-4 p-3.5 sm:p-6 bg-white rounded border border-gray-200 shadow-sm">
+  <div ref="scrollRef" class="max-w-2xl mx-2 sm:mx-auto mb-20 sm:mb-24 my-4 p-3.5 sm:p-6 bg-white rounded border border-gray-200 shadow-sm">
     <!-- Header: Back & Ruleset Edition Selector -->
     <div class="mb-5 pb-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
       <div>
@@ -4179,18 +4283,16 @@ const submitForm = async () => {
 
       <div class="mb-4" data-error-field="characterBackground">
         <label for="characterBackground" class="block text-xs font-semibold text-gray-700 mb-1">Choose Background:</label>
-        <select
+        <v-select
           id="characterBackground"
           v-model="selectedBackgroundObj"
-          @change="onBackgroundChange"
-          :class="errors.characterBackground ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-          class="p-2 border rounded w-full bg-white text-xs"
-        >
-          <option :value="null">Choose background</option>
-          <option v-for="b in filteredBackgrounds" :key="b.id || b.name" :value="b">
-            {{ b.name }} ({{ b.source }})
-          </option>
-        </select>
+          :options="filteredBackgrounds"
+          :get-option-label="b => b ? `${b.name} (${b.source || 'PHB'})` : ''"
+          :get-option-key="b => b ? (b.id || b.name + '|' + (b.source || '')) : ''"
+          placeholder="Choose background..."
+          @update:model-value="onBackgroundChange"
+          :class="{ 'has-error': errors.characterBackground }"
+        />
         <p v-if="errors.characterBackground" class="mt-1 text-xs text-red-600 font-medium">
           {{ errors.characterBackground }}
         </p>
@@ -4267,21 +4369,14 @@ const submitForm = async () => {
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div v-for="idx in bgSkillConfig.count" :key="idx">
-            <select
+            <v-select
               v-model="chosenBgSkills[idx - 1]"
-              :class="errors.bgSkills ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-1.5 border rounded w-full bg-white text-xs"
-            >
-              <option value="">Select Skill #{{ idx }}</option>
-              <option
-                v-for="skKey in bgSkillConfig.options"
-                :key="skKey"
-                :value="skKey"
-                :disabled="chosenBgSkills.includes(skKey) && chosenBgSkills[idx - 1] !== skKey"
-              >
-                {{ getSkillLabel(skKey) }}
-              </option>
-            </select>
+              :options="bgSkillConfig.options"
+              :get-option-label="skKey => getSkillLabel(skKey)"
+              :selectable="skKey => !chosenBgSkills.includes(skKey) || chosenBgSkills[idx - 1] === skKey"
+              :placeholder="`Select Skill #${idx}...`"
+              :class="{ 'has-error': errors.bgSkills }"
+            />
           </div>
         </div>
         <p v-if="errors.bgSkills" class="mt-1 text-xs text-red-600 font-medium">
@@ -4296,21 +4391,13 @@ const submitForm = async () => {
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div v-for="idx in bgLangConfig.choiceCount" :key="idx">
-            <select
+            <v-select
               v-model="bgChosenLanguages[idx - 1]"
-              :class="errors.bgLanguages && !bgChosenLanguages[idx - 1] ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-1.5 border rounded w-full bg-white text-xs"
-            >
-              <option value="">Select Language #{{ idx }}</option>
-              <option
-                v-for="l in STANDARD_LANGUAGES"
-                :key="l"
-                :value="l"
-                :disabled="bgLangConfig.fixed.includes(l) || (bgChosenLanguages.includes(l) && bgChosenLanguages[idx - 1] !== l)"
-              >
-                {{ l }}
-              </option>
-            </select>
+              :options="STANDARD_LANGUAGES"
+              :selectable="l => !bgLangConfig.fixed.includes(l) && (!bgChosenLanguages.includes(l) || bgChosenLanguages[idx - 1] === l)"
+              :placeholder="`Select Language #${idx}...`"
+              :class="{ 'has-error': errors.bgLanguages && !bgChosenLanguages[idx - 1] }"
+            />
           </div>
         </div>
         <p v-if="errors.bgLanguages" class="mt-1 text-xs text-red-600 font-medium">
@@ -4331,21 +4418,13 @@ const submitForm = async () => {
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div v-for="idx in bgToolConfig.count" :key="idx">
-            <select
+            <v-select
               v-model="chosenBgTools[idx - 1]"
-              :class="errors.bgTools ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-1.5 border rounded w-full bg-white text-xs"
-            >
-              <option value="">Select Option #{{ idx }}</option>
-              <option
-                v-for="opt in bgToolConfig.options"
-                :key="opt"
-                :value="opt"
-                :disabled="chosenBgTools.includes(opt) && chosenBgTools[idx - 1] !== opt"
-              >
-                {{ opt }}
-              </option>
-            </select>
+              :options="bgToolConfig.options"
+              :selectable="opt => !chosenBgTools.includes(opt) || chosenBgTools[idx - 1] === opt"
+              :placeholder="`Select Option #${idx}...`"
+              :class="{ 'has-error': errors.bgTools }"
+            />
           </div>
         </div>
         <p v-if="errors.bgTools" class="mt-1 text-xs text-red-600 font-medium">
@@ -4378,18 +4457,16 @@ const submitForm = async () => {
         <label for="characterRace" class="block text-xs font-semibold text-gray-700 mb-1">
           {{ selectedEdition === '2024' ? 'Character Species:' : 'Character Race:' }}
         </label>
-        <select
+        <v-select
           id="characterRace"
-          @change="searchSubRace(characterRace)"
-          v-model="characterRace"
-          :class="errors.characterRace ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-          class="p-2 border rounded w-full text-xs bg-white"
-        >
-          <option :value="{}">Choose {{ selectedEdition === '2024' ? 'species' : 'race' }}</option>
-          <option v-for="r in filteredRaces" :key="r.id || r.name" :value="r">
-            {{ r.name }} ({{ r.source }})
-          </option>
-        </select>
+          :model-value="characterRace && characterRace.name ? characterRace : null"
+          :options="filteredRaces"
+          :get-option-label="r => r?.name ? `${r.name} (${r.source || 'PHB'})` : ''"
+          :get-option-key="r => r ? (r.id || r.name + '|' + (r.source || '')) : ''"
+          :placeholder="`Choose ${selectedEdition === '2024' ? 'species' : 'race'}...`"
+          @update:model-value="r => { characterRace = r || {}; searchSubRace(characterRace) }"
+          :class="{ 'has-error': errors.characterRace }"
+        />
         <p v-if="errors.characterRace" class="mt-1 text-xs text-red-600 font-medium">
           {{ errors.characterRace }}
         </p>
@@ -4403,19 +4480,16 @@ const submitForm = async () => {
           <span v-if="isSubraceRequired" class="text-red-500">*</span>
           <span v-else class="text-gray-400 font-normal ml-1">(Optional)</span>
         </label>
-        <select
+        <v-select
           id="characterSubRace"
-          v-model="characterSubRace"
-          :class="errors.characterSubRace ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-          class="p-2 border rounded w-full text-xs bg-white"
-        >
-          <option :value="{}">
-            {{ isSubraceRequired ? `Choose ${selectedEdition === '2024' ? 'lineage' : 'sub race'}` : 'None / Standard' }}
-          </option>
-          <option v-for="r in filteredSubRaces" :key="r.id || (r.name + '-' + r.source)" :value="r">
-            {{ r.name }} ({{ r.source }})
-          </option>
-        </select>
+          :model-value="characterSubRace && characterSubRace.name ? characterSubRace : null"
+          :options="filteredSubRaces"
+          :get-option-label="r => r?.name ? `${r.name} (${r.source || 'PHB'})` : ''"
+          :get-option-key="r => r ? (r.id || r.name + '|' + (r.source || '')) : ''"
+          :placeholder="isSubraceRequired ? `Choose ${selectedEdition === '2024' ? 'lineage' : 'sub race'} (Required)...` : 'None / Standard'"
+          @update:model-value="r => { characterSubRace = r || {} }"
+          :class="{ 'has-error': errors.characterSubRace }"
+        />
         <p v-if="errors.characterSubRace" class="mt-1 text-xs text-red-600 font-medium">
           {{ errors.characterSubRace }}
         </p>
@@ -4429,21 +4503,13 @@ const submitForm = async () => {
         </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div v-for="idx in raceLangConfig.choiceCount" :key="idx">
-            <select
+            <v-select
               v-model="raceChosenLanguages[idx - 1]"
-              :class="errors.raceLanguages && !raceChosenLanguages[idx - 1] ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-1.5 border rounded w-full bg-white text-xs"
-            >
-              <option value="">Select Language #{{ idx }}</option>
-              <option
-                v-for="l in STANDARD_LANGUAGES"
-                :key="l"
-                :value="l"
-                :disabled="raceLangConfig.fixed.includes(l) || (raceChosenLanguages.includes(l) && raceChosenLanguages[idx - 1] !== l)"
-              >
-                {{ l }}
-              </option>
-            </select>
+              :options="STANDARD_LANGUAGES"
+              :selectable="l => !raceLangConfig.fixed.includes(l) && (!raceChosenLanguages.includes(l) || raceChosenLanguages[idx - 1] === l)"
+              :placeholder="`Select Language #${idx}...`"
+              :class="{ 'has-error': errors.raceLanguages && !raceChosenLanguages[idx - 1] }"
+            />
           </div>
         </div>
         <p v-if="errors.raceLanguages" class="mt-1 text-xs text-red-600 font-medium">
@@ -4479,18 +4545,15 @@ const submitForm = async () => {
         <div class="grid grid-cols-4 gap-2 mb-3">
           <div class="col-span-3" data-error-field="characterClass">
             <label for="characterClass" class="block text-xs font-semibold text-gray-700 mb-1">Class:</label>
-            <select
+            <v-select
               id="characterClass"
-              @change="searchClass(classSelected)"
-              v-model="classSelected"
-              :class="errors.characterClass ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-2 border rounded w-full text-xs bg-white"
-            >
-              <option value="">Choose class</option>
-              <option v-for="(c, n) in filteredClasses" :key="n" :value="n">
-                {{ n.charAt(0).toUpperCase() + n.slice(1) }}
-              </option>
-            </select>
+              :model-value="classSelected || null"
+              :options="Object.keys(filteredClasses)"
+              :get-option-label="n => n ? n.charAt(0).toUpperCase() + n.slice(1) : ''"
+              placeholder="Choose class..."
+              @update:model-value="val => { classSelected = val || ''; searchClass(classSelected) }"
+              :class="{ 'has-error': errors.characterClass }"
+            />
             <p v-if="errors.characterClass" class="mt-1 text-xs text-red-600 font-medium">
               {{ errors.characterClass }}
             </p>
@@ -4521,7 +4584,7 @@ const submitForm = async () => {
             :class="classSubTab === 'spells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
             class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
           >
-            <span>Spells & Magic</span>
+            <span>Spells</span>
             <span
               v-if="chosenSpells.length > 0"
               class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200"
@@ -4616,14 +4679,18 @@ const submitForm = async () => {
         v-for="(mc, mcIdx) in multiclasses"
         :key="mc.id"
         :id="mc.id"
-        class="border rounded mb-4 overflow-hidden bg-white shadow-xs transition"
-        :class="errors['class_mc_' + mcIdx] ? 'border-red-400 ring-1 ring-red-400' : 'border-gray-200'"
+        class="border rounded mb-4 bg-white shadow-xs transition relative"
+        :class="[
+          errors['class_mc_' + mcIdx] ? 'border-red-400 ring-1 ring-red-400' : 'border-gray-200',
+          !mc.isCollapsed ? 'focus-within:z-30' : ''
+        ]"
         :data-error-field="'class_mc_' + mcIdx"
       >
         <!-- Collapsible Header -->
         <div
           @click="mc.isCollapsed = !mc.isCollapsed"
           class="flex items-center justify-between p-3 bg-gray-50/90 hover:bg-gray-100/80 cursor-pointer select-none transition border-b border-gray-200"
+          :class="mc.isCollapsed ? 'rounded' : 'rounded-t'"
         >
           <div class="flex items-center gap-2">
             <svg
@@ -4652,26 +4719,19 @@ const submitForm = async () => {
         </div>
 
         <!-- Collapsible Content -->
-        <div v-show="!mc.isCollapsed" class="p-3">
+        <div v-show="!mc.isCollapsed" class="p-3 rounded-b">
           <div class="grid grid-cols-4 gap-2 mb-3">
             <div class="col-span-3">
               <label class="block text-xs font-semibold text-gray-700 mb-1">Class:</label>
-              <select
-                @change="onMcClassChange(mc)"
-                v-model="mc.classSelected"
-                :class="errors['class_mc_' + mcIdx] ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-                class="p-2 border rounded w-full text-xs bg-white"
-              >
-                <option value="">Choose secondary class</option>
-                <option
-                  v-for="(c, n) in filteredClasses"
-                  :key="n"
-                  :value="n"
-                  :disabled="n.toLowerCase() === (classSelected || '').toLowerCase() || multiclasses.some((other, oIdx) => oIdx !== mcIdx && other.classSelected?.toLowerCase() === n.toLowerCase())"
-                >
-                  {{ n.charAt(0).toUpperCase() + n.slice(1) }}
-                </option>
-              </select>
+              <v-select
+                :model-value="mc.classSelected || null"
+                :options="Object.keys(filteredClasses)"
+                :get-option-label="n => n ? n.charAt(0).toUpperCase() + n.slice(1) : ''"
+                :selectable="n => n.toLowerCase() !== (classSelected || '').toLowerCase() && !multiclasses.some((other, oIdx) => oIdx !== mcIdx && other.classSelected?.toLowerCase() === n.toLowerCase())"
+                placeholder="Choose secondary class..."
+                @update:model-value="val => { mc.classSelected = val || ''; onMcClassChange(mc) }"
+                :class="{ 'has-error': errors['class_mc_' + mcIdx] }"
+              />
               <p v-if="errors['class_mc_' + mcIdx]" class="mt-1 text-xs text-red-600 font-medium">
                 {{ errors['class_mc_' + mcIdx] }}
               </p>
@@ -5242,12 +5302,14 @@ const submitForm = async () => {
           <div v-else-if="item.choice.type === 'feat'" class="space-y-2 pt-1">
             <div>
               <label class="block text-gray-600 text-[11px] mb-1">Choose Feat:</label>
-              <select v-model="item.choice.featName" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option value="">Select a feat...</option>
-                <option v-for="f in filteredFeats" :key="f.name + '|' + (f.source || '')" :value="f.name">
-                  {{ f.name }} ({{ f.source || 'PHB' }})
-                </option>
-              </select>
+              <v-select
+                v-model="item.choice.featName"
+                :options="filteredFeats"
+                :reduce="f => f.name"
+                :get-option-label="f => `${f.name} (${f.source || 'PHB'})`"
+                :get-option-key="f => f.name + '|' + (f.source || '')"
+                placeholder="Select a feat..."
+              />
             </div>
             <div>
               <label class="block text-gray-600 text-[11px] mb-1">Feat Ability Increase (+1 if applicable):</label>
@@ -5278,15 +5340,13 @@ const submitForm = async () => {
       <!-- Alignment (Abilities step for both editions) -->
       <div class="mb-4 pt-3 border-t border-gray-200" data-error-field="alignment">
         <label for="alignment" class="block text-xs font-semibold text-gray-700 mb-1">Character Alignment:</label>
-        <select
+        <v-select
           id="alignment"
           v-model="alignment"
-          :class="errors.alignment ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-          class="p-2 border rounded w-full bg-white text-xs"
-        >
-          <option value="">Choose alignment</option>
-          <option v-for="al in alignments" :key="al" :value="al">{{ al }}</option>
-        </select>
+          :options="alignments"
+          placeholder="Choose alignment..."
+          :class="{ 'has-error': errors.alignment }"
+        />
         <p v-if="errors.alignment" class="mt-1 text-xs text-red-600 font-medium">
           {{ errors.alignment }}
         </p>
@@ -5685,16 +5745,20 @@ const submitForm = async () => {
             placeholder="Search weapon, armor, pack, gear..."
             class="w-full sm:flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
           />
-          <div class="flex gap-2 w-full sm:w-auto">
-            <select
+          <div class="flex gap-2 w-full sm:w-auto items-center">
+            <v-select
               v-model="wizardCompendiumCategory"
-              @change="searchWizardCompendium(false)"
-              class="flex-1 min-w-[120px] p-2 border border-gray-300 rounded text-xs bg-white"
-            >
-              <option value="all">All Types</option>
-              <option value="weapon">Weapons</option>
-              <option value="armor">Armor & Shield</option>
-            </select>
+              :options="[
+                { value: 'all', label: 'All Types' },
+                { value: 'weapon', label: 'Weapons' },
+                { value: 'armor', label: 'Armor & Shield' }
+              ]"
+              :reduce="opt => opt.value"
+              label="label"
+              :clearable="false"
+              class="flex-1 min-w-[140px]"
+              @update:model-value="searchWizardCompendium(false)"
+            />
             <button
               type="button"
               @click="searchWizardCompendium(false)"
@@ -5824,7 +5888,8 @@ const submitForm = async () => {
   box-shadow: 0px -2px 10px rgba(0, 0, 0, 0.06);
   display: flex;
   justify-content: space-between;
-  z-index: 40;
+  align-items: center;
+  z-index: 10;
   border-top: 1px solid #e5e7eb;
 }
 

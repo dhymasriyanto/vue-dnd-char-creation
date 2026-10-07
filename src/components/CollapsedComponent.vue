@@ -107,11 +107,15 @@ const onSelectSubclass = (key) => {
 
 <template>
   <div
-    class="border rounded mb-2 overflow-hidden bg-white text-xs transition"
-    :class="(isSubclassFeature && subclassError && !selectedSubClassKey) || hasError ? 'border-red-400 ring-1 ring-red-400' : 'border-gray-200'"
+    class="border rounded mb-2 bg-white text-xs transition relative"
+    :class="[
+      (isSubclassFeature && subclassError && !selectedSubClassKey) || hasError ? 'border-red-400 ring-1 ring-red-400' : 'border-gray-200',
+      !isCollapsed ? 'focus-within:z-30' : ''
+    ]"
   >
     <div
       class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100 transition cursor-pointer select-none"
+      :class="isCollapsed ? 'rounded' : 'rounded-t'"
       @click="toggleCollapse"
     >
       <div class="flex items-center gap-2 flex-wrap">
@@ -134,7 +138,7 @@ const onSelectSubclass = (key) => {
     </div>
 
     <transition name="fade">
-      <div v-show="!isCollapsed" class="p-3 border-t border-gray-200 bg-white space-y-3">
+      <div v-show="!isCollapsed" class="p-3 border-t border-gray-200 bg-white space-y-3 rounded-b">
         <!-- Feature Entries / Explanations -->
         <div
           v-if="data.entries && (Array.isArray(data.entries) ? data.entries.length : true)"
@@ -182,21 +186,16 @@ const onSelectSubclass = (key) => {
 
             <!-- Fallback Dropdown -->
             <div v-else>
-              <select
-                :value="selectedSubClassKey"
-                @change="e => onSelectSubclass(e.target.value)"
-                :class="subclassError && !selectedSubClassKey ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-                class="w-full p-2 border rounded bg-white text-xs text-gray-900"
-              >
-                <option value="">Select a subclass...</option>
-                <option
-                  v-for="sc in availableSubClasses"
-                  :key="sc.name + '|' + (sc.source || '')"
-                  :value="sc.name + '|' + (sc.source || '')"
-                >
-                  {{ sc.name }} ({{ sc.source }})
-                </option>
-              </select>
+              <v-select
+                :model-value="selectedSubClassKey || null"
+                :options="availableSubClasses"
+                :reduce="sc => sc.name + '|' + (sc.source || '')"
+                :get-option-label="sc => `${sc.name} (${sc.source || 'PHB'})`"
+                :get-option-key="sc => sc.name + '|' + (sc.source || '')"
+                placeholder="Select a subclass..."
+                @update:model-value="val => onSelectSubclass(val || '')"
+                :class="{ 'has-error': subclassError && !selectedSubClassKey }"
+              />
             </div>
 
             <p v-if="subclassError && !selectedSubClassKey" class="mt-1 text-red-600 text-[11px] font-medium">

@@ -4,7 +4,15 @@ import axios from 'axios'
 import { useConfig } from '../config'
 import { useCharacterStore } from '../stores/character'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
-import { renderAnnotatedText, formatPrerequisite, format5eEntries } from '../utils/textRenderer'
+import {
+  renderAnnotatedText,
+  formatPrerequisite,
+  format5eEntries,
+  getItemCategoryAndRange,
+  getItemExpandedProperties,
+  getItemMastery,
+  getItemArmorDetails
+} from '../utils/textRenderer'
 import { IconArrowLeft, IconX } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
@@ -491,6 +499,11 @@ const formatEntries = (entries) => {
   return format5eEntries(entries)
 }
 
+const isItemCategory = (item) => {
+  if (!item) return false
+  return item._category === 'items' || !!item.itemType || !!item.damageDice || !!item.dmg1 || Number(item.ac || item.baseAc) > 0 || (Array.isArray(item.property) && item.property.length > 0)
+}
+
 const FEATURE_TYPE_NAMES = {
   EI: 'Eldritch Invocation',
   MM: 'Metamagic',
@@ -838,90 +851,90 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- Source Filter Dropdown -->
-          <div class="flex items-center gap-1.5">
-            <select
+          <div class="flex items-center gap-1.5 min-w-[130px]">
+            <v-select
               v-model="sourceFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="src in currentSourceOptions" :key="src.value" :value="src.value">
-                {{ src.label }}
-              </option>
-            </select>
+              :options="currentSourceOptions"
+              :reduce="src => src.value"
+              label="label"
+              :clearable="false"
+              class="w-full"
+              @update:model-value="fetchData"
+            />
           </div>
 
           <!-- Spells Sub-filters: Class Dropdown -->
-          <div v-if="activeTab === 'spells'" class="flex items-center gap-2">
-            <select
+          <div v-if="activeTab === 'spells'" class="flex items-center gap-2 min-w-[130px]">
+            <v-select
               v-model="spellClassFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="cls in spellClasses" :key="cls.value" :value="cls.value">
-                {{ cls.label }}
-              </option>
-            </select>
+              :options="spellClasses"
+              :reduce="cls => cls.value"
+              label="label"
+              :clearable="false"
+              class="w-full"
+              @update:model-value="fetchData"
+            />
           </div>
 
           <!-- Items Sub-filters -->
-          <div v-if="activeTab === 'items'" class="flex items-center gap-2">
-            <select
+          <div v-if="activeTab === 'items'" class="flex items-center gap-2 min-w-[130px]">
+            <v-select
               v-model="itemTypeFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="t in itemTypes" :key="t.value" :value="t.value">
-                {{ t.label }}
-              </option>
-            </select>
+              :options="itemTypes"
+              :reduce="t => t.value"
+              label="label"
+              :clearable="false"
+              class="w-full"
+              @update:model-value="fetchData"
+            />
           </div>
 
           <!-- Monsters Sub-filters: CR and Type -->
           <div v-if="activeTab === 'monsters'" class="flex items-center gap-2 flex-wrap">
-            <select
+            <v-select
               v-model="monsterCrFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="cr in monsterCrList" :key="cr.value" :value="cr.value">
-                {{ cr.label }}
-              </option>
-            </select>
-            <select
+              :options="monsterCrList"
+              :reduce="cr => cr.value"
+              label="label"
+              :clearable="false"
+              class="min-w-[120px]"
+              @update:model-value="fetchData"
+            />
+            <v-select
               v-model="monsterTypeFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="mt in monsterTypeList" :key="mt.value" :value="mt.value">
-                {{ mt.label }}
-              </option>
-            </select>
+              :options="monsterTypeList"
+              :reduce="mt => mt.value"
+              label="label"
+              :clearable="false"
+              class="min-w-[120px]"
+              @update:model-value="fetchData"
+            />
           </div>
 
           <!-- Feats Sub-filters -->
-          <div v-if="activeTab === 'feats'" class="flex items-center gap-2">
-            <select
+          <div v-if="activeTab === 'feats'" class="flex items-center gap-2 min-w-[130px]">
+            <v-select
               v-model="featCategoryFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="fc in featCategories" :key="fc.value" :value="fc.value">
-                {{ fc.label }}
-              </option>
-            </select>
+              :options="featCategories"
+              :reduce="fc => fc.value"
+              label="label"
+              :clearable="false"
+              class="w-full"
+              @update:model-value="fetchData"
+            />
           </div>
 
           <!-- Rules Sub-filters -->
-          <div v-if="activeTab === 'rules'" class="flex items-center gap-2">
-            <select
+          <div v-if="activeTab === 'rules'" class="flex items-center gap-2 min-w-[130px]">
+            <v-select
               v-model="ruleCategoryFilter"
-              @change="fetchData"
-              class="px-2.5 py-2 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:border-gray-900 focus:outline-none"
-            >
-              <option v-for="rc in ruleCategories" :key="rc.value" :value="rc.value">
-                {{ rc.label }}
-              </option>
-            </select>
+              :options="ruleCategories"
+              :reduce="rc => rc.value"
+              label="label"
+              :clearable="false"
+              class="w-full"
+              @update:model-value="fetchData"
+            />
           </div>
         </div>
 
@@ -1098,7 +1111,12 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selectedItem.damageDice || selectedItem.dmg1">
                 <span class="text-gray-400 block font-medium">Damage</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.damageDice || selectedItem.dmg1 }} {{ selectedItem.dmgType || '' }}</span>
+                <span class="font-semibold text-gray-800">
+                  {{ selectedItem.damageDice || selectedItem.dmg1 }} {{ selectedItem.dmgType || '' }}
+                  <span v-if="selectedItem.dmg2 || selectedItem.versatileDice" class="text-gray-500 font-normal">
+                    (Versatile {{ selectedItem.dmg2 || selectedItem.versatileDice }})
+                  </span>
+                </span>
               </div>
               <div v-if="selectedItem.ac || selectedItem.baseAc">
                 <span class="text-gray-400 block font-medium">AC</span>
@@ -1106,15 +1124,21 @@ onBeforeUnmount(() => {
               </div>
               <div v-if="selectedItem.weight">
                 <span class="text-gray-400 block font-medium">Weight</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.weight }} lb</span>
+                <span class="font-semibold text-gray-800">{{ String(selectedItem.weight).includes('lb') ? selectedItem.weight : `${selectedItem.weight} lb` }}</span>
               </div>
-              <div v-if="selectedItem.value || selectedItem.costCp">
+              <div v-if="selectedItem.cost || selectedItem.value || selectedItem.costCp">
                 <span class="text-gray-400 block font-medium">Cost</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.value ? `${selectedItem.value} cp` : '' }}</span>
+                <span class="font-semibold text-gray-800">{{ selectedItem.cost || (selectedItem.value ? `${selectedItem.value} cp` : (selectedItem.costCp ? `${selectedItem.costCp} cp` : '')) }}</span>
               </div>
-              <div v-if="selectedItem.mastery">
+              <div v-if="selectedItem.mastery && (!Array.isArray(selectedItem.mastery) || selectedItem.mastery.length > 0)">
                 <span class="text-gray-400 block font-medium">Mastery</span>
-                <span class="font-semibold text-gray-800 capitalize">{{ selectedItem.mastery }}</span>
+                <span class="font-semibold text-gray-800 capitalize">{{ Array.isArray(selectedItem.mastery) ? selectedItem.mastery.join(', ') : selectedItem.mastery }}</span>
+              </div>
+              <div v-if="(selectedItem.property && selectedItem.property.length) || (selectedItem.properties && selectedItem.properties.length)" class="col-span-2 sm:col-span-4">
+                <span class="text-gray-400 block font-medium">Properties</span>
+                <span class="font-semibold text-gray-800">
+                  {{ Array.isArray(selectedItem.properties || selectedItem.property) ? (selectedItem.properties || selectedItem.property).join(', ') : (selectedItem.properties || selectedItem.property) }}
+                </span>
               </div>
             </div>
 
@@ -1205,6 +1229,28 @@ onBeforeUnmount(() => {
             <!-- Description Body -->
             <div class="prose-xs leading-relaxed text-gray-800 space-y-2 pt-1">
               <div v-if="selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true)" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+              <!-- Dynamic Item Rules fallback for weapons, armor, and gear -->
+              <div v-else-if="isItemCategory(selectedItem)" class="space-y-3">
+                <div v-if="getItemCategoryAndRange(selectedItem)" class="italic text-gray-600 font-medium">
+                  {{ getItemCategoryAndRange(selectedItem) }}
+                </div>
+                <div v-if="getItemExpandedProperties(selectedItem).length > 0" class="space-y-2">
+                  <div v-for="(prop, pIdx) in getItemExpandedProperties(selectedItem)" :key="pIdx" class="text-xs">
+                    <strong class="text-gray-900">{{ prop.name }}.</strong>
+                    <span class="text-gray-700 ml-1">{{ prop.desc }}</span>
+                  </div>
+                </div>
+                <div v-if="getItemMastery(selectedItem)" class="text-xs">
+                  <strong class="text-gray-900">Mastery: {{ getItemMastery(selectedItem).name }}.</strong>
+                  <span class="text-gray-700 ml-1">{{ getItemMastery(selectedItem).desc }}</span>
+                </div>
+                <div v-if="getItemArmorDetails(selectedItem).length > 0" class="space-y-1 text-xs">
+                  <div v-for="(detail, dIdx) in getItemArmorDetails(selectedItem)" :key="dIdx">
+                    <strong class="text-gray-900">{{ detail.name }}.</strong>
+                    <span class="text-gray-700 ml-1">{{ detail.desc }}</span>
+                  </div>
+                </div>
+              </div>
               <div v-else-if="!selectedItem.trait && !selectedItem.action" class="text-gray-400 italic text-xs py-2">
                 No additional rules text recorded for this entry.
               </div>

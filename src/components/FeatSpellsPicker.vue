@@ -1,9 +1,9 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { renderAnnotatedText } from '../utils/textRenderer'
-import { IconSearch, IconX, IconChevronDown, IconChevronUp, IconCheck, IconPlus, IconSparkles } from '@tabler/icons-vue'
+import { IconSearch, IconX, IconChevronDown, IconChevronUp, IconCheck, IconPlus } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 
@@ -228,6 +228,20 @@ const canAddSpell = (spell) => {
   return !isLeveledLimitReached.value
 }
 
+const formatCastingTime = (spell) => {
+  if (!spell) return '1 action'
+  if (spell.casting_time && typeof spell.casting_time === 'string') {
+    return spell.casting_time
+  }
+  if (Array.isArray(spell.time) && spell.time[0]) {
+    const t = spell.time[0]
+    const unit = String(t.unit || 'action').trim()
+    if (/^\d/.test(unit)) return unit
+    return `${t.number || 1} ${unit}`
+  }
+  return '1 action'
+}
+
 const addSpellToModel = (spell, featSource = null) => {
   const feat = featSource || currentFeatSource.value
   if (!feat) return
@@ -244,9 +258,7 @@ const addSpellToModel = (spell, featSource = null) => {
     name: spell.name,
     level: Number(spell.level || 0),
     school: spell.school || '',
-    casting_time: Array.isArray(spell.time)
-      ? `${spell.time[0]?.number || 1} ${spell.time[0]?.unit || 'action'}`
-      : (spell.casting_time || '1 action'),
+    casting_time: formatCastingTime(spell),
     range: typeof spell.range === 'string' ? spell.range : (spell.range?.type || 'Self'),
     duration: typeof spell.duration === 'string' ? spell.duration : 'Instantaneous',
     components: typeof spell.components === 'string' ? spell.components : 'V, S',
@@ -294,6 +306,20 @@ const formatSpellEntryText = (entry) => {
   }
   return String(entry)
 }
+
+const onKeyDown = (e) => {
+  if (e.key === 'Escape') {
+    emit('close')
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
 </script>
 
 <template>
@@ -306,46 +332,44 @@ const formatSpellEntryText = (entry) => {
         type="button"
         @click="selectedFeatIdx = fIdx"
         :class="selectedFeatIdx === fIdx ? 'bg-gray-800 text-white font-bold shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
-        class="px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap text-xs flex items-center gap-1.5"
+        class="px-3 py-1.5 rounded transition cursor-pointer whitespace-nowrap text-xs"
       >
-        <IconSparkles class="w-3.5 h-3.5" />
         <span>{{ fSrc.featName }}</span>
       </button>
     </div>
 
-    <!-- Active Feat Info & Configuration -->
-    <div v-if="currentFeatSource" class="bg-gray-50 border border-gray-200 rounded p-3.5 space-y-2.5">
-      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-        <div>
-          <div class="flex items-center gap-2">
-            <h3 class="font-bold text-gray-900 text-sm flex items-center gap-1.5">
-              <IconSparkles class="w-4 h-4 text-gray-700 shrink-0" />
-              <span>{{ currentFeatSource.featName }}</span>
+    <!-- Active Feat Info & Configuration Banner -->
+    <div v-if="currentFeatSource" class="bg-gray-50 border border-gray-200 rounded p-3 text-xs space-y-2">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-200 pb-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <h3 class="font-bold text-gray-900 text-sm">
+              {{ currentFeatSource.featName }}
             </h3>
-            <span class="px-2 py-0.5 bg-gray-100 text-gray-700 border border-gray-200 font-semibold rounded text-[10px]">
+            <span class="px-1.5 py-0.5 bg-gray-100 text-gray-600 border border-gray-200 font-medium rounded text-[10px]">
               {{ currentFeatSource.sourceLabel }}
             </span>
           </div>
-          <p class="text-gray-600 text-[11px] mt-0.5">
+          <p class="text-gray-500 text-[11px] mt-0.5">
             {{ currentFeatSource.config?.desc || 'Select spells granted by this feat.' }}
           </p>
         </div>
+      </div>
 
-        <!-- Quota Progress Badges -->
-        <div class="flex items-center gap-2 shrink-0">
-          <div v-if="maxCantrips > 0" class="px-2 py-1 bg-white border border-gray-200 rounded text-center">
-            <span class="text-[9px] text-gray-500 uppercase block font-semibold">Cantrips</span>
-            <span class="font-bold text-xs font-mono" :class="chosenCantrips.length === maxCantrips ? 'text-gray-900 font-bold' : 'text-gray-700 font-bold'">
-              {{ chosenCantrips.length }} / {{ maxCantrips }}
-            </span>
-          </div>
+      <!-- Quota Progress Line -->
+      <div v-if="maxCantrips > 0 || maxLeveled > 0" class="flex items-center gap-4 text-xs pt-0.5">
+        <div v-if="maxCantrips > 0" class="flex items-center gap-1.5">
+          <span class="text-gray-500 font-medium">Cantrips:</span>
+          <span class="font-mono font-semibold text-gray-900">
+            {{ chosenCantrips.length }} / {{ maxCantrips }}
+          </span>
+        </div>
 
-          <div v-if="maxLeveled > 0" class="px-2 py-1 bg-white border border-gray-200 rounded text-center">
-            <span class="text-[9px] text-gray-500 uppercase block font-semibold">1st-Level</span>
-            <span class="font-bold text-xs font-mono" :class="chosenLeveled.length === maxLeveled ? 'text-gray-900 font-bold' : 'text-gray-700 font-bold'">
-              {{ chosenLeveled.length }} / {{ maxLeveled }}
-            </span>
-          </div>
+        <div v-if="maxLeveled > 0" class="flex items-center gap-1.5">
+          <span class="text-gray-500 font-medium">1st-Level:</span>
+          <span class="font-mono font-semibold text-gray-900">
+            {{ chosenLeveled.length }} / {{ maxLeveled }}
+          </span>
         </div>
       </div>
 
@@ -397,167 +421,150 @@ const formatSpellEntryText = (entry) => {
       </div>
     </div>
 
-    <!-- Spell Selection Compendium Browser -->
-    <div class="space-y-3 bg-white border border-gray-200 rounded p-3.5">
-      <div class="flex items-center justify-between pb-1 border-b border-gray-200">
-        <h4 class="font-bold text-gray-900 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
-          <span>Available Compendium Spells</span>
-          <span v-if="isFetchingSpells" class="text-gray-500 lowercase font-normal animate-pulse text-[10px]">Loading...</span>
-        </h4>
+    <!-- Filter & Search Controls -->
+    <div class="flex flex-col sm:flex-row gap-2 text-xs relative z-30">
+      <!-- Search Input -->
+      <div class="flex-1 relative">
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search spell by name..."
+          class="w-full pl-7 pr-3 py-1.5 border border-gray-300 rounded bg-white text-xs focus:ring-1 focus:ring-gray-500"
+        />
+        <IconSearch class="w-3.5 h-3.5 text-gray-400 absolute left-2 top-2.5 pointer-events-none" />
       </div>
 
-      <!-- Filter Controls -->
-      <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
-        <!-- Search Input -->
-        <div class="sm:col-span-2 relative">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Search spell by name..."
-            class="w-full pl-7 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded text-xs focus:bg-white focus:outline-hidden focus:border-gray-500"
-          />
-          <IconSearch class="w-3.5 h-3.5 text-gray-400 absolute left-2 top-2.5 pointer-events-none" />
-        </div>
-
-        <!-- Level Filter Buttons -->
-        <div class="inline-flex rounded border border-gray-200 overflow-hidden text-[11px]">
+      <!-- Filters: Level segmented control + Class dropdown -->
+      <div class="grid grid-cols-2 sm:flex items-center gap-2">
+        <div class="inline-flex rounded border border-gray-300 overflow-hidden text-[11px] h-[34px] items-stretch bg-white">
           <button
             type="button"
             @click="selectedLevelFilter = 'all'"
-            :class="selectedLevelFilter === 'all' ? 'bg-gray-800 text-white font-bold' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'"
-            class="px-2 py-1 flex-1 cursor-pointer"
+            :class="selectedLevelFilter === 'all' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            class="px-2.5 flex-1 flex items-center justify-center transition cursor-pointer"
           >
             All
           </button>
           <button
             type="button"
             @click="selectedLevelFilter = '0'"
-            :class="selectedLevelFilter === '0' ? 'bg-gray-800 text-white font-bold' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'"
-            class="px-2 py-1 flex-1 cursor-pointer border-l border-r border-gray-200"
+            :class="selectedLevelFilter === '0' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            class="px-2.5 flex-1 flex items-center justify-center border-l border-r border-gray-200 transition cursor-pointer"
           >
             Cantrips
           </button>
           <button
             type="button"
             @click="selectedLevelFilter = '1'"
-            :class="selectedLevelFilter === '1' ? 'bg-gray-800 text-white font-bold' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'"
-            class="px-2 py-1 flex-1 cursor-pointer"
+            :class="selectedLevelFilter === '1' ? 'bg-gray-800 text-white font-semibold' : 'bg-white text-gray-600 hover:bg-gray-50'"
+            class="px-2.5 flex-1 flex items-center justify-center transition cursor-pointer"
           >
             Level 1
           </button>
         </div>
 
-        <!-- Class Filter Dropdown (useful for Magic Initiate) -->
-        <div>
-          <select
-            v-model="selectedClassFilter"
-            class="w-full py-1.5 px-2 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700 focus:bg-white focus:outline-hidden focus:border-gray-900"
-          >
-            <option value="">All Spell Lists</option>
-            <option value="Cleric">Cleric</option>
-            <option value="Druid">Druid</option>
-            <option value="Wizard">Wizard</option>
-            <option value="Bard">Bard</option>
-            <option value="Sorcerer">Sorcerer</option>
-            <option value="Warlock">Warlock</option>
-            <option value="Paladin">Paladin</option>
-            <option value="Ranger">Ranger</option>
-            <option value="Artificer">Artificer</option>
-          </select>
-        </div>
+        <v-select
+          v-model="selectedClassFilter"
+          :options="['Cleric', 'Druid', 'Wizard', 'Bard', 'Sorcerer', 'Warlock', 'Paladin', 'Ranger', 'Artificer']"
+          placeholder="All Spell Lists"
+          class="min-w-0 sm:min-w-[130px]"
+        />
       </div>
+    </div>
 
-      <!-- Spells List -->
-      <div v-if="filteredCompendiumSpells.length > 0" class="max-h-96 overflow-y-auto space-y-1.5 pr-1 divide-y divide-gray-100">
-        <div
-          v-for="spell in filteredCompendiumSpells"
-          :key="spell.id || spell.name"
-          class="pt-1.5 first:pt-0"
-        >
-          <div class="p-2 bg-gray-50 hover:bg-gray-100/80 rounded border border-gray-200/80 transition flex items-center justify-between gap-2">
-            <div
-              @click="toggleSpellExpand(spell.name)"
-              class="flex-1 min-w-0 cursor-pointer select-none"
-            >
-              <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-bold text-gray-900 text-xs truncate">{{ spell.name }}</span>
-                <span class="text-[10px] px-1.5 py-0.2 rounded font-mono bg-gray-100 text-gray-700 border border-gray-200">
-                  {{ Number(spell.level) === 0 ? 'Cantrip' : 'Level ' + spell.level }}
-                </span>
-                <span v-if="spell.school" class="text-[10px] text-gray-500">
-                  {{ getSchoolLabel(spell.school) }}
-                </span>
-                <span v-if="spell.source" class="text-[9px] text-gray-400 font-mono">
-                  {{ spell.source }}
-                </span>
-              </div>
-              <div class="text-[10px] text-gray-500 mt-0.5 truncate">
-                Range: {{ typeof spell.range === 'string' ? spell.range : (spell.range?.type || 'Self') }} • Cast: {{ Array.isArray(spell.time) ? `${spell.time[0]?.number || 1} ${spell.time[0]?.unit || 'action'}` : (spell.casting_time || '1 action') }}
-              </div>
+    <!-- Spells List -->
+    <div v-if="filteredCompendiumSpells.length > 0" class="max-h-[420px] overflow-y-auto space-y-1.5 pr-1">
+      <div
+        v-for="spell in filteredCompendiumSpells"
+        :key="spell.id || spell.name"
+        class="border rounded p-2 transition bg-white text-xs select-none"
+        :class="[
+          isSpellAlreadyChosen(spell) ? 'border-gray-800 bg-gray-50 ring-1 ring-gray-800' : 'border-gray-200 hover:border-gray-300'
+        ]"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <div
+            @click="toggleSpellExpand(spell.name)"
+            class="flex-1 min-w-0 cursor-pointer"
+          >
+            <div class="font-bold text-gray-900 flex items-center gap-1.5 flex-wrap">
+              <span>{{ spell.name }}</span>
+              <span class="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+                {{ Number(spell.level) === 0 ? 'Cantrip' : 'Lv ' + spell.level }}
+              </span>
+              <span v-if="spell.school" class="text-[10px] px-1.5 py-0.2 bg-gray-100 text-gray-600 rounded font-normal">
+                {{ getSchoolLabel(spell.school) }}
+              </span>
             </div>
+            <div class="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5 font-mono">
+              <span>{{ formatCastingTime(spell) }}</span>
+              <span>•</span>
+              <span>{{ typeof spell.range === 'string' ? spell.range : (spell.range?.type || 'Self') }}</span>
+            </div>
+          </div>
 
-            <!-- Action buttons -->
-            <div class="flex items-center gap-1.5 shrink-0">
-              <template v-if="isSpellAlreadyChosen(spell)">
-                <button
-                  type="button"
-                  @click="removeSpellFromModel(spell)"
-                  class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer flex items-center gap-1 group"
-                  title="Click to remove"
-                >
-                  <IconCheck class="w-3 h-3 group-hover:hidden" />
-                  <IconX class="w-3 h-3 hidden group-hover:inline" />
-                  <span class="group-hover:hidden">Added</span>
-                  <span class="hidden group-hover:inline">Remove</span>
-                </button>
-              </template>
-
-              <template v-else>
-                <button
-                  type="button"
-                  @click="addSpellToModel(spell)"
-                  :disabled="!canAddSpell(spell)"
-                  :class="canAddSpell(spell) ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
-                  class="px-2.5 py-1 rounded font-semibold text-[10px] transition flex items-center gap-1 shadow-2xs"
-                  :title="!canAddSpell(spell) ? 'Spell limit reached for this feat' : 'Add spell to feat'"
-                >
-                  <IconPlus class="w-3 h-3" />
-                  <span>Add</span>
-                </button>
-              </template>
-
+          <!-- Action buttons -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <template v-if="isSpellAlreadyChosen(spell)">
               <button
                 type="button"
-                @click="toggleSpellExpand(spell.name)"
-                class="p-1 text-gray-400 hover:text-gray-700 cursor-pointer"
-                title="Toggle details"
+                @click="removeSpellFromModel(spell)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:border-red-300 hover:bg-red-50 hover:text-red-600 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer flex items-center gap-1 group"
+                title="Click to remove"
               >
-                <IconChevronUp v-if="expandedSpellIds[spell.name]" class="w-3.5 h-3.5" />
-                <IconChevronDown v-else class="w-3.5 h-3.5" />
+                <IconCheck class="w-3 h-3 text-gray-700 group-hover:hidden" />
+                <IconX class="w-3 h-3 text-red-600 hidden group-hover:inline" />
+                <span class="group-hover:hidden">Added</span>
+                <span class="hidden group-hover:inline">Remove</span>
               </button>
-            </div>
-          </div>
+            </template>
 
-          <!-- Expanded rules description -->
-          <div
-            v-if="expandedSpellIds[spell.name]"
-            class="p-2.5 mt-1 bg-white border border-gray-200 rounded text-gray-700 space-y-1.5 text-[11px] leading-relaxed"
-          >
-            <div v-if="spell.entries && spell.entries.length" class="space-y-1">
-              <div
-                v-for="(ent, eIdx) in (Array.isArray(spell.entries) ? spell.entries : [spell.entries])"
-                :key="eIdx"
-                v-html="renderAnnotatedText(formatSpellEntryText(ent))"
-              ></div>
-            </div>
-            <p v-else class="text-gray-400 italic">No rules text available.</p>
+            <template v-else>
+              <button
+                type="button"
+                @click="addSpellToModel(spell)"
+                :disabled="!canAddSpell(spell)"
+                :class="canAddSpell(spell) ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed'"
+                class="px-2.5 py-1 rounded font-semibold text-[10px] transition flex items-center gap-1 shadow-2xs"
+                :title="!canAddSpell(spell) ? 'Spell limit reached for this feat' : 'Add spell to feat'"
+              >
+                <IconPlus class="w-3 h-3" />
+                <span>Add</span>
+              </button>
+            </template>
+
+            <button
+              type="button"
+              @click="toggleSpellExpand(spell.name)"
+              class="text-gray-400 hover:text-gray-600 px-1 py-0.5 text-xs transition cursor-pointer"
+              title="Toggle details"
+            >
+              <IconChevronUp v-if="expandedSpellIds[spell.name]" class="w-3.5 h-3.5" />
+              <IconChevronDown v-else class="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
-      </div>
 
-      <div v-else class="p-6 text-center text-gray-400 italic bg-gray-50 border border-gray-100 rounded">
-        No compendium spells match the current filter.
+        <!-- Expanded rules description -->
+        <div
+          v-if="expandedSpellIds[spell.name]"
+          class="mt-2 pt-2 border-t border-gray-200 text-[11px] text-gray-700 space-y-1 leading-relaxed"
+        >
+          <div v-if="spell.entries && spell.entries.length" class="space-y-1">
+            <div
+              v-for="(ent, eIdx) in (Array.isArray(spell.entries) ? spell.entries : [spell.entries])"
+              :key="eIdx"
+              v-html="renderAnnotatedText(formatSpellEntryText(ent))"
+            ></div>
+          </div>
+          <p v-else class="text-gray-400 italic">No rules text available.</p>
+        </div>
       </div>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else class="p-6 text-center text-gray-400 bg-gray-50 border border-gray-200 rounded text-xs">
+      No spells match the current filter.
     </div>
   </div>
 </template>

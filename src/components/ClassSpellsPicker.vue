@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
 import { renderAnnotatedText } from '../utils/textRenderer'
-import { IconArrowLeft, IconArrowRight, IconChevronUp, IconChevronDown, IconX } from '@tabler/icons-vue'
+import { IconChevronUp, IconChevronDown } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
 
@@ -60,6 +60,17 @@ const getSchoolName = (code) => {
   const up = String(code).trim().toUpperCase()
   return SCHOOL_NAMES[up] || code
 }
+
+const schoolOptions = computed(() => [
+  { value: 'all', label: 'All Schools' },
+  ...Object.entries(SCHOOL_NAMES).map(([code, name]) => ({ value: code, label: name }))
+])
+
+const levelOptions = computed(() => [
+  { value: 'all', label: 'All Levels' },
+  { value: '0', label: 'Cantrips (Level 0)' },
+  ...Array.from({ length: Number(props.maxSpellLevel) || 9 }, (_, i) => ({ value: String(i + 1), label: `Level ${i + 1}` }))
+])
 
 // Determine Spellcasting Ability
 const spellcastingAbilityKey = computed(() => {
@@ -391,11 +402,23 @@ const parseJsonSafe = (val, fallback = []) => {
   }
 }
 
+const formatCastingTime = (spell) => {
+  if (!spell) return '1 action'
+  if (spell.casting_time && typeof spell.casting_time === 'string') {
+    return spell.casting_time
+  }
+  if (Array.isArray(spell.time) && spell.time[0]) {
+    const t = spell.time[0]
+    const unit = String(t.unit || 'action').trim()
+    if (/^\d/.test(unit)) return unit
+    return `${t.number || 1} ${unit}`
+  }
+  return '1 action'
+}
+
 const formatSpellPayload = (spell) => {
   const isCantrip = Number(spell.level || 0) === 0
-  const castingTime = Array.isArray(spell.time)
-    ? `${spell.time[0]?.number || 1} ${spell.time[0]?.unit || 'action'}`
-    : (spell.casting_time || '1 action')
+  const castingTime = formatCastingTime(spell)
   const rangeStr = typeof spell.range === 'string'
     ? spell.range
     : (spell.range?.type || (spell.range?.distance ? `${spell.range.distance.amount || ''} ${spell.range.distance.type || ''}`.trim() : 'Self'))
@@ -563,43 +586,29 @@ onBeforeUnmount(() => {
   <div class="space-y-4">
     <!-- Caster Overview Banner -->
     <div class="bg-gray-50 border border-gray-200 rounded p-3 text-xs space-y-2.5">
-      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 pb-2">
-        <div>
-          <span class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
+      <div class="flex items-center justify-between gap-2 border-b border-gray-200 pb-2">
+        <div class="min-w-0">
+          <span class="font-bold text-gray-900 uppercase tracking-wider text-[11px] truncate block">
             {{ className }} Spellcasting
           </span>
-          <span v-if="subclassName" class="text-gray-500 ml-1 font-medium">({{ subclassName }})</span>
+          <span v-if="subclassName" class="text-gray-500 text-[10px] font-medium block truncate">
+            {{ subclassName }}
+          </span>
         </div>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <button
-            type="button"
-            @click="emit('close')"
-            class="px-2.5 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
-          >
-            <IconArrowLeft class="w-3.5 h-3.5" />
-            <span>Back to Features</span>
-          </button>
-          <button
-            type="button"
-            @click="emit('close')"
-            class="px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 hover:text-gray-900 rounded text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
-            title="Close"
-          >
-            <IconX class="w-3.5 h-3.5" />
-            <span>Close</span>
-          </button>
+        <div class="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
             @click="autoSelectRecommended"
-            class="px-2.5 py-1 bg-white border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 rounded text-[11px] font-medium transition cursor-pointer"
+            class="px-2 py-1 bg-white border border-gray-300 hover:border-gray-400 text-gray-700 hover:text-gray-900 rounded text-[11px] font-medium transition cursor-pointer whitespace-nowrap"
           >
-            Auto-select Recommended
+            <span class="sm:hidden">Auto-select</span>
+            <span class="hidden sm:inline">Auto-select Recommended</span>
           </button>
           <button
             type="button"
             v-if="chosenSpells.length > 0"
             @click="clearAllSpells"
-            class="px-2 py-1 bg-white border border-gray-200 hover:border-red-300 text-gray-500 hover:text-red-600 rounded text-[11px] transition cursor-pointer"
+            class="px-2 py-1 bg-white border border-gray-200 hover:border-red-300 text-gray-500 hover:text-red-600 rounded text-[11px] transition cursor-pointer whitespace-nowrap"
           >
             Clear
           </button>
@@ -639,23 +648,17 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Selection Quota Trackers -->
-      <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+      <div v-if="maxCantrips > 0 || maxPreparedSpells > 0" class="flex items-center justify-between gap-2 pt-1 text-xs border-t border-gray-200/80">
         <div v-if="maxCantrips > 0" class="flex items-center gap-1.5">
-          <span class="text-gray-600 font-medium">Cantrips:</span>
-          <span
-            class="font-mono font-bold px-2 py-0.5 rounded border"
-            :class="chosenCantrips.length === maxCantrips ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-700'"
-          >
+          <span class="text-gray-500 font-medium">Cantrips:</span>
+          <span class="font-mono font-semibold text-gray-900">
             {{ chosenCantrips.length }} / {{ maxCantrips }}
           </span>
         </div>
 
         <div v-if="maxPreparedSpells > 0" class="flex items-center gap-1.5">
-          <span class="text-gray-600 font-medium">Prepared Spells:</span>
-          <span
-            class="font-mono font-bold px-2 py-0.5 rounded border"
-            :class="chosenLeveled.length === maxPreparedSpells ? 'bg-green-50 border-green-300 text-green-700' : 'bg-white border-gray-200 text-gray-700'"
-          >
+          <span class="text-gray-500 font-medium">Prepared Spells:</span>
+          <span class="font-mono font-semibold text-gray-900">
             {{ chosenLeveled.length }} / {{ maxPreparedSpells }}
           </span>
         </div>
@@ -668,7 +671,7 @@ onBeforeUnmount(() => {
     </p>
 
     <!-- Filter & Search Controls -->
-    <div class="flex flex-col sm:flex-row gap-2 text-xs">
+    <div class="flex flex-col sm:flex-row gap-2 text-xs relative z-30">
       <div class="flex-1">
         <input
           v-model="searchQuery"
@@ -678,27 +681,24 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <div class="flex gap-2">
-        <select
+      <div class="grid grid-cols-2 sm:flex gap-2">
+        <v-select
           v-model="selectedSchool"
-          class="p-2 border border-gray-300 rounded bg-white text-xs"
-        >
-          <option value="all">All Schools</option>
-          <option v-for="(name, code) in SCHOOL_NAMES" :key="code" :value="code">
-            {{ name }}
-          </option>
-        </select>
+          :options="schoolOptions"
+          :reduce="opt => opt.value"
+          label="label"
+          :clearable="false"
+          class="min-w-0 sm:min-w-[130px]"
+        />
 
-        <select
+        <v-select
           v-model="levelFilter"
-          class="p-2 border border-gray-300 rounded bg-white text-xs"
-        >
-          <option value="all">All Levels</option>
-          <option value="0">Cantrips (Level 0)</option>
-          <option v-for="l in maxSpellLevel" :key="l" :value="String(l)">
-            Level {{ l }}
-          </option>
-        </select>
+          :options="levelOptions"
+          :reduce="opt => opt.value"
+          label="label"
+          :clearable="false"
+          class="min-w-0 sm:min-w-[130px]"
+        />
       </div>
     </div>
 
@@ -717,16 +717,15 @@ onBeforeUnmount(() => {
       <!-- 1. Cantrips (Level 0) -->
       <div v-if="cantripSpells.length > 0 && (levelFilter === 'all' || levelFilter === '0')" class="space-y-1.5">
         <div class="flex items-center justify-between pb-1 border-b border-gray-200">
-          <div class="flex items-center gap-2">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Cantrips (Level 0)</h4>
-            <span class="text-[11px] text-gray-500">Basic at-will spells</span>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Cantrips</h4>
+            <span class="text-[10px] text-gray-500 font-normal hidden sm:inline">(Basic at-will spells)</span>
           </div>
           <span
             v-if="maxCantrips > 0"
-            class="text-[11px] font-mono font-medium"
-            :class="chosenCantrips.length === maxCantrips ? 'text-green-700' : 'text-gray-600'"
+            class="text-[11px] font-mono font-medium text-gray-600 shrink-0"
           >
-            {{ chosenCantrips.length }} / {{ maxCantrips }} Selected
+            {{ chosenCantrips.length }} / {{ maxCantrips }}
           </span>
         </div>
 
@@ -759,7 +758,7 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
                   <div class="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5 font-mono">
-                    <span>{{ Array.isArray(spell.time) ? `${spell.time[0]?.number || 1} ${spell.time[0]?.unit || 'action'}` : (spell.casting_time || '1 action') }}</span>
+                    <span>{{ formatCastingTime(spell) }}</span>
                     <span>•</span>
                     <span>{{ typeof spell.range === 'string' ? spell.range : (spell.range?.type || 'Self') }}</span>
                   </div>
@@ -793,16 +792,15 @@ onBeforeUnmount(() => {
       <!-- 2. Leveled Spells (Level 1+) -->
       <div v-if="leveledSpells.length > 0 && (levelFilter === 'all' || levelFilter !== '0')" class="space-y-1.5 pt-2">
         <div class="flex items-center justify-between pb-1 border-b border-gray-200">
-          <div class="flex items-center gap-2">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Leveled Spells (Level 1+)</h4>
-            <span class="text-[11px] text-gray-500">Spells requiring spell slots</span>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Leveled Spells</h4>
+            <span class="text-[10px] text-gray-500 font-normal hidden sm:inline">(Level 1+)</span>
           </div>
           <span
             v-if="maxPreparedSpells > 0"
-            class="text-[11px] font-mono font-medium"
-            :class="chosenLeveled.length === maxPreparedSpells ? 'text-green-700' : 'text-gray-600'"
+            class="text-[11px] font-mono font-medium text-gray-600 shrink-0"
           >
-            {{ chosenLeveled.length }} / {{ maxPreparedSpells }} Selected
+            {{ chosenLeveled.length }} / {{ maxPreparedSpells }}
           </span>
         </div>
 
@@ -841,7 +839,7 @@ onBeforeUnmount(() => {
                     </span>
                   </div>
                   <div class="text-[11px] text-gray-500 flex items-center gap-2 mt-0.5 font-mono">
-                    <span>{{ Array.isArray(spell.time) ? `${spell.time[0]?.number || 1} ${spell.time[0]?.unit || 'action'}` : (spell.casting_time || '1 action') }}</span>
+                    <span>{{ formatCastingTime(spell) }}</span>
                     <span>•</span>
                     <span>{{ typeof spell.range === 'string' ? spell.range : (spell.range?.type || 'Self') }}</span>
                   </div>
@@ -871,21 +869,6 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- Bottom Actions -->
-    <div class="flex items-center justify-between pt-3 border-t border-gray-200 bg-white p-3 rounded">
-      <span class="text-xs text-gray-500 font-medium">
-        {{ chosenSpells.length }} spells selected
-      </span>
-      <button
-        type="button"
-        @click="emit('close')"
-        class="px-4 py-2 bg-gray-800 hover:bg-gray-900 text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shadow-xs"
-      >
-        <span>Done / Back to Class Features</span>
-        <IconArrowRight class="w-4 h-4" />
-      </button>
     </div>
   </div>
 </template>
