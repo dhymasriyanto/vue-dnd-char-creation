@@ -417,10 +417,18 @@ const fetchData = async () => {
       const backgrounds = (Array.isArray(bgRes.data?.data) ? bgRes.data.data : []).map(i => ({ ...i, _category: 'backgrounds' }))
 
       const combined = [...classes, ...races, ...spells, ...items, ...monsters, ...feats, ...rules, ...optFeatures, ...backgrounds]
-      if (combined.length < 20) {
-        hasMore.value = false
-      }
-      rawList.value = combined
+      const anyHasMore = [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes].some(
+        r => (r.data?.data?.length || 0) >= 20
+      )
+      hasMore.value = anyHasMore
+
+      const seen = new Set()
+      rawList.value = combined.filter(item => {
+        const key = `${item._category}:${item.id ?? item.name}:${item.source || ''}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
     }
 
     if (src) {
@@ -488,10 +496,20 @@ const fetchMore = async () => {
       const backgrounds = (Array.isArray(bgRes.data?.data) ? bgRes.data.data : []).map(i => ({ ...i, _category: 'backgrounds' }))
 
       const nextBatch = [...classes, ...races, ...spells, ...items, ...monsters, ...feats, ...rules, ...optFeatures, ...backgrounds]
-      if (nextBatch.length === 0) {
-        hasMore.value = false
-      } else {
-        rawList.value = [...rawList.value, ...nextBatch]
+      const existingKeys = new Set(rawList.value.map(i => `${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+      let uniqueNext = nextBatch.filter(i => !existingKeys.has(`${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+      if (src) {
+        const srcUpper = src.toUpperCase()
+        uniqueNext = uniqueNext.filter(item => !item.source || item.source.toUpperCase() === srcUpper)
+      }
+
+      const anyHasMore = [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes].some(
+        r => (r.data?.data?.length || 0) >= 20
+      )
+      hasMore.value = anyHasMore && uniqueNext.length > 0
+
+      if (uniqueNext.length > 0) {
+        rawList.value = [...rawList.value, ...uniqueNext]
       }
       return
     }
@@ -535,11 +553,16 @@ const fetchMore = async () => {
     const list = Array.isArray(res.data?.data) ? res.data.data : []
     const mapped = list.map(item => ({ ...item, _category: activeTab.value }))
 
-    if (mapped.length < PAGE_SIZE) {
+    const existingKeys = new Set(rawList.value.map(i => `${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+    const uniqueNext = mapped.filter(i => !existingKeys.has(`${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+
+    if (mapped.length < PAGE_SIZE || uniqueNext.length === 0) {
       hasMore.value = false
     }
 
-    rawList.value = [...rawList.value, ...mapped]
+    if (uniqueNext.length > 0) {
+      rawList.value = [...rawList.value, ...uniqueNext]
+    }
   } catch (err) {
     console.error('Failed to load more compendium entries:', err)
     hasMore.value = false
