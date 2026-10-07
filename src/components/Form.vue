@@ -4412,7 +4412,8 @@ const submitForm = async () => {
 
     if (isEditMode.value) {
       await axios.put(`${API_URL}/character/${props.characterToEdit.id}`, payload)
-      const fullRes = await axios.get(`${API_URL}/character/${props.characterToEdit.id}`)
+      const charKey = props.characterToEdit.public_id || props.characterToEdit.id
+      const fullRes = await axios.get(`${API_URL}/character/${charKey}`)
       if (fullRes.data?.data) {
         emit('created', fullRes.data.data)
       } else {
@@ -4420,9 +4421,9 @@ const submitForm = async () => {
       }
     } else {
       const res = await axios.post(`${API_URL}/character`, payload)
-      const newId = res.data?.data?.id
-      if (newId) {
-        const fullRes = await axios.get(`${API_URL}/character/${newId}`)
+      const newKey = res.data?.data?.public_id || res.data?.data?.id
+      if (newKey) {
+        const fullRes = await axios.get(`${API_URL}/character/${newKey}`)
         if (fullRes.data?.data) {
           emit('created', fullRes.data.data)
         }

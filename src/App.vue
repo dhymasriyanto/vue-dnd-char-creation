@@ -79,14 +79,7 @@ const syncStateFromUrl = () => {
   const charMatch = pathname.match(/\/character\/([^/?#]+)/i)
   if (charMatch) {
     const charId = decodeURIComponent(charMatch[1])
-    // Strictly disallow numeric IDs in URL
-    if (/^\d+$/.test(charId)) {
-      errorMessage.value = 'Character not found. Access via unique character ID is required.'
-      selectedCharacter.value = null
-      currentView.value = 'list'
-      return
-    }
-    const isCurrent = selectedCharacter.value && String(selectedCharacter.value.public_id || '') === String(charId)
+    const isCurrent = selectedCharacter.value && String(selectedCharacter.value.public_id || selectedCharacter.value.id || '') === String(charId)
     if (!isCurrent) {
       selectCharacter(charId, false)
     } else {
@@ -241,11 +234,6 @@ const selectCharacter = async (id, updateUrl = true) => {
   isLoadingDetail.value = true
   errorMessage.value = ''
   try {
-    if (/^\d+$/.test(String(id).trim())) {
-      errorMessage.value = 'Character not found. Access via unique character ID is required.'
-      currentView.value = 'list'
-      return
-    }
     const res = await axios.get(`${API_URL}/character/${id}`)
     if (res.data?.data) {
       selectedCharacter.value = res.data.data
