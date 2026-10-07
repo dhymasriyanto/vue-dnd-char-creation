@@ -37,8 +37,10 @@ import {
   IconLink,
   IconCopy,
   IconBrandDiscord,
-  IconFileTypePdf
+  IconFileTypePdf,
+  IconLock
 } from '@tabler/icons-vue'
+import { useAuth } from '../composables/useAuth'
 import { compressImage } from '../utils/imageCompressor'
 import { LIFESTYLES } from '../utils/characteristicsHelper'
 import { buildAvraeJson, buildAvraeAttackMacro } from '../utils/avraeExport'
@@ -271,6 +273,8 @@ const showToast = (msg) => {
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 2500)
 }
 
+const { user } = useAuth()
+
 // Export & Share modal state
 const showExportModal = ref(false)
 const exportTab = ref('pdf') // 'pdf' | 'link' | 'avrae'
@@ -278,6 +282,36 @@ const copiedLink = ref(false)
 const copiedAvraeJson = ref(false)
 const copiedAvraeMacro = ref(false)
 const copiedAvraeApiUrl = ref(false)
+
+const charKey = computed(() => char.value?.public_id || char.value?.id)
+
+const isPublicChar = ref(char.value?.is_public !== false)
+watch(() => char.value?.is_public, (v) => {
+  isPublicChar.value = v !== false
+})
+
+const isUpdatingVisibility = ref(false)
+const toggleVisibility = async () => {
+  if (props.readOnly) return
+  if (!char.value?.id) return
+  const nextVal = !isPublicChar.value
+  isUpdatingVisibility.value = true
+  try {
+    await axios.put(`${API_URL}/character/${char.value.id}`, { is_public: nextVal })
+    isPublicChar.value = nextVal
+    if (char.value) char.value.is_public = nextVal
+    showToast(nextVal ? 'Character set to Public' : 'Character set to Private')
+  } catch (err) {
+    console.error('Failed to toggle visibility', err)
+    showToast('Failed to update visibility')
+  } finally {
+    isUpdatingVisibility.value = false
+  }
+}
+
+const resolvedPlayerName = computed(() => {
+  return char.value?.player_name || char.value?.owner_username || user.value?.username || user.value?.name || '—'
+})
 
 const openExportModal = (tab = 'pdf') => {
   exportTab.value = tab
@@ -290,12 +324,13 @@ const openExportModal = (tab = 'pdf') => {
 
 const publicShareUrl = computed(() => {
   if (typeof window === 'undefined') return ''
-  return `${window.location.origin}/?character=${char.value?.id}`
+  const basePath = window.location.pathname.replace(/\/character\/[^/]+/i, '').replace(/\/$/, '')
+  return `${window.location.origin}${basePath}/character/${charKey.value}`
 })
 
 const avraeApiUrl = computed(() => {
-  if (!char.value?.id) return ''
-  return `${API_URL}/character/${char.value.id}/avrae`
+  if (!charKey.value) return ''
+  return `${API_URL}/character/${charKey.value}/avrae`
 })
 
 const copyShareLink = async () => {
@@ -322,7 +357,7 @@ const copyAvraeApiUrl = async () => {
 
 const copyAvraeJson = async () => {
   try {
-    const data = buildAvraeJson(char.value)
+    const data = buildAvraeJson(char.value, currency.value)
     await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
     copiedAvraeJson.value = true
     showToast('Avrae character JSON copied')
@@ -346,14 +381,14 @@ const copyAvraeMacro = async () => {
 
 const downloadAvraeJson = () => {
   try {
-    const data = buildAvraeJson(char.value)
+    const data = buildAvraeJson(char.value, currency.value)
     const jsonStr = JSON.stringify(data, null, 2)
     const blob = new Blob([jsonStr], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     const safeName = (char.value?.name || 'character').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
     a.href = url
-    a.download = `${safeName}-avrae.json`
+    a.download = `${safeName}-${charKey.value}-avrae.json`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
@@ -2933,12 +2968,11 @@ watch(() => charSpells.value, (list) => {
         <button
           type="button"
           @click="openExportModal('pdf')"
-          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center gap-1 text-xs font-semibold px-2"
+          class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
           title="Export / Share Character (PDF, Link, Avrae)"
           aria-label="Export / Share Character"
         >
           <IconShare class="w-4 h-4 text-gray-700" />
-          <span class="hidden md:inline">Export</span>
         </button>
 
         <!-- Home -->
@@ -6954,14 +6988,38 @@ watch(() => charSpells.value, (list) => {
 
           <!-- 2. Public Link Tab -->
           <div v-else-if="exportTab === 'link'" class="space-y-4">
-            <div class="bg-blue-50/70 border border-blue-200 rounded-lg p-4 space-y-1.5">
-              <div class="font-bold text-blue-900 text-xs flex items-center gap-1.5">
-                <IconWorld class="w-4 h-4 text-blue-700" />
-                <span>Shareable Character Sheet</span>
+            <!-- Visibility Setting Card -->
+            <div
+              class="p-3.5 border rounded-lg flex items-center justify-between gap-3"
+              :class="isPublicChar ? 'bg-emerald-50/70 border-emerald-200' : 'bg-amber-50/70 border-amber-200'"
+            >
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span
+                  class="p-2 rounded-full shrink-0"
+                  :class="isPublicChar ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                >
+                  <IconWorld v-if="isPublicChar" class="w-4 h-4" />
+                  <IconLock v-else class="w-4 h-4" />
+                </span>
+                <div class="min-w-0">
+                  <div class="font-bold text-xs" :class="isPublicChar ? 'text-emerald-900' : 'text-amber-900'">
+                    {{ isPublicChar ? 'Public Character' : 'Private Character' }}
+                  </div>
+                  <div class="text-[11px]" :class="isPublicChar ? 'text-emerald-700' : 'text-amber-700'">
+                    {{ isPublicChar ? 'Anyone with this link can view this sheet' : 'Only you can view this sheet' }}
+                  </div>
+                </div>
               </div>
-              <p class="text-xs text-blue-800 leading-relaxed">
-                Anyone with this link can view this character sheet in read-only mode without needing to register or sign in.
-              </p>
+              <button
+                v-if="!readOnly"
+                type="button"
+                @click="toggleVisibility"
+                :disabled="isUpdatingVisibility"
+                class="px-3 py-1.5 rounded text-xs font-semibold border transition cursor-pointer shrink-0 disabled:opacity-50"
+                :class="isPublicChar ? 'border-amber-300 bg-white hover:bg-amber-50 text-amber-800' : 'border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800'"
+              >
+                {{ isUpdatingVisibility ? 'Saving...' : (isPublicChar ? 'Make Private' : 'Make Public') }}
+              </button>
             </div>
 
             <div>
@@ -6983,6 +7041,9 @@ watch(() => charSpells.value, (list) => {
                   <span>{{ copiedLink ? 'Copied!' : 'Copy Link' }}</span>
                 </button>
               </div>
+              <p v-if="!isPublicChar" class="text-[11px] text-amber-700 mt-1.5 italic">
+                * Note: This character is currently Private. Anyone opening this link without logging into your account will receive a private character notice.
+              </p>
             </div>
           </div>
 
@@ -7085,9 +7146,9 @@ watch(() => charSpells.value, (list) => {
   </div>
 
   <!-- Dedicated Printable Character Sheet (Visible only when printing) -->
-  <div class="hidden print:block printable-sheet w-full p-4 text-xs font-sans text-gray-900 bg-white">
+  <div class="hidden print:block printable-sheet w-full p-3 text-xs font-sans text-gray-900 bg-white">
     <!-- Header Block -->
-    <div class="border-2 border-gray-800 rounded p-3 mb-3 bg-white">
+    <div class="border-2 border-gray-800 rounded p-2.5 mb-2.5 bg-white">
       <div class="flex items-center justify-between gap-4">
         <!-- Character Name & Avatar -->
         <div class="flex items-center gap-3">
@@ -7095,8 +7156,12 @@ watch(() => charSpells.value, (list) => {
             <img :src="resolvedImageUrl" :alt="char.name" class="w-full h-full object-cover" />
           </div>
           <div>
-            <h1 class="text-xl font-bold uppercase tracking-wide text-gray-900 leading-tight">{{ char.name || 'Unnamed Character' }}</h1>
-            <div class="text-[11px] text-gray-600 font-medium">Character Name</div>
+            <input
+              type="text"
+              :value="char.name || 'Unnamed Character'"
+              class="text-xl font-bold uppercase tracking-wide text-gray-900 leading-tight bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0"
+            />
+            <div class="text-[10px] text-gray-600 font-medium">Character Name</div>
           </div>
         </div>
 
@@ -7111,7 +7176,11 @@ watch(() => charSpells.value, (list) => {
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Background</div>
           </div>
           <div>
-            <div class="font-bold text-gray-900">{{ char.player_name || '—' }}</div>
+            <input
+              type="text"
+              :value="resolvedPlayerName"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Player Name</div>
           </div>
           <div>
@@ -7119,11 +7188,19 @@ watch(() => charSpells.value, (list) => {
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Race</div>
           </div>
           <div>
-            <div class="font-bold text-gray-900">{{ parsedCharacteristics.alignment || char.alignment || '—' }}</div>
+            <input
+              type="text"
+              :value="parsedCharacteristics.alignment || char.alignment || '—'"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Alignment</div>
           </div>
           <div>
-            <div class="font-bold text-gray-900">{{ char.experience_points || '0' }}</div>
+            <input
+              type="text"
+              :value="char.experience_points || '0'"
+              class="font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none w-full p-0 text-[11px] leading-tight"
+            />
             <div class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold">Experience Points</div>
           </div>
         </div>
@@ -7131,38 +7208,104 @@ watch(() => charSpells.value, (list) => {
     </div>
 
     <!-- Core Vitals Summary Bar -->
-    <div class="grid grid-cols-6 gap-2 mb-3 text-center">
-      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
-        <div class="text-[9px] font-bold uppercase text-gray-600">Armor Class</div>
-        <div class="text-base font-bold text-gray-900">{{ vtt.combat?.armor_class || 10 }}</div>
+    <div class="grid grid-cols-6 gap-2 mb-2.5 text-center">
+      <!-- Armor Class with SVG Shield -->
+      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 flex flex-col items-center justify-center relative min-h-[56px]">
+        <svg
+          class="absolute inset-0 w-full h-full p-0.5"
+          viewBox="0 0 100 88"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M 5 6 Q 50 10 95 6 C 96.5 42 85 66 50 84 C 15 66 3.5 42 5 6 Z"
+            fill="#ffffff"
+            stroke="#1f2937"
+            stroke-width="2.5"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M 11 12 Q 50 15.5 89 12 C 90 42 80 63 50 78 C 20 63 10 42 11 12 Z"
+            fill="none"
+            stroke="#9ca3af"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <div class="relative z-10 flex flex-col items-center justify-center text-center">
+          <span class="text-[7.5px] font-bold text-gray-600 uppercase tracking-tight leading-none">ARMOR CLASS</span>
+          <input
+            type="text"
+            :value="vtt.combat?.armor_class || currentArmorClass || 10"
+            class="w-10 text-center font-black text-base text-gray-900 bg-transparent border-0 focus:outline-none p-0 leading-none mt-0.5"
+          />
+        </div>
       </div>
-      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
-        <div class="text-[9px] font-bold uppercase text-gray-600">Initiative</div>
-        <div class="text-base font-bold text-gray-900">{{ (vtt.combat?.initiative >= 0 ? '+' : '') + (vtt.combat?.initiative || 0) }}</div>
+
+      <!-- Initiative -->
+      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 flex flex-col items-center justify-center">
+        <div class="text-[9px] font-bold uppercase text-gray-600 leading-none mb-1">Initiative</div>
+        <input
+          type="text"
+          :value="(vtt.combat?.initiative >= 0 ? '+' : '') + (vtt.combat?.initiative || 0)"
+          class="w-12 text-center text-base font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none"
+        />
       </div>
-      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
-        <div class="text-[9px] font-bold uppercase text-gray-600">Speed</div>
-        <div class="text-base font-bold text-gray-900">{{ vtt.combat?.speed || 30 }} ft.</div>
+
+      <!-- Speed -->
+      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 flex flex-col items-center justify-center">
+        <div class="text-[9px] font-bold uppercase text-gray-600 leading-none mb-1">Speed</div>
+        <div class="flex items-center justify-center text-base font-bold text-gray-900 leading-none">
+          <input
+            type="text"
+            :value="vtt.combat?.speed || 30"
+            class="w-8 text-center text-base font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none"
+          />
+          <span class="text-xs font-normal text-gray-600 ml-0.5">ft.</span>
+        </div>
       </div>
-      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50">
-        <div class="text-[9px] font-bold uppercase text-gray-600">Prof. Bonus</div>
-        <div class="text-base font-bold text-gray-900">+{{ vtt.proficiency_bonus || 2 }}</div>
+
+      <!-- Prof Bonus -->
+      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 flex flex-col items-center justify-center">
+        <div class="text-[9px] font-bold uppercase text-gray-600 leading-none mb-1">Prof. Bonus</div>
+        <input
+          type="text"
+          :value="'+' + (vtt.proficiency_bonus || 2)"
+          class="w-10 text-center text-base font-bold text-gray-900 bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none"
+        />
       </div>
-      <div class="border border-gray-800 rounded p-1.5 bg-gray-50/50 col-span-2">
-        <div class="text-[9px] font-bold uppercase text-gray-600">Hit Points (Current / Max)</div>
-        <div class="text-base font-bold text-gray-900">
-          {{ char.hp != null ? char.hp : (vtt.combat?.hp?.max || 10) }} / {{ vtt.combat?.hp?.max || 10 }}
-          <span v-if="char.temp_hp" class="text-xs font-normal text-gray-600">(+{{ char.temp_hp }} Temp)</span>
+
+      <!-- Hit Points -->
+      <div class="border border-gray-800 rounded p-1 bg-gray-50/50 col-span-2 flex flex-col items-center justify-center">
+        <div class="text-[9px] font-bold uppercase text-gray-600 leading-none mb-1">Hit Points (Current / Max)</div>
+        <div class="flex items-center justify-center gap-1 text-base font-bold text-gray-900 leading-none">
+          <input
+            type="text"
+            :value="char.hp != null ? char.hp : (vtt.combat?.hp?.max || 10)"
+            class="w-9 text-center font-bold bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none"
+          />
+          <span class="text-gray-400">/</span>
+          <input
+            type="text"
+            :value="vtt.combat?.hp?.max || 10"
+            class="w-9 text-center font-bold bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none"
+          />
+          <span class="text-[10px] font-normal text-gray-500 ml-1.5">Temp:</span>
+          <input
+            type="text"
+            :value="char.temp_hp || 0"
+            class="w-7 text-center text-xs font-semibold bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 leading-none text-gray-700"
+          />
         </div>
       </div>
     </div>
 
     <!-- 3-Column Sheet Layout -->
-    <div class="grid grid-cols-12 gap-3 mb-3">
+    <div class="grid grid-cols-12 gap-2.5 mb-2.5">
       <!-- Left Column: Abilities & Saves, Senses, Proficiencies (span 4) -->
-      <div class="col-span-4 space-y-2.5">
+      <div class="col-span-4 space-y-2">
         <!-- Ability Scores & Saving Throws -->
-        <div class="border border-gray-800 rounded p-2">
+        <div class="border border-gray-800 rounded p-2 break-inside-avoid">
           <div class="text-[10px] font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 text-gray-800 tracking-wider">Abilities & Saving Throws</div>
           <div class="space-y-1">
             <div
@@ -7170,45 +7313,70 @@ watch(() => charSpells.value, (list) => {
               :key="ability"
               class="flex items-center justify-between p-1 border border-gray-200 rounded text-[11px]"
             >
-              <div class="w-10">
+              <div class="w-12 flex items-center">
                 <span class="font-bold uppercase text-[10px] text-gray-700">{{ ability.slice(0, 3) }}</span>
-                <span class="text-xs font-semibold ml-1 text-gray-900">{{ vtt.abilities?.[ability]?.score || 10 }}</span>
+                <input
+                  type="text"
+                  :value="vtt.abilities?.[ability]?.score || 10"
+                  class="w-6 text-center text-xs font-semibold text-gray-900 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 ml-1"
+                />
               </div>
-              <div class="font-bold text-sm px-1.5 py-0.5 rounded bg-gray-100 border border-gray-300">
-                {{ vtt.abilities?.[ability]?.modifier >= 0 ? '+' : '' }}{{ vtt.abilities?.[ability]?.modifier || 0 }}
+              <div class="font-bold text-xs px-1 py-0.5 rounded bg-gray-100 border border-gray-300">
+                <input
+                  type="text"
+                  :value="(vtt.abilities?.[ability]?.modifier >= 0 ? '+' : '') + (vtt.abilities?.[ability]?.modifier || 0)"
+                  class="w-7 text-center font-bold text-xs text-gray-900 bg-transparent border-0 focus:outline-none p-0"
+                />
               </div>
               <div class="text-right text-[10px] flex items-center gap-1">
                 <span class="text-gray-500 text-[9px]">SAVE</span>
                 <span :class="vtt.saving_throws?.[ability]?.proficient ? 'font-bold text-gray-900' : 'text-gray-600'">
                   {{ vtt.saving_throws?.[ability]?.proficient ? '●' : '○' }}
-                  {{ vtt.saving_throws?.[ability]?.modifier_string || '+0' }}
                 </span>
+                <input
+                  type="text"
+                  :value="vtt.saving_throws?.[ability]?.modifier_string || '+0'"
+                  class="w-6 text-right text-[10px] bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0"
+                  :class="vtt.saving_throws?.[ability]?.proficient ? 'font-bold text-gray-900' : 'text-gray-600'"
+                />
               </div>
             </div>
           </div>
         </div>
 
         <!-- Passive Senses -->
-        <div class="border border-gray-800 rounded p-2 text-[10px]">
+        <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
           <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Passive Senses</div>
           <div class="space-y-0.5">
-            <div class="flex justify-between">
+            <div class="flex justify-between items-center">
               <span class="text-gray-600">Passive Perception (WIS)</span>
-              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_perception || 10 }}</span>
+              <input
+                type="text"
+                :value="vtt.senses?.passive_perception || 10"
+                class="w-6 text-right font-bold text-gray-900 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[10px]"
+              />
             </div>
-            <div class="flex justify-between">
+            <div class="flex justify-between items-center">
               <span class="text-gray-600">Passive Investigation (INT)</span>
-              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_investigation || 10 }}</span>
+              <input
+                type="text"
+                :value="vtt.senses?.passive_investigation || 10"
+                class="w-6 text-right font-bold text-gray-900 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[10px]"
+              />
             </div>
-            <div class="flex justify-between">
+            <div class="flex justify-between items-center">
               <span class="text-gray-600">Passive Insight (WIS)</span>
-              <span class="font-bold text-gray-900">{{ vtt.senses?.passive_insight || 10 }}</span>
+              <input
+                type="text"
+                :value="vtt.senses?.passive_insight || 10"
+                class="w-6 text-right font-bold text-gray-900 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[10px]"
+              />
             </div>
           </div>
         </div>
 
         <!-- Proficiencies & Languages -->
-        <div class="border border-gray-800 rounded p-2 text-[10px]">
+        <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
           <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Proficiencies & Languages</div>
           <div v-if="char.language?.length" class="mb-1.5">
             <span class="font-bold text-gray-700">Languages: </span>
@@ -7222,9 +7390,9 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Middle Column: Attacks, Spellcasting, Equipment & Currency (span 4) -->
-      <div class="col-span-4 space-y-2.5">
+      <div class="col-span-4 space-y-2">
         <!-- Attacks & Weapons -->
-        <div class="border border-gray-800 rounded p-2 text-[10px]">
+        <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
           <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Attacks & Spellcasting</div>
           
           <!-- Spellcasting overview if caster -->
@@ -7235,11 +7403,19 @@ watch(() => charSpells.value, (list) => {
             </div>
             <div>
               <div class="text-[8px] uppercase text-gray-500 font-bold">Save DC</div>
-              <div class="font-bold text-gray-900 text-[10px]">{{ charSpellSaveDc }}</div>
+              <input
+                type="text"
+                :value="charSpellSaveDc"
+                class="w-6 text-center font-bold text-gray-900 text-[10px] bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0"
+              />
             </div>
             <div>
               <div class="text-[8px] uppercase text-gray-500 font-bold">Atk Bonus</div>
-              <div class="font-bold text-gray-900 text-[10px]">+{{ charSpellAttackBonus }}</div>
+              <input
+                type="text"
+                :value="'+' + charSpellAttackBonus"
+                class="w-6 text-center font-bold text-gray-900 text-[10px] bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0"
+              />
             </div>
           </div>
 
@@ -7253,9 +7429,21 @@ watch(() => charSpells.value, (list) => {
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="atk in (vtt.attacks || [])" :key="atk.name" class="text-[10px]">
-                <td class="py-1 font-semibold text-gray-900 truncate max-w-[90px]">{{ atk.name }}</td>
-                <td class="py-1 text-center font-bold text-gray-800">{{ atk.attack_bonus >= 0 ? '+' : '' }}{{ atk.attack_bonus }}</td>
-                <td class="py-1 text-right text-gray-700 truncate max-w-[90px]">{{ atk.damage_roll }} {{ atk.damage_type }}</td>
+                <td class="py-1 font-semibold text-gray-900 truncate max-w-[85px]">{{ atk.name }}</td>
+                <td class="py-1 text-center font-bold text-gray-800">
+                  <input
+                    type="text"
+                    :value="(atk.attack_bonus >= 0 ? '+' : '') + atk.attack_bonus"
+                    class="w-7 text-center font-bold text-gray-800 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[10px]"
+                  />
+                </td>
+                <td class="py-1 text-right text-gray-700">
+                  <input
+                    type="text"
+                    :value="atk.damage_roll + ' ' + (atk.damage_type || '')"
+                    class="w-20 text-right text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[10px]"
+                  />
+                </td>
               </tr>
               <tr v-if="!vtt.attacks || vtt.attacks.length === 0" class="text-[10px] text-gray-400 italic">
                 <td colspan="3" class="py-1">No equipped weapons</td>
@@ -7265,18 +7453,33 @@ watch(() => charSpells.value, (list) => {
         </div>
 
         <!-- Equipment & Coins -->
-        <div class="border border-gray-800 rounded p-2 text-[10px]">
+        <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
           <div class="flex justify-between items-center border-b border-gray-300 pb-1 mb-1.5">
             <span class="font-bold uppercase tracking-wider text-gray-800">Equipment & Coins</span>
           </div>
 
-          <!-- Coin purse -->
+          <!-- Coin purse (Uses reactive currency state with editable inputs) -->
           <div class="grid grid-cols-5 gap-1 mb-2 text-center text-[9px] font-bold">
-            <div class="border border-gray-200 rounded p-1 bg-amber-50/50">CP: {{ char.treasure?.copper || 0 }}</div>
-            <div class="border border-gray-200 rounded p-1 bg-gray-50">SP: {{ char.treasure?.silver || 0 }}</div>
-            <div class="border border-gray-200 rounded p-1 bg-blue-50/50">EP: {{ char.treasure?.electrum || 0 }}</div>
-            <div class="border border-gray-200 rounded p-1 bg-yellow-50">GP: {{ char.treasure?.gold || 0 }}</div>
-            <div class="border border-gray-200 rounded p-1 bg-purple-50/50">PP: {{ char.treasure?.platinum || 0 }}</div>
+            <div class="border border-gray-200 rounded p-1 bg-amber-50/50 flex items-center justify-center gap-0.5">
+              <span>CP:</span>
+              <input type="text" :value="currency.cp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div class="border border-gray-200 rounded p-1 bg-gray-50 flex items-center justify-center gap-0.5">
+              <span>SP:</span>
+              <input type="text" :value="currency.sp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div class="border border-gray-200 rounded p-1 bg-blue-50/50 flex items-center justify-center gap-0.5">
+              <span>EP:</span>
+              <input type="text" :value="currency.ep" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div class="border border-gray-200 rounded p-1 bg-yellow-50 flex items-center justify-center gap-0.5">
+              <span>GP:</span>
+              <input type="text" :value="currency.gp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div class="border border-gray-200 rounded p-1 bg-purple-50/50 flex items-center justify-center gap-0.5">
+              <span>PP:</span>
+              <input type="text" :value="currency.pp" class="w-6 text-center font-bold bg-transparent border-0 focus:outline-none p-0 text-[9px]" />
+            </div>
           </div>
 
           <div class="max-h-56 overflow-hidden space-y-0.5">
@@ -7293,9 +7496,9 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Right Column: Skills & Characteristics (span 4) -->
-      <div class="col-span-4 space-y-2.5">
+      <div class="col-span-4 space-y-2">
         <!-- Skills List -->
-        <div class="border border-gray-800 rounded p-2 text-[10px]">
+        <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
           <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Skills</div>
           <div class="space-y-0.5">
             <div
@@ -7303,7 +7506,7 @@ watch(() => charSpells.value, (list) => {
               :key="sKey"
               class="flex items-center justify-between py-0.5 text-[10px]"
             >
-              <div class="flex items-center gap-1 truncate max-w-[150px]">
+              <div class="flex items-center gap-1 truncate max-w-[140px]">
                 <span class="text-[9px] font-mono text-gray-800 w-3 text-center">
                   {{ sData.expertise ? '★' : (sData.proficient ? '●' : '○') }}
                 </span>
@@ -7312,28 +7515,58 @@ watch(() => charSpells.value, (list) => {
                 </span>
                 <span class="text-[8px] text-gray-400 uppercase font-semibold">({{ sData.ability.slice(0, 3) }})</span>
               </div>
-              <span :class="sData.proficient ? 'font-bold text-gray-900' : 'text-gray-600'">
-                {{ sData.total >= 0 ? '+' : '' }}{{ sData.total }}
-              </span>
+              <input
+                type="text"
+                :value="(sData.total >= 0 ? '+' : '') + sData.total"
+                class="w-6 text-right text-[10px] bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0"
+                :class="sData.proficient ? 'font-bold text-gray-900' : 'text-gray-600'"
+              />
             </div>
           </div>
         </div>
 
         <!-- Personality & Characteristics -->
-        <div class="border border-gray-800 rounded p-2 text-[10px] space-y-1.5">
+        <div class="border border-gray-800 rounded p-2 text-[10px] space-y-1.5 break-inside-avoid">
           <div class="font-bold uppercase border-b border-gray-300 pb-1 tracking-wider text-gray-800">Characteristics</div>
           
           <!-- Details Grid -->
           <div class="grid grid-cols-3 gap-1 text-[9px] text-gray-600 border-b border-gray-100 pb-1.5">
-            <div><span class="font-bold text-gray-800">Gender: </span>{{ parsedCharacteristics.gender || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Age: </span>{{ parsedCharacteristics.age || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Size: </span>{{ parsedCharacteristics.size || 'Medium' }}</div>
-            <div><span class="font-bold text-gray-800">Height: </span>{{ parsedCharacteristics.height || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Weight: </span>{{ parsedCharacteristics.weight || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Faith: </span>{{ parsedCharacteristics.faith || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Eyes: </span>{{ parsedCharacteristics.eyes || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Skin: </span>{{ parsedCharacteristics.skin || '—' }}</div>
-            <div><span class="font-bold text-gray-800">Hair: </span>{{ parsedCharacteristics.hair || '—' }}</div>
+            <div>
+              <span class="font-bold text-gray-800">Gender: </span>
+              <input type="text" :value="parsedCharacteristics.gender || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Age: </span>
+              <input type="text" :value="parsedCharacteristics.age || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Size: </span>
+              <input type="text" :value="parsedCharacteristics.size || 'Medium'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Height: </span>
+              <input type="text" :value="parsedCharacteristics.height || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Weight: </span>
+              <input type="text" :value="parsedCharacteristics.weight || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Faith: </span>
+              <input type="text" :value="parsedCharacteristics.faith || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Eyes: </span>
+              <input type="text" :value="parsedCharacteristics.eyes || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Skin: </span>
+              <input type="text" :value="parsedCharacteristics.skin || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
+            <div>
+              <span class="font-bold text-gray-800">Hair: </span>
+              <input type="text" :value="parsedCharacteristics.hair || '—'" class="w-10 font-medium text-gray-700 bg-transparent border-0 border-b border-gray-200 focus:outline-none p-0 text-[9px]" />
+            </div>
           </div>
 
           <div v-if="parsedCharacteristics.personalityTraits?.length" class="text-[9px]">
@@ -7359,11 +7592,11 @@ watch(() => charSpells.value, (list) => {
       </div>
     </div>
 
-    <!-- Second Section (Page 2 / Features, Traits, Spells) -->
-    <div class="page-break-before break-inside-avoid space-y-3 mt-4 pt-3 border-t-2 border-gray-800">
+    <!-- Features, Traits, Spells Section (Natural break-inside-avoid, no forced page break) -->
+    <div class="break-inside-avoid space-y-2 mt-2 pt-2 border-t border-gray-300">
       <!-- Features & Traits -->
-      <div class="border border-gray-800 rounded p-2.5 text-[10px]">
-        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-2 tracking-wider text-gray-800">Features & Traits</div>
+      <div class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
+        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Features & Traits</div>
         <div class="grid grid-cols-2 gap-3">
           <!-- Class & Subclass Features -->
           <div>
@@ -7401,8 +7634,8 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Spells Section (if caster or has spells) -->
-      <div v-if="charSpells?.length" class="border border-gray-800 rounded p-2.5 text-[10px]">
-        <div class="flex justify-between items-center border-b border-gray-300 pb-1 mb-2">
+      <div v-if="charSpells?.length" class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
+        <div class="flex justify-between items-center border-b border-gray-300 pb-1 mb-1.5">
           <span class="font-bold uppercase tracking-wider text-gray-800">Spells Known & Prepared</span>
           <span class="text-[9px] text-gray-600">DC {{ charSpellSaveDc }} &bull; Atk +{{ charSpellAttackBonus }}</span>
         </div>
@@ -7422,11 +7655,18 @@ watch(() => charSpells.value, (list) => {
         </div>
 
         <!-- Leveled Spells -->
-        <div v-if="sheetLeveledSpells?.length" class="space-y-2">
-          <div v-for="lvl in activeSpellsByLevel" :key="lvl" class="border-t border-gray-100 pt-1.5">
+        <div v-if="sheetLeveledSpells?.length" class="space-y-1.5">
+          <div v-for="lvl in activeSpellsByLevel" :key="lvl" class="border-t border-gray-100 pt-1">
             <div class="flex items-center justify-between mb-1">
               <span class="font-bold text-gray-800 text-[9px] uppercase">Level {{ lvl }} Spells</span>
-              <span class="text-[9px] text-gray-500">Slots: {{ getMaxSlots(lvl) }}</span>
+              <div class="flex items-center gap-1 text-[9px] text-gray-500">
+                <span>Slots:</span>
+                <input
+                  type="text"
+                  :value="getMaxSlots(lvl)"
+                  class="w-5 text-center font-bold text-gray-800 bg-transparent border-0 border-b border-gray-300 focus:outline-none p-0 text-[9px]"
+                />
+              </div>
             </div>
             <div class="flex flex-wrap gap-1.5">
               <span
@@ -7442,9 +7682,9 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Appearance & Backstory -->
-      <div v-if="parsedCharacteristics.appearance || sheetNotes.backstory" class="border border-gray-800 rounded p-2.5 text-[10px]">
-        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1.5 tracking-wider text-gray-800">Appearance & Backstory</div>
-        <div v-if="parsedCharacteristics.appearance" class="mb-2">
+      <div v-if="parsedCharacteristics.appearance || sheetNotes.backstory" class="border border-gray-800 rounded p-2 text-[10px] break-inside-avoid">
+        <div class="font-bold uppercase border-b border-gray-300 pb-1 mb-1 tracking-wider text-gray-800">Appearance & Backstory</div>
+        <div v-if="parsedCharacteristics.appearance" class="mb-1.5">
           <div class="font-semibold text-gray-800 text-[9px] uppercase mb-0.5">Physical Appearance</div>
           <p class="text-gray-600 leading-relaxed whitespace-pre-wrap text-[10px]">{{ parsedCharacteristics.appearance }}</p>
         </div>
@@ -7471,7 +7711,7 @@ watch(() => charSpells.value, (list) => {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 8mm;
+    margin: 6mm 8mm;
   }
   body, html {
     background: white !important;
@@ -7490,9 +7730,15 @@ watch(() => charSpells.value, (list) => {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  .page-break-before {
-    break-before: page !important;
-    page-break-before: always !important;
+  input {
+    border-color: #d1d5db !important;
+    color: #111827 !important;
+    -moz-appearance: textfield;
+  }
+  input::-webkit-outer-spin-button,
+  input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
   }
 }
 </style>

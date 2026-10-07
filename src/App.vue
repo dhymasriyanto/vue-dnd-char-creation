@@ -35,6 +35,10 @@ const mainMenu = ref('characters') // 'characters' | 'campaign'
 const campaignRoomId = ref(null)
 const isMobileNavOpen = ref(false)
 
+const getCleanBasePath = () => {
+  return window.location.pathname.replace(/\/character\/[^/]+/i, '').replace(/\/$/, '')
+}
+
 const syncStateFromUrl = () => {
   const p = new URLSearchParams(window.location.search)
 
@@ -61,10 +65,16 @@ const syncStateFromUrl = () => {
   // If not compendium URL, ensure compendium is closed
   closeCompendium()
 
-  // 2. Character detail requested (?character=ID or ?id=ID)
-  const charId = p.get('character') || p.get('id')
+  // 2. Character detail requested (/character/:id or ?character=ID or ?id=ID)
+  const pathMatch = window.location.pathname.match(/\/character\/([^/?#]+)/i)
+  const pathCharId = pathMatch ? decodeURIComponent(pathMatch[1]) : null
+  const charId = pathCharId || p.get('character') || p.get('id')
   if (charId) {
-    if (selectedCharacter.value?.id !== Number(charId)) {
+    const isCurrent = selectedCharacter.value && (
+      String(selectedCharacter.value.public_id || '') === String(charId) ||
+      String(selectedCharacter.value.id || '') === String(charId)
+    )
+    if (!isCurrent) {
       selectCharacter(charId, false)
     } else {
       currentView.value = 'sheet'
@@ -116,12 +126,13 @@ watch([isAuthReady, isAuthenticated], ([ready, auth]) => {
   if (ready && auth) {
     syncStateFromUrl()
   } else if (ready && !auth) {
+    const pathMatch = window.location.pathname.match(/\/character\/([^/?#]+)/i)
     const params = new URLSearchParams(window.location.search)
-    if (!params.has('compendium') && !params.get('character') && !params.get('id')) {
+    if (!params.has('compendium') && !params.get('character') && !params.get('id') && !pathMatch) {
       selectedCharacter.value = null
       characterToEdit.value = null
       currentView.value = 'list'
-    } else if (params.get('character') || params.get('id')) {
+    } else if (params.get('character') || params.get('id') || pathMatch) {
       syncStateFromUrl()
     }
   }
@@ -132,7 +143,8 @@ const switchMainMenu = (tab) => {
   currentView.value = 'list'
   selectedCharacter.value = null
   closeCompendium()
-  const url = new URL(window.location.origin + window.location.pathname)
+  const basePath = getCleanBasePath()
+  const url = new URL(`${window.location.origin}${basePath}/`)
   if (tab === 'campaign') {
     if (campaignRoomId.value) {
       url.searchParams.set('campaign', campaignRoomId.value)
@@ -149,7 +161,8 @@ const openCampaignFromSheet = (campId) => {
   selectedCharacter.value = null
   closeCompendium()
   mainMenu.value = 'campaign'
-  const url = new URL(window.location.origin + window.location.pathname)
+  const basePath = getCleanBasePath()
+  const url = new URL(`${window.location.origin}${basePath}/`)
   if (campId) {
     url.searchParams.set('campaign', campId)
   } else {
@@ -170,7 +183,8 @@ const openWizard = () => {
   selectedCharacter.value = null
   closeCompendium()
   currentView.value = 'wizard'
-  const url = new URL(window.location.origin + window.location.pathname)
+  const basePath = getCleanBasePath()
+  const url = new URL(`${window.location.origin}${basePath}/`)
   url.searchParams.set('create', '1')
   window.history.pushState({ view: 'wizard' }, '', url.toString())
 }
@@ -186,9 +200,11 @@ const editCharacter = async (id, updateUrl = true) => {
       closeCompendium()
       currentView.value = 'wizard'
       if (updateUrl) {
-        const url = new URL(window.location.origin + window.location.pathname)
-        url.searchParams.set('edit', id)
-        window.history.pushState({ view: 'wizard', editId: id }, '', url.toString())
+        const charKey = res.data.data.public_id || res.data.data.id || id
+        const basePath = getCleanBasePath()
+        const url = new URL(`${window.location.origin}${basePath}/`)
+        url.searchParams.set('edit', charKey)
+        window.history.pushState({ view: 'wizard', editId: charKey }, '', url.toString())
       }
     } else {
       errorMessage.value = 'Character data not found'
@@ -208,7 +224,8 @@ const backToList = (updateUrl = true) => {
   currentView.value = 'list'
   closeCompendium()
   if (updateUrl) {
-    const url = new URL(window.location.origin + window.location.pathname)
+    const basePath = getCleanBasePath()
+    const url = new URL(`${window.location.origin}${basePath}/`)
     if (mainMenu.value === 'campaign') {
       if (campaignRoomId.value) {
         url.searchParams.set('campaign', campaignRoomId.value)
@@ -230,16 +247,23 @@ const selectCharacter = async (id, updateUrl = true) => {
       currentView.value = 'sheet'
       closeCompendium()
       if (updateUrl) {
-        const url = new URL(window.location.origin + window.location.pathname)
-        url.searchParams.set('character', id)
-        window.history.pushState({ view: 'sheet', id }, '', url.toString())
+        const charKey = res.data.data.public_id || res.data.data.id || id
+        const basePath = getCleanBasePath()
+        const targetUrl = `${window.location.origin}${basePath}/character/${charKey}`
+        window.history.pushState({ view: 'sheet', id: charKey }, '', targetUrl)
       }
     } else {
       errorMessage.value = 'Character data not found'
     }
   } catch (err) {
     console.error('Failed to load character detail', err)
-    errorMessage.value = 'Failed to load character details'
+    if (err.response?.status === 403) {
+      errorMessage.value = 'This character is private. Only the creator can view it.'
+    } else if (err.response?.status === 404) {
+      errorMessage.value = 'Character not found.'
+    } else {
+      errorMessage.value = 'Failed to load character details'
+    }
   } finally {
     isLoadingDetail.value = false
   }
@@ -250,17 +274,19 @@ const onCharacterSaved = (charData) => {
   selectedCharacter.value = charData
   currentView.value = 'sheet'
   closeCompendium()
-  if (charData?.id) {
-    const url = new URL(window.location.origin + window.location.pathname)
-    url.searchParams.set('character', charData.id)
-    window.history.replaceState({ view: 'sheet', id: charData.id }, '', url.toString())
+  if (charData) {
+    const charKey = charData.public_id || charData.id
+    const basePath = getCleanBasePath()
+    const targetUrl = `${window.location.origin}${basePath}/character/${charKey}`
+    window.history.replaceState({ view: 'sheet', id: charKey }, '', targetUrl)
   }
 }
 
 watch(isAuthenticated, (authenticated) => {
   if (!authenticated) {
+    const pathMatch = window.location.pathname.match(/\/character\/([^/?#]+)/i)
     const params = new URLSearchParams(window.location.search)
-    if (!params.get('character') && !params.get('id')) {
+    if (!params.get('character') && !params.get('id') && !pathMatch) {
       selectedCharacter.value = null
       characterToEdit.value = null
       currentView.value = 'list'

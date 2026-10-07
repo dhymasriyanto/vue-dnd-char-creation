@@ -186,7 +186,7 @@ onMounted(() => {
         <div
           v-for="c in filteredCharacters"
           :key="c.id"
-          @click="emit('select', c.id)"
+          @click="emit('select', c.public_id || c.id)"
           class="p-3 space-y-2 hover:bg-gray-50 cursor-pointer transition"
         >
           <div class="flex items-start justify-between gap-2">
@@ -218,7 +218,7 @@ onMounted(() => {
           <div class="flex items-center justify-end gap-1 pt-2 border-t border-gray-100" @click.stop>
             <button
               type="button"
-              @click="emit('select', c.id)"
+              @click="emit('select', c.public_id || c.id)"
               title="View Sheet"
               aria-label="View Sheet"
               class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
@@ -227,7 +227,7 @@ onMounted(() => {
             </button>
             <button
               type="button"
-              @click="emit('edit', c.id)"
+              @click="emit('edit', c.public_id || c.id)"
               title="Edit"
               aria-label="Edit"
               class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
@@ -265,7 +265,7 @@ onMounted(() => {
             <tr
               v-for="c in filteredCharacters"
               :key="c.id"
-              @click="emit('select', c.id)"
+              @click="emit('select', c.public_id || c.id)"
               class="hover:bg-gray-50 cursor-pointer transition"
             >
               <td class="py-3 px-3">
@@ -305,7 +305,7 @@ onMounted(() => {
                 <div class="inline-flex items-center gap-1" @click.stop>
                   <button
                     type="button"
-                    @click="emit('select', c.id)"
+                    @click="emit('select', c.public_id || c.id)"
                     title="View Sheet"
                     aria-label="View Sheet"
                     class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
@@ -314,7 +314,7 @@ onMounted(() => {
                   </button>
                   <button
                     type="button"
-                    @click="emit('edit', c.id)"
+                    @click="emit('edit', c.public_id || c.id)"
                     title="Edit"
                     aria-label="Edit"
                     class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"

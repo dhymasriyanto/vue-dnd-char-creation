@@ -19,8 +19,17 @@ const SKILL_AVRAE_MAP = {
   persuasion: 'persuasion'
 }
 
-export function buildAvraeJson(char, origin = window.location.origin) {
+export function buildAvraeJson(char, arg2 = null, arg3 = null) {
   if (!char) return {}
+  let origin = typeof window !== 'undefined' ? window.location.origin : ''
+  let customCurrency = null
+  if (typeof arg2 === 'string') {
+    origin = arg2
+    customCurrency = arg3
+  } else if (arg2 && typeof arg2 === 'object') {
+    customCurrency = arg2
+    if (typeof arg3 === 'string') origin = arg3
+  }
   const vtt = char.vtt || {}
 
   const stats = {
@@ -81,12 +90,13 @@ export function buildAvraeJson(char, origin = window.location.origin) {
   }))
 
   const tr = char.treasure || {}
+  const coin = customCurrency || tr
   const coinpurse = {
-    cp: Number(tr.copper || 0),
-    sp: Number(tr.silver || 0),
-    ep: Number(tr.electrum || 0),
-    gp: Number(tr.gold || 0),
-    pp: Number(tr.platinum || 0)
+    cp: Number(coin.cp ?? coin.copper ?? 0),
+    sp: Number(coin.sp ?? coin.silver ?? 0),
+    ep: Number(coin.ep ?? coin.electrum ?? 0),
+    gp: Number(coin.gp ?? coin.gold ?? 0),
+    pp: Number(coin.pp ?? coin.platinum ?? 0)
   }
 
   let chars = char.characteristics
@@ -117,7 +127,7 @@ export function buildAvraeJson(char, origin = window.location.origin) {
     name: char.name || 'Unnamed Character',
     description: chars.appearance || chars.notes?.backstory || '',
     image: imgUrl,
-    upstream: origin ? `${origin}/?character=${char.id}` : '',
+    upstream: origin ? `${origin}/character/${char.public_id || char.id}` : '',
     stats,
     levels,
     total_level: totalLevel,
