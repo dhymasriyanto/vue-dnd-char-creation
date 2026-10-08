@@ -1,6 +1,8 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { renderAnnotatedText, format5eEntries } from '../utils/textRenderer';
+import { parseRawEntries, unpackFeatureList } from '../utils/featureUnpacker';
+import { IconChevronDown } from '@tabler/icons-vue';
 
 const props = defineProps({
   selected: {
@@ -199,6 +201,37 @@ const getAvailableOptions = (slotIdx) => {
     label: `${ABIL_NAMES[opt] || opt.toUpperCase()} (+1)`
   }))
 }
+const openTraits = ref({});
+const toggleTrait = (key) => {
+  openTraits.value[key] = !openTraits.value[key];
+};
+
+const unpackedRaceData = computed(() => {
+  const rawList = parseRawEntries(props.selected?.entries);
+  if (!rawList.length) return { intro: [], traits: [] };
+
+  const intro = [];
+  const rawTraits = [];
+
+  for (const item of rawList) {
+    if (!item) continue;
+    if (typeof item === 'string') {
+      intro.push(item);
+    } else if (item.name && typeof item.name === 'string') {
+      rawTraits.push(item);
+    } else if (Array.isArray(item.entries)) {
+      for (const sub of item.entries) {
+        if (typeof sub === 'string') intro.push(sub);
+        else if (sub && sub.name) rawTraits.push(sub);
+      }
+    } else {
+      intro.push(item);
+    }
+  }
+
+  const traits = unpackFeatureList(rawTraits);
+  return { intro, traits };
+});
 </script>
 
 <template>
@@ -440,12 +473,42 @@ const getAvailableOptions = (slotIdx) => {
         </template>
       </span>
     </p>
-    <div v-if="selected.entries && selected.entries.length">
-      <hr class="my-4 border-gray-200">
+    <div v-if="unpackedRaceData.intro.length || unpackedRaceData.traits.length" class="mt-4 pt-3 border-t border-gray-200">
       <div
-        class="space-y-2 text-gray-700 leading-relaxed text-xs"
-        v-html="renderAnnotatedText(format5eEntries(selected.entries))"
+        v-if="unpackedRaceData.intro.length"
+        class="space-y-2 text-gray-700 leading-relaxed text-xs mb-3"
+        v-html="renderAnnotatedText(format5eEntries(unpackedRaceData.intro))"
       ></div>
+
+      <div v-if="unpackedRaceData.traits.length" class="space-y-1.5">
+        <div
+          v-for="(trait, idx) in unpackedRaceData.traits"
+          :key="trait.name + idx"
+          class="border border-gray-200 rounded bg-white text-xs transition overflow-hidden"
+        >
+          <div
+            class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100 transition cursor-pointer select-none"
+            @click="toggleTrait(trait.name + idx)"
+          >
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-gray-900">{{ trait.name }}</span>
+              <span class="text-[11px] font-medium text-gray-600">Species Trait</span>
+            </div>
+            <IconChevronDown
+              class="w-4 h-4 text-gray-500 transition-transform duration-200"
+              :class="{ '-rotate-180': openTraits[trait.name + idx] }"
+            />
+          </div>
+
+          <transition name="fade">
+            <div
+              v-show="openTraits[trait.name + idx]"
+              class="p-3 border-t border-gray-200 bg-white text-gray-700 leading-relaxed space-y-2"
+              v-html="renderAnnotatedText(format5eEntries(trait.entries))"
+            ></div>
+          </transition>
+        </div>
+      </div>
     </div>
   </div>
 </template>

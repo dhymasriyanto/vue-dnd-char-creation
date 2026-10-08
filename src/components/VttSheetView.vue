@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import axios from 'axios'
 import {
   renderAnnotatedText,
@@ -10,6 +10,7 @@ import {
   formatBackgroundAbility,
   formatProficiencies
 } from '../utils/textRenderer'
+import { parseRawEntries, unpackFeatureList } from '../utils/featureUnpacker'
 import { useConfig } from '../config'
 import { useCompendiumNav } from '../composables/useCompendiumNav'
 import {
@@ -2593,11 +2594,12 @@ const saveCustomItem = () => {
   showToast('Custom item added')
 }
 
-// --- Class Table Progression ---
+// --- Class Table Progression & Subclass Features ---
 const classTableData = ref(null)
 const isLoadingClassTable = ref(false)
 const selectedClassTableClass = ref('')
 const inspectingFeature = ref(null)
+const fullSubclassFeatures = ref([])
 
 const availableClassNames = computed(() => {
   const list = []
@@ -2613,10 +2615,148 @@ const availableClassNames = computed(() => {
   return list
 })
 
+const charSubClasses = computed(() => {
+  if (!char.value) return []
+  if (Array.isArray(char.value.sub_class)) return char.value.sub_class
+  if (char.value.sub_class) return [char.value.sub_class]
+  if (Array.isArray(char.value.sub_classes)) return char.value.sub_classes
+  return []
+})
+
+const currentTableSubclass = computed(() => {
+  const currentClsName = (selectedClassTableClass.value || availableClassNames.value[0] || charClassName.value || '').trim().toLowerCase()
+  const classes = charClassesList.value
+  const subClasses = charSubClasses.value
+
+  const matchingClass = classes.find(c => {
+    const cName = (c?.name || c?.class?.name || (typeof c === 'string' ? c : '')).trim().toLowerCase()
+    return cName === currentClsName
+  })
+
+  if (matchingClass && matchingClass.id) {
+    const matchByClassId = subClasses.find(sc => String(sc.class_id) === String(matchingClass.id))
+    if (matchByClassId) return matchByClassId
+  }
+
+  const cIdx = classes.findIndex(c => {
+    const cName = (c?.name || c?.class?.name || (typeof c === 'string' ? c : '')).trim().toLowerCase()
+    return cName === currentClsName
+  })
+  if (cIdx >= 0 && subClasses[cIdx]) {
+    return subClasses[cIdx]
+  }
+
+  if (subClasses.length > 0) {
+    return subClasses[0]
+  }
+  return null
+})
+
 const currentClassTableLevel = computed(() => {
   const cls = selectedClassTableClass.value || availableClassNames.value[0] || charClassName.value
   return getCharClassLevel(cls)
 })
+
+const fetchSubclassProgression = async () => {
+  const subClasses = charSubClasses.value
+  if (!subClasses || subClasses.length === 0) return
+
+  const edition = char.value?.edition || '2024'
+  const classes = charClassesList.value
+  const collected = []
+
+  for (let idx = 0; idx < subClasses.length; idx++) {
+    const sc = subClasses[idx]
+    const scName = sc?.name || sc?.short_name || ''
+    if (!scName) continue
+
+    const parentClass = classes.find(c => {
+      const cId = c?.id || c?.class?.id
+      return cId && sc?.class_id && String(cId) === String(sc.class_id)
+    }) || classes[idx]
+    const className = parentClass?.name || parentClass?.class?.name || (typeof parentClass === 'string' ? parentClass : '') || charClassName.value || ''
+
+    try {
+      const res = await axios.get(`${API_URL}/compendium/subclass-detail`, {
+        params: {
+          name: scName,
+          class_name: className,
+          edition
+        }
+      })
+      if (res.data?.data?.features) {
+        res.data.data.features.forEach(f => {
+          collected.push({
+            ...f,
+            subclassName: scName,
+            subclassId: sc.id || res.data.data.id,
+            className: className
+          })
+        })
+      }
+    } catch (err) {
+      console.warn('Failed to fetch subclass detail for', scName, err)
+    }
+  }
+
+  if (collected.length > 0) {
+    fullSubclassFeatures.value = collected
+  }
+}
+
+const getSubclassFeaturesForLevel = (lvl) => {
+  const sc = currentTableSubclass.value
+  if (!sc) return []
+  const scName = (sc.name || sc.short_name || '').trim().toLowerCase()
+
+  let list = fullSubclassFeatures.value.filter(f => {
+    const fScName = (f.subclassName || '').trim().toLowerCase()
+    const matchesSc = !fScName || fScName === scName || (f.subclassId && sc.id && String(f.subclassId) === String(sc.id))
+    return matchesSc && Number(f.level) === Number(lvl)
+  })
+
+  if (list.length === 0 && Array.isArray(char.value?.sub_class_feature)) {
+    list = char.value.sub_class_feature.filter(f => {
+      const matchesSc = !f.sub_class_id || !sc.id || String(f.sub_class_id) === String(sc.id)
+      return matchesSc && Number(f.level) === Number(lvl)
+    })
+  }
+
+  const seen = new Set()
+  const result = []
+  const hasSpecificFeatures = list.some(f => (f.name || '').trim().toLowerCase() !== scName)
+
+  for (const f of list) {
+    const name = (f.name || '').trim().toLowerCase()
+    if (!name || seen.has(name)) continue
+    if (name === scName && hasSpecificFeatures) continue
+    seen.add(name)
+    result.push(f)
+  }
+
+  return result
+}
+
+const isSubclassFeatureName = (name) => {
+  if (!name || typeof name !== 'string') return false
+  const lower = name.toLowerCase()
+  return (
+    lower.includes('subclass feature') ||
+    lower.includes('tradition feature') ||
+    lower.includes('path feature') ||
+    lower.includes('archetype feature') ||
+    lower.includes('domain feature') ||
+    lower.includes('circle feature') ||
+    lower.includes('college feature') ||
+    lower.includes('oath feature') ||
+    lower.includes('patron feature') ||
+    lower.includes('origin feature') ||
+    lower.includes('specialist feature') ||
+    lower.includes('specialty feature') ||
+    lower.includes('conclave feature') ||
+    Boolean(classTableData.value?.subclassTitle && lower.includes(classTableData.value.subclassTitle.toLowerCase()))
+  )
+}
 
 const fetchClassTable = async () => {
   const cls = selectedClassTableClass.value || availableClassNames.value[0] || charClassName.value
@@ -2637,11 +2777,44 @@ const fetchClassTable = async () => {
   }
 }
 
-const toggleFeatureDetail = (feat) => {
-  if (inspectingFeature.value?.name === feat.name && inspectingFeature.value?.level === feat.level) {
+const toggleFeatureDetail = (feat, level) => {
+  const featLevel = level || feat.level
+  if (inspectingFeature.value?.name === feat.name && inspectingFeature.value?.level === featLevel) {
+    inspectingFeature.value = null
+    return
+  }
+
+  const subFeaturesAtLevel = getSubclassFeaturesForLevel(featLevel)
+  const isScPlaceholder = isSubclassFeatureName(feat.name)
+
+  if (isScPlaceholder && subFeaturesAtLevel.length > 0) {
+    const sc = currentTableSubclass.value
+    inspectingFeature.value = {
+      ...feat,
+      name: feat.name,
+      level: featLevel,
+      isSubclass: true,
+      subclassTitle: sc?.name || 'Subclass',
+      subclassFeatures: subFeaturesAtLevel
+    }
+  } else {
+    inspectingFeature.value = {
+      ...feat,
+      level: featLevel
+    }
+  }
+}
+
+const toggleSubclassFeatureDetail = (scf, level) => {
+  const featLevel = level || scf.level
+  if (inspectingFeature.value?.name === scf.name && inspectingFeature.value?.level === featLevel) {
     inspectingFeature.value = null
   } else {
-    inspectingFeature.value = feat
+    inspectingFeature.value = {
+      ...scf,
+      level: featLevel,
+      isSubclass: true
+    }
   }
 }
 
@@ -2651,13 +2824,25 @@ watch(activeTab, (tab) => {
       selectedClassTableClass.value = availableClassNames.value[0] || charClassName.value
     }
     fetchClassTable()
+    fetchSubclassProgression()
+  } else if (tab === 'features') {
+    fetchSubclassProgression()
   }
 })
 
 watch(selectedClassTableClass, (newVal) => {
   if (activeTab.value === 'class_table' && newVal) {
     fetchClassTable()
+    fetchSubclassProgression()
   }
+})
+
+watch(() => char.value?.sub_class, () => {
+  fetchSubclassProgression()
+}, { deep: true })
+
+onMounted(() => {
+  fetchSubclassProgression()
 })
 
 // Weapon calculations & Combat Actions
@@ -2849,32 +3034,9 @@ const activeCharSources = computed(() => {
   return sources
 })
 
-const embeddedFeatureNames = computed(() => {
-  const set = new Set()
-  const walk = (entries, parentName) => {
-    if (!Array.isArray(entries)) return
-    for (const it of entries) {
-      if (!it || typeof it !== 'object') continue
-      if (it.name && typeof it.name === 'string') {
-        const n = it.name.trim().toLowerCase()
-        if (n && n !== parentName) set.add(n)
-      }
-      if (Array.isArray(it.entries)) walk(it.entries, parentName)
-    }
-  }
-  const all = [...(char.value?.class_feature || []), ...(char.value?.sub_class_feature || [])]
-  for (const f of all) {
-    const pName = (f?.name || '').trim().toLowerCase()
-    if (Array.isArray(f?.entries)) walk(f.entries, pName)
-  }
-  return set
-})
-
 const filteredClassFeatures = computed(() => {
-  const list = char.value.class_feature || []
+  const list = char.value?.class_feature || []
   return list.filter(cf => {
-    const name = (cf.name || '').trim().toLowerCase()
-    if (name && embeddedFeatureNames.value.has(name)) return false
     if (!cf.source) return true
     const src = cf.source.toUpperCase()
     if (isOptionalFeature(cf) && !activeCharSources.value.has(src)) return false
@@ -2883,15 +3045,94 @@ const filteredClassFeatures = computed(() => {
 })
 
 const filteredSubClassFeatures = computed(() => {
-  const list = char.value.sub_class_feature || []
-  return list.filter(scf => {
+  let list = Array.isArray(char.value?.sub_class_feature) ? [...char.value.sub_class_feature] : []
+
+  // Supplement with fullSubclassFeatures if available
+  if (fullSubclassFeatures.value.length > 0) {
+    const existingNames = new Set(list.map(f => (f.name || '').trim().toLowerCase()))
+    for (const sf of fullSubclassFeatures.value) {
+      const clsName = sf.className || charClassName.value
+      const maxLvl = getCharClassLevel(clsName) || Number(char.value?.level) || 1
+      const sfLvl = Number(sf.level || 1)
+      if (sfLvl <= maxLvl) {
+        const sName = (sf.name || '').trim().toLowerCase()
+        if (!existingNames.has(sName)) {
+          list.push(sf)
+          existingNames.add(sName)
+        }
+      }
+    }
+  }
+
+  const seen = new Set()
+  const scNames = new Set((charSubClasses.value || []).map(sc => (sc.name || sc.short_name || '').trim().toLowerCase()))
+
+  const hasOtherAtLevel = (fName, fLevel) => {
+    return list.some(other => {
+      const oName = (other.name || '').trim().toLowerCase()
+      return oName !== fName && Number(other.level) === Number(fLevel) && !scNames.has(oName)
+    })
+  }
+
+  const result = []
+  for (const scf of list) {
     const name = (scf.name || '').trim().toLowerCase()
-    if (name && embeddedFeatureNames.value.has(name)) return false
-    if (!scf.source) return true
-    const src = scf.source.toUpperCase()
-    if (isOptionalFeature(scf) && !activeCharSources.value.has(src)) return false
-    return true
+    if (!name || seen.has(name)) continue
+
+    // Skip intro feature container if there are distinct specific features at this level
+    if (scNames.has(name) && hasOtherAtLevel(name, scf.level)) {
+      continue
+    }
+
+    if (scf.source) {
+      const src = scf.source.toUpperCase()
+      if (isOptionalFeature(scf) && !activeCharSources.value.has(src)) continue
+    }
+
+    let scfEntries = scf.entries
+    if (!scfEntries || scfEntries.length === 0) {
+      const fallback = fullSubclassFeatures.value.find(sf => (sf.name || '').trim().toLowerCase() === name)
+      if (fallback?.entries?.length) scfEntries = fallback.entries
+    }
+
+    seen.add(name)
+    result.push({
+      ...scf,
+      entries: scfEntries
+    })
+  }
+  return result
+})
+
+const combinedClassFeatures = computed(() => {
+  const cFeats = (filteredClassFeatures.value || []).map(f => ({
+    ...f,
+    isSubclass: false
+  }))
+  const scFeats = (filteredSubClassFeatures.value || []).map(f => ({
+    ...f,
+    isSubclass: true
+  }))
+
+  const unpacked = unpackFeatureList([...cFeats, ...scFeats]).map(f => ({
+    ...f,
+    _key: (f.isSubclass ? 'scf_' : 'cf_') + (f.id || f.name)
+  }))
+
+  return unpacked.sort((a, b) => {
+    const lvlA = Number(a.level) || 0
+    const lvlB = Number(b.level) || 0
+    if (lvlA !== lvlB) return lvlA - lvlB
+    if (a.isSubclass !== b.isSubclass) return a.isSubclass ? 1 : -1
+    return (a.name || '').localeCompare(b.name || '')
   })
+})
+
+const unpackedTraits = computed(() => {
+  return unpackFeatureList(char.value?.trait || []).map(t => ({
+    ...t,
+    _key: 'tr_' + (t.id || t.name)
+  }))
 })
 
 // Features expand/collapse state
@@ -2935,9 +3176,8 @@ const isOptionalFeature = (feat) => {
 // Collect all feature keys for expand all
 const allFeatureKeys = computed(() => {
   const keys = []
-  ;(char.value.class_feature || []).forEach(f => keys.push('cf_' + (f.id || f.name)))
-  ;(char.value.sub_class_feature || []).forEach(f => keys.push('scf_' + (f.id || f.name)))
-  ;(char.value.trait || []).forEach(f => keys.push('tr_' + (f.id || f.name)))
+  ;(combinedClassFeatures.value || []).forEach(f => keys.push(f._key))
+  ;(unpackedTraits.value || []).forEach(f => keys.push(f._key || 'tr_' + (f.id || f.name)))
   ;(char.value.feature || []).forEach(f => keys.push('bf_' + (f.id || f.name)))
   ;(char.value.feat || []).forEach(f => keys.push('ft_' + (f.id || f.name)))
   return keys
@@ -3040,6 +3280,118 @@ const rageBonusDamage = computed(() => {
   if (lvl >= 9) return 3
   return 2
 })
+
+// Automated Action & Tracker Parser for all features
+const automatedFeatureActions = computed(() => {
+  const result = []
+  const seenNames = new Set([
+    'rage', 'reckless attack', 'second wind', 'action surge', 'indomitable',
+    'tactical mind', 'flurry of blows', 'patient defense', 'step of the wind',
+    'stunning strike', 'uncanny metabolism', 'cunning action', 'sneak attack',
+    'channel divinity', 'lay on hands', 'wild shape', 'bardic inspiration',
+    'font of magic', 'arcane recovery', 'deflect missiles', 'deflect attacks',
+    'uncanny dodge', 'two-weapon off-hand attack', 'free object interaction',
+    'short rest & hit dice', 'attack', 'dash', 'disengage', 'dodge', 'help',
+    'hide', 'ready', 'search', 'shove', 'grapple', 'improvise', 'influence',
+    'magic', 'study', 'utilize'
+  ])
+
+  const allFeatures = [
+    ...(combinedClassFeatures.value || []),
+    ...(unpackedTraits.value || []),
+    ...(char.value?.feat || []).map(f => ({ ...f, _sourceCategory: 'Feat' })),
+    ...(char.value?.feature || []).map(f => ({ ...f, _sourceCategory: 'Background' }))
+  ]
+
+  for (const f of allFeatures) {
+    if (!f || !f.name) continue
+    const lowerName = f.name.trim().toLowerCase()
+    if (seenNames.has(lowerName)) continue
+
+    const rawList = parseRawEntries(f.entries)
+    const textParts = []
+    const collectText = (items) => {
+      if (!Array.isArray(items)) return
+      for (const it of items) {
+        if (!it) continue
+        if (typeof it === 'string') textParts.push(it)
+        else if (typeof it === 'object') {
+          if (it.entry) textParts.push(typeof it.entry === 'string' ? it.entry : JSON.stringify(it.entry))
+          if (it.entries) collectText(it.entries)
+          if (it.items) collectText(it.items)
+        }
+      }
+    }
+    collectText(rawList)
+    const fullText = textParts.join(' ')
+    if (!fullText) continue
+
+    const lowerText = fullText.toLowerCase()
+
+    let actionType = null
+    if (/bonus action\b|as a bonus action/i.test(lowerText)) {
+      actionType = 'bonus'
+    } else if (/(?:as a |take a )?reaction\b|when a creature\b|when you are hit\b/i.test(lowerText)) {
+      actionType = 'reaction'
+    } else if (/as an action\b|take an action\b|use an action\b|use your action\b/i.test(lowerText)) {
+      actionType = 'action'
+    }
+
+    let max = null
+    let recharge = 'long'
+    if (/short or long rest|short rest/i.test(lowerText)) {
+      recharge = 'short'
+    } else if (/long rest|dawn|finish a rest/i.test(lowerText)) {
+      recharge = 'long'
+    }
+
+    if (/equal to (?:your )?proficiency bonus|number of times equal to (?:your )?proficiency bonus|times equal to (?:your )?proficiency bonus/i.test(lowerText)) {
+      max = charProfBonus.value
+    } else if (/(?:equal to (?:your )?)(strength|dexterity|constitution|intelligence|wisdom|charisma) modifier/i.test(lowerText)) {
+      const m = lowerText.match(/(?:equal to (?:your )?)(strength|dexterity|constitution|intelligence|wisdom|charisma) modifier/i)
+      if (m && m[1]) {
+        max = Math.max(1, getAbilityMod(m[1].slice(0, 3)))
+      }
+    } else if (/(?:once (?:you use|per)|1\/day|1\/rest|can'?t (?:use (?:it|this [a-z]+)|do so) again|cannot (?:use (?:it|this [a-z]+)|do so) again)/i.test(lowerText)) {
+      max = 1
+    } else if (/twice per|2\/day|2\/rest/i.test(lowerText)) {
+      max = 2
+    } else {
+      const timesMatch = lowerText.match(/(\d+)\s+times?\s+per/i)
+      if (timesMatch) max = parseInt(timesMatch[1], 10)
+    }
+
+    if (!actionType && max != null) {
+      actionType = 'other'
+    }
+
+    if (!actionType && !max) continue
+
+    seenNames.add(lowerName)
+
+    const sourceLabel = f.isSubclass ? 'Subclass' : (f._fromClass ? 'Class' : (f._sourceCategory || 'Species'))
+    const cleanId = `auto_${lowerName.replace(/[^a-z0-9_]/g, '_')}`
+
+    result.push({
+      id: cleanId,
+      name: f.name,
+      source: sourceLabel,
+      actionType: actionType || 'other',
+      description: textParts[0] ? textParts[0].replace(/\{@[^}]+\}/g, '').slice(0, 150) + (textParts[0].length > 150 ? '...' : '') : '',
+      entries: f.entries,
+      max,
+      recharge,
+      hasResource: max != null
+    })
+  }
+
+  return result
+})
+
+const expandedAutoActions = ref({})
+const toggleAutoAction = (id) => {
+  expandedAutoActions.value[id] = !expandedAutoActions.value[id]
+}
 
 // Comprehensive Class Resource Trackers
 const classResourceTrackers = computed(() => {
@@ -3405,6 +3757,24 @@ const classResourceTrackers = computed(() => {
         type: 'counter',
         actionType: 'other'
       })
+    }
+  }
+
+  // Merge automated trackers with limited uses
+  for (const act of automatedFeatureActions.value) {
+    if (act.hasResource && act.max > 0) {
+      if (!list.some(r => r.id === act.id || r.name.toLowerCase() === act.name.toLowerCase())) {
+        list.push({
+          id: act.id,
+          name: act.name,
+          subtitle: act.description,
+          max: act.max,
+          displayMax: act.max,
+          recharge: act.recharge,
+          type: 'counter',
+          actionType: act.actionType
+        })
+      }
     }
   }
 
@@ -5716,6 +6086,85 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Automated Actions from Features -->
+        <div v-if="automatedFeatureActions.filter(a => a.actionType === 'action').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Feature Actions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in automatedFeatureActions.filter(a => a.actionType === 'action')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.source }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 border border-gray-200 text-gray-600 font-mono uppercase">Action</span>
+                  </div>
+                  <p v-if="act.description" class="text-[10px] text-gray-600 mt-0.5 leading-tight line-clamp-2">{{ act.description }}</p>
+                </div>
+                <button
+                  type="button"
+                  @click="toggleAutoAction(act.id)"
+                  class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer shrink-0"
+                >
+                  {{ expandedAutoActions[act.id] ? '-' : '+' }}
+                </button>
+              </div>
+
+              <div v-if="act.hasResource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div v-if="act.max <= 8" class="flex items-center gap-1">
+                    <button
+                      v-for="idx in act.max"
+                      :key="idx"
+                      type="button"
+                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                    >
+                      <span
+                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreResource(act.id, 1)"
+                    :disabled="getResourceSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendResource(act.id, 1)"
+                    :disabled="getResourceAvailable({ id: act.id, max: act.max }) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+
+              <div
+                v-show="expandedAutoActions[act.id]"
+                class="p-2 border-t border-gray-200 bg-white text-gray-700 space-y-1 text-[11px] rounded leading-relaxed"
+                v-html="renderAnnotatedText(format5eEntries(act.entries))"
+              ></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Bonus Actions Section -->
@@ -6088,6 +6537,85 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Automated Bonus Actions from Features -->
+        <div v-if="automatedFeatureActions.filter(a => a.actionType === 'bonus').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Feature Bonus Actions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in automatedFeatureActions.filter(a => a.actionType === 'bonus')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.source }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 border border-gray-200 text-gray-600 font-mono uppercase">Bonus</span>
+                  </div>
+                  <p v-if="act.description" class="text-[10px] text-gray-600 mt-0.5 leading-tight line-clamp-2">{{ act.description }}</p>
+                </div>
+                <button
+                  type="button"
+                  @click="toggleAutoAction(act.id)"
+                  class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer shrink-0"
+                >
+                  {{ expandedAutoActions[act.id] ? '-' : '+' }}
+                </button>
+              </div>
+
+              <div v-if="act.hasResource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div v-if="act.max <= 8" class="flex items-center gap-1">
+                    <button
+                      v-for="idx in act.max"
+                      :key="idx"
+                      type="button"
+                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                    >
+                      <span
+                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreResource(act.id, 1)"
+                    :disabled="getResourceSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendResource(act.id, 1)"
+                    :disabled="getResourceAvailable({ id: act.id, max: act.max }) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+
+              <div
+                v-show="expandedAutoActions[act.id]"
+                class="p-2 border-t border-gray-200 bg-white text-gray-700 space-y-1 text-[11px] rounded leading-relaxed"
+                v-html="renderAnnotatedText(format5eEntries(act.entries))"
+              ></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Reactions Section -->
@@ -6359,6 +6887,85 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Automated Reactions from Features -->
+        <div v-if="automatedFeatureActions.filter(a => a.actionType === 'reaction').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Feature Reactions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in automatedFeatureActions.filter(a => a.actionType === 'reaction')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.source }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 border border-gray-200 text-gray-600 font-mono uppercase">Reaction</span>
+                  </div>
+                  <p v-if="act.description" class="text-[10px] text-gray-600 mt-0.5 leading-tight line-clamp-2">{{ act.description }}</p>
+                </div>
+                <button
+                  type="button"
+                  @click="toggleAutoAction(act.id)"
+                  class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer shrink-0"
+                >
+                  {{ expandedAutoActions[act.id] ? '-' : '+' }}
+                </button>
+              </div>
+
+              <div v-if="act.hasResource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div v-if="act.max <= 8" class="flex items-center gap-1">
+                    <button
+                      v-for="idx in act.max"
+                      :key="idx"
+                      type="button"
+                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                    >
+                      <span
+                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreResource(act.id, 1)"
+                    :disabled="getResourceSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendResource(act.id, 1)"
+                    :disabled="getResourceAvailable({ id: act.id, max: act.max }) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+
+              <div
+                v-show="expandedAutoActions[act.id]"
+                class="p-2 border-t border-gray-200 bg-white text-gray-700 space-y-1 text-[11px] rounded leading-relaxed"
+                v-html="renderAnnotatedText(format5eEntries(act.entries))"
+              ></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Other Actions Section -->
@@ -6473,6 +7080,85 @@ watch(() => charSpells.value, (list) => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Automated Other Actions from Features -->
+        <div v-if="automatedFeatureActions.filter(a => a.actionType === 'other').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Feature Other Abilities</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in automatedFeatureActions.filter(a => a.actionType === 'other')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.source }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-gray-100 border border-gray-200 text-gray-600 font-mono uppercase">Other</span>
+                  </div>
+                  <p v-if="act.description" class="text-[10px] text-gray-600 mt-0.5 leading-tight line-clamp-2">{{ act.description }}</p>
+                </div>
+                <button
+                  type="button"
+                  @click="toggleAutoAction(act.id)"
+                  class="font-mono text-gray-400 font-bold text-xs p-1 cursor-pointer shrink-0"
+                >
+                  {{ expandedAutoActions[act.id] ? '-' : '+' }}
+                </button>
+              </div>
+
+              <div v-if="act.hasResource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div v-if="act.max <= 8" class="flex items-center gap-1">
+                    <button
+                      v-for="idx in act.max"
+                      :key="idx"
+                      type="button"
+                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                    >
+                      <span
+                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreResource(act.id, 1)"
+                    :disabled="getResourceSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendResource(act.id, 1)"
+                    :disabled="getResourceAvailable({ id: act.id, max: act.max }) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+
+              <div
+                v-show="expandedAutoActions[act.id]"
+                class="p-2 border-t border-gray-200 bg-white text-gray-700 space-y-1 text-[11px] rounded leading-relaxed"
+                v-html="renderAnnotatedText(format5eEntries(act.entries))"
+              ></div>
             </div>
           </div>
         </div>
@@ -7161,79 +7847,44 @@ watch(() => charSpells.value, (list) => {
         </button>
       </div>
 
-      <!-- Class Features -->
-      <div v-if="filteredClassFeatures.length" class="space-y-2">
-        <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">Class Features</h3>
+      <!-- Class & Subclass Features -->
+      <div v-if="combinedClassFeatures.length" class="space-y-2">
+        <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">Class & Subclass Features</h3>
         <div class="space-y-1.5">
           <div
-            v-for="cf in filteredClassFeatures"
-            :key="cf.id || cf.name"
+            v-for="feat in combinedClassFeatures"
+            :key="feat._key"
             class="border border-gray-200 rounded bg-white overflow-hidden"
           >
             <div
-              @click="toggleFeature('cf_' + (cf.id || cf.name))"
+              @click="toggleFeature(feat._key)"
               class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100 transition cursor-pointer select-none"
             >
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-bold text-gray-900">{{ cf.name }}</span>
-                <span class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-600">
-                  Level {{ cf.level }}
+                <span class="font-bold text-gray-900">{{ feat.name }}</span>
+                <span class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-600 font-mono">
+                  Level {{ feat.level }}
                 </span>
-                <span v-if="isOptionalFeature(cf)" class="text-[11px] font-medium text-gray-600">
-                  Optional Feature
-                </span>
-              </div>
-              <span class="font-mono text-gray-400 font-bold text-sm leading-none">
-                {{ expandedFeatures['cf_' + (cf.id || cf.name)] ? '-' : '+' }}
-              </span>
-            </div>
-
-            <div
-              v-show="expandedFeatures['cf_' + (cf.id || cf.name)]"
-              class="p-3 border-t border-gray-100 text-gray-700 space-y-2 leading-relaxed"
-            >
-              <div v-if="cf.entries && cf.entries.length" v-html="renderAnnotatedText(format5eEntries(cf.entries))"></div>
-              <p v-else class="text-gray-400 italic">Rules text available in compendium.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Subclass Features -->
-      <div v-if="filteredSubClassFeatures.length" class="space-y-2">
-        <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">Subclass Features</h3>
-        <div class="space-y-1.5">
-          <div
-            v-for="scf in filteredSubClassFeatures"
-            :key="scf.id || scf.name"
-            class="border border-gray-200 rounded bg-white overflow-hidden"
-          >
-            <div
-              @click="toggleFeature('scf_' + (scf.id || scf.name))"
-              class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100 transition cursor-pointer select-none"
-            >
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-bold text-gray-900">{{ scf.name }}</span>
-                <span class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-600">
-                  Level {{ scf.level }}
-                </span>
-                <span class="text-[11px] font-medium text-gray-600">
+                <span
+                  v-if="feat.isSubclass"
+                  class="text-[10px] bg-white border border-gray-300 px-1.5 py-0.5 rounded text-gray-700 font-medium"
+                >
                   Subclass Feature
                 </span>
-                <span v-if="isOptionalFeature(scf)" class="text-[11px] font-medium text-gray-600">
+                <span v-if="isOptionalFeature(feat)" class="text-[11px] font-medium text-gray-600">
                   Optional Feature
                 </span>
               </div>
               <span class="font-mono text-gray-400 font-bold text-sm leading-none">
-                {{ expandedFeatures['scf_' + (scf.id || scf.name)] ? '-' : '+' }}
+                {{ expandedFeatures[feat._key] ? '-' : '+' }}
               </span>
             </div>
 
             <div
-              v-show="expandedFeatures['scf_' + (scf.id || scf.name)]"
+              v-show="expandedFeatures[feat._key]"
               class="p-3 border-t border-gray-100 text-gray-700 space-y-2 leading-relaxed"
             >
-              <div v-if="scf.entries && scf.entries.length" v-html="renderAnnotatedText(format5eEntries(scf.entries))"></div>
+              <div v-if="feat.entries && feat.entries.length" v-html="renderAnnotatedText(format5eEntries(feat.entries))"></div>
               <p v-else class="text-gray-400 italic">Rules text available in compendium.</p>
             </div>
           </div>
@@ -7241,16 +7892,16 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Species / Race Traits -->
-      <div v-if="char.trait?.length" class="space-y-2">
+      <div v-if="unpackedTraits.length" class="space-y-2">
         <h3 class="font-bold text-gray-800 uppercase tracking-wider text-[11px]">Species & Lineage Traits</h3>
         <div class="space-y-1.5">
           <div
-            v-for="tr in char.trait"
-            :key="tr.id || tr.name"
+            v-for="tr in unpackedTraits"
+            :key="tr._key || tr.id || tr.name"
             class="border border-gray-200 rounded bg-white overflow-hidden"
           >
             <div
-              @click="toggleFeature('tr_' + (tr.id || tr.name))"
+              @click="toggleFeature(tr._key || ('tr_' + (tr.id || tr.name)))"
               class="flex items-center justify-between p-2.5 bg-gray-50 hover:bg-gray-100 transition cursor-pointer select-none"
             >
               <div class="flex items-center gap-2">
@@ -7258,12 +7909,12 @@ watch(() => charSpells.value, (list) => {
                 <span class="text-[10px] bg-white border border-gray-200 px-1.5 py-0.5 rounded text-gray-600">Species Trait</span>
               </div>
               <span class="font-mono text-gray-400 font-bold text-sm leading-none">
-                {{ expandedFeatures['tr_' + (tr.id || tr.name)] ? '-' : '+' }}
+                {{ expandedFeatures[tr._key || ('tr_' + (tr.id || tr.name))] ? '-' : '+' }}
               </span>
             </div>
 
             <div
-              v-show="expandedFeatures['tr_' + (tr.id || tr.name)]"
+              v-show="expandedFeatures[tr._key || ('tr_' + (tr.id || tr.name))]"
               class="p-3 border-t border-gray-100 text-gray-700 space-y-2 leading-relaxed"
             >
               <div v-if="tr.entries && tr.entries.length" v-html="renderAnnotatedText(format5eEntries(tr.entries))"></div>
@@ -7394,12 +8045,49 @@ watch(() => charSpells.value, (list) => {
       </div>
 
       <!-- Feature Detail Box (if clicked) -->
-      <div v-if="inspectingFeature" class="p-3.5 bg-amber-50/70 border border-amber-300 rounded-md space-y-2">
-        <div class="flex items-center justify-between pb-1 border-b border-amber-200">
-          <span class="font-bold text-gray-900 text-xs">{{ inspectingFeature.name }} (Level {{ inspectingFeature.level }})</span>
-          <button type="button" @click="inspectingFeature = null" class="text-gray-500 hover:text-gray-800 font-bold leading-none cursor-pointer">×</button>
+      <div
+        v-if="inspectingFeature"
+        class="p-3.5 bg-white border-2 border-gray-900 text-gray-800 rounded-md space-y-2.5 shadow-sm"
+      >
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-bold text-gray-900 text-xs">{{ inspectingFeature.name }}</span>
+            <span class="text-[10px] bg-gray-50 text-gray-700 px-1.5 py-0.5 rounded border border-gray-300 font-mono">
+              Level {{ inspectingFeature.level }}
+            </span>
+            <span v-if="inspectingFeature.isSubclass || inspectingFeature.subclassFeatures?.length" class="text-[10px] bg-white text-gray-700 px-1.5 py-0.5 rounded border border-gray-300 font-medium">
+              {{ currentTableSubclass?.name || inspectingFeature.subclassTitle || 'Subclass' }}
+            </span>
+          </div>
+          <button
+            type="button"
+            @click="inspectingFeature = null"
+            class="text-gray-400 hover:text-gray-700 font-bold text-base leading-none cursor-pointer px-1"
+          >×</button>
         </div>
-        <div class="prose-xs text-gray-800 leading-relaxed" v-html="renderAnnotatedText(format5eEntries(inspectingFeature.entries))"></div>
+
+        <!-- If inspecting generic subclass feature with multiple features at this level -->
+        <div v-if="inspectingFeature.subclassFeatures && inspectingFeature.subclassFeatures.length" class="space-y-3">
+          <div
+            v-if="inspectingFeature.entries && inspectingFeature.entries.length"
+            class="prose-xs text-gray-500 leading-relaxed italic text-[11px] pb-1 border-b border-gray-100"
+            v-html="renderAnnotatedText(format5eEntries(inspectingFeature.entries))"
+          ></div>
+          <div
+            v-for="sf in inspectingFeature.subclassFeatures"
+            :key="sf.id || sf.name"
+            class="space-y-1.5 bg-gray-50 p-3 rounded border border-gray-200"
+          >
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-gray-900 text-xs">{{ sf.name }}</span>
+              <span class="text-[10px] bg-white text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 font-mono">Level {{ sf.level }}</span>
+            </div>
+            <div class="prose-xs text-gray-700 leading-relaxed" v-html="renderAnnotatedText(format5eEntries(sf.entries))"></div>
+          </div>
+        </div>
+
+        <!-- Normal or single feature entries -->
+        <div v-else class="prose-xs text-gray-700 leading-relaxed" v-html="renderAnnotatedText(format5eEntries(inspectingFeature.entries))"></div>
       </div>
 
       <!-- Loading State -->
@@ -7430,14 +8118,14 @@ watch(() => charSpells.value, (list) => {
               :key="row.level"
               :class="[
                 row.level === currentClassTableLevel
-                  ? 'bg-amber-50 font-semibold border-l-4 border-l-amber-500'
+                  ? 'bg-gray-100 font-semibold border-l-4 border-l-gray-900'
                   : 'hover:bg-gray-50/80'
               ]"
               class="transition"
             >
               <!-- Level -->
               <td class="py-2 px-3 text-center whitespace-nowrap font-mono">
-                <span :class="row.level === currentClassTableLevel ? 'text-amber-900 font-bold' : 'text-gray-700'">
+                <span :class="row.level === currentClassTableLevel ? 'text-gray-900 font-bold' : 'text-gray-700'">
                   {{ row.levelLabel }}
                 </span>
               </td>
@@ -7449,16 +8137,34 @@ watch(() => charSpells.value, (list) => {
 
               <!-- Features -->
               <td class="py-2 px-3">
-                <div v-if="row.features && row.features.length" class="flex flex-wrap gap-1">
+                <div v-if="(row.features && row.features.length) || getSubclassFeaturesForLevel(row.level).length" class="flex flex-wrap gap-1">
+                  <!-- Class Features -->
                   <button
                     v-for="feat in row.features"
                     :key="feat.id || feat.name"
                     type="button"
-                    @click="toggleFeatureDetail(feat)"
-                    class="px-2 py-0.5 rounded text-[11px] border border-gray-200 bg-white hover:bg-gray-100 text-gray-800 transition cursor-pointer text-left flex items-center gap-1 shadow-2xs"
-                    :class="inspectingFeature?.name === feat.name ? 'border-amber-500 bg-amber-50' : ''"
+                    @click="toggleFeatureDetail(feat, row.level)"
+                    class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer text-left flex items-center gap-1 shadow-2xs"
+                    :class="inspectingFeature?.name === feat.name && inspectingFeature?.level === row.level
+                      ? 'border-2 border-gray-900 bg-gray-100 text-gray-950 font-bold shadow-xs'
+                      : 'border border-gray-200 bg-white hover:bg-gray-100 text-gray-800'"
                   >
                     <span>{{ feat.name }}</span>
+                  </button>
+
+                  <!-- Subclass Features -->
+                  <button
+                    v-for="scf in getSubclassFeaturesForLevel(row.level)"
+                    :key="'scf_' + (scf.id || scf.name)"
+                    type="button"
+                    @click="toggleSubclassFeatureDetail(scf, row.level)"
+                    class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer text-left flex items-center gap-1 shadow-2xs"
+                    :class="inspectingFeature?.name === scf.name && inspectingFeature?.level === row.level
+                      ? 'border-2 border-gray-900 bg-gray-100 text-gray-950 font-bold shadow-xs'
+                      : 'border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-900 font-medium'"
+                  >
+                    <span class="text-[9px] uppercase px-1 py-0.2 border border-gray-300 bg-white text-gray-700 rounded font-bold">Subclass</span>
+                    <span>{{ scf.name }}</span>
                   </button>
                 </div>
                 <span v-else class="text-gray-400 italic text-[11px]">—</span>
@@ -10430,15 +11136,12 @@ watch(() => charSpells.value, (list) => {
         <div class="grid grid-cols-2 gap-3">
           <!-- Class & Subclass Features -->
           <div>
-            <h4 class="font-bold text-gray-900 text-[10px] mb-1">Class Features</h4>
+            <h4 class="font-bold text-gray-900 text-[10px] mb-1">Class & Subclass Features</h4>
             <div class="space-y-1">
-              <div v-for="cf in (filteredClassFeatures || [])" :key="cf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
+              <div v-for="cf in (combinedClassFeatures || [])" :key="cf._key || cf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ cf.name }}</span>
-                <span v-if="cf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ cf.level }})</span>
-              </div>
-              <div v-for="scf in (filteredSubClassFeatures || [])" :key="scf.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
-                <span class="font-semibold text-gray-900">{{ scf.name }}</span>
-                <span v-if="scf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ scf.level }})</span>
+                <span v-if="cf.isSubclass" class="text-[9px] text-gray-500 ml-1">(Subclass, Lvl {{ cf.level }})</span>
+                <span v-else-if="cf.level" class="text-[9px] text-gray-500 ml-1">(Lvl {{ cf.level }})</span>
               </div>
             </div>
           </div>
@@ -10447,7 +11150,7 @@ watch(() => charSpells.value, (list) => {
           <div>
             <h4 class="font-bold text-gray-900 text-[10px] mb-1">Racial Traits & Feats</h4>
             <div class="space-y-1">
-              <div v-for="tr in (char.trait || [])" :key="tr.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
+              <div v-for="tr in (unpackedTraits || [])" :key="tr._key || tr.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">
                 <span class="font-semibold text-gray-900">{{ tr.name }}</span>
               </div>
               <div v-for="ft in (char.feat || [])" :key="ft.name" class="break-inside-avoid border-b border-gray-100 pb-0.5">

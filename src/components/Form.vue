@@ -1480,6 +1480,10 @@ const onSubClassSelect = async (key) => {
     const res = await axios.get(`${API_URL}/sub-class/${className}/${classSource}/${name}/${source}/${shortName}/${page}?edition=${selectedEdition.value}`)
     if (res.data?.data) {
       characterSubClass.value = res.data.data
+      selectedSubClassItem.value = {
+        ...sc,
+        subClassFeature: res.data.data.subClassFeature || []
+      }
       characterStore.characterSubClass = res.data.data
       characterStore.isSubClassSelected = true
       characterStore.subClassLevelGained = subclassUnlockLevel.value
@@ -3258,6 +3262,7 @@ const loadCharacterForEdit = async (data) => {
   const ed = data.edition || '2024'
   selectedEdition.value = ed
   characterStore.edition = ed
+  currentTab.value = ed === '2024' ? 'background' : 'race'
 
   const defaultSource = ed === '2024' ? 'XPHB' : 'PHB'
   const sourcesToEnable = new Set([defaultSource])
@@ -3350,6 +3355,19 @@ const loadCharacterForEdit = async (data) => {
 
   // Fetch compendium lists
   await fetchCompendiumData()
+
+  // ponytail: ensure saved feat sources are loaded so filteredFeats retains them
+  const rawFeats = Array.isArray(data.feats) ? data.feats : (Array.isArray(data.feat) ? data.feat : (data.feat ? [data.feat] : (data.feats ? [data.feats] : [])))
+  const initialSavedFeats = rawFeats.map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean)
+  for (const sf of initialSavedFeats) {
+    const match = availableFeats.value.find(af => af.name?.toLowerCase().trim() === sf.toLowerCase().trim())
+    if (match?.source) {
+      const s = match.source.toUpperCase()
+      if (!selectedSources.value.includes(s)) {
+        selectedSources.value.push(s)
+      }
+    }
+  }
 
   // Match background
   if (data.background) {
@@ -3623,11 +3641,12 @@ const loadCharacterForEdit = async (data) => {
   }
 
   // Feats & ASI Tiers
-  const savedFeats = (data.feat || []).map(f => (typeof f === 'string' ? f : f.name)).filter(Boolean)
+  await nextTick()
+  const savedFeats = (rawFeats || []).map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean)
   const nonBgFeats = [...savedFeats]
   const bgDetails = parseBackgroundDetails(selectedBackgroundObj.value) || {}
   if (bgDetails.featName) {
-    const bgFeatIdx = nonBgFeats.findIndex(f => f.toLowerCase() === bgDetails.featName.toLowerCase())
+    const bgFeatIdx = nonBgFeats.findIndex(f => f.toLowerCase().trim() === bgDetails.featName.toLowerCase().trim())
     if (bgFeatIdx >= 0) {
       nonBgFeats.splice(bgFeatIdx, 1)
     }
@@ -3636,9 +3655,27 @@ const loadCharacterForEdit = async (data) => {
   let featIdx = 0
   for (const item of allUnlockedAsiList.value) {
     if (featIdx < nonBgFeats.length) {
-      const fName = nonBgFeats[featIdx++]
+      const rawName = nonBgFeats[featIdx++]
+      const match = availableFeats.value.find(af => af.name?.toLowerCase().trim() === rawName.toLowerCase().trim())
+      const exactName = match ? match.name : rawName.trim()
       item.choice.type = 'feat'
-      item.choice.featName = fName
+      item.choice.featName = exactName
+      if (item.tier) {
+        if (!asiTierChoices[item.tier]) {
+          asiTierChoices[item.tier] = {
+            type: 'feat',
+            asiMode: '+2',
+            plus2Stat: '',
+            plus1StatA: '',
+            plus1StatB: '',
+            featName: exactName,
+            featAbility: ''
+          }
+        } else {
+          asiTierChoices[item.tier].type = 'feat'
+          asiTierChoices[item.tier].featName = exactName
+        }
+      }
     } else {
       item.choice.type = ''
       item.choice.plus2Stat = ''
@@ -4385,7 +4422,12 @@ const submitForm = async () => {
         name: characterClass.value.class?.name || classSelected.value,
         level: Number(classLevel.value),
         class: characterClass.value,
-        sub_class: selectedSubClassItem.value || characterStore.characterSubClass || null,
+        sub_class: selectedSubClassItem.value ? {
+          ...selectedSubClassItem.value,
+          subClassFeature: selectedSubClassItem.value.subClassFeature?.length
+            ? selectedSubClassItem.value.subClassFeature
+            : (characterSubClass.value?.subClassFeature || characterStore.characterSubClass?.subClassFeature || [])
+        } : (characterStore.characterSubClass || null),
         spells: (chosenSpells.value || []).map(s => ({
           ...s,
           is_feat_spell: false,
@@ -4471,7 +4513,12 @@ const submitForm = async () => {
       race: characterRace.value,
       sub_race: characterSubRace.value,
       class: characterClass.value,
-      sub_class: characterStore.characterSubClass,
+      sub_class: characterStore.characterSubClass ? {
+        ...characterStore.characterSubClass,
+        subClassFeature: characterStore.characterSubClass.subClassFeature?.length
+          ? characterStore.characterSubClass.subClassFeature
+          : (characterSubClass.value?.subClassFeature || selectedSubClassItem.value?.subClassFeature || [])
+      } : (selectedSubClassItem.value || null),
       classes: classesPayload,
       strength: strength.value,
       dexterity: dexterity.value,

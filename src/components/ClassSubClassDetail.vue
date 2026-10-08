@@ -3,6 +3,7 @@ import CollapsedComponent from './CollapsedComponent.vue'
 import { useCharacterStore } from '../stores/character'
 import { computed } from 'vue'
 import { renderAnnotatedText, clean5eToolsMarkup } from '../utils/textRenderer'
+import { unpackFeatureList } from '../utils/featureUnpacker'
 import { IconStarFilled } from '@tabler/icons-vue'
 
 const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
@@ -298,46 +299,45 @@ const combinedFeatures = computed(() => {
     })
   }
 
-  // Collect names of sub-features embedded inside parent feature entries
-  const embeddedNames = new Set()
-  const walkEntries = (entries, parentName) => {
-    if (!Array.isArray(entries)) return
-    for (const item of entries) {
-      if (!item || typeof item !== 'object') continue
-      if (item.name && typeof item.name === 'string') {
-        const n = item.name.trim().toLowerCase()
-        if (n && n !== parentName) {
-          embeddedNames.add(n)
-        }
-      }
-      if (Array.isArray(item.entries)) {
-        walkEntries(item.entries, parentName)
+  const uniqueFeatures = unpackFeatureList(allFeatures)
+
+  // ponytail: filter out fluff parent container cards matching subclass name when specific features exist at that level
+  const scNames = new Set()
+  if (props.selectedSubClassKey) {
+    scNames.add(props.selectedSubClassKey.split('|')[0].trim().toLowerCase())
+  }
+  const curSc = characterStore.characterSubClass
+  if (curSc) {
+    if (curSc.name) scNames.add(curSc.name.trim().toLowerCase())
+    if (curSc.short_name || curSc.shortName) scNames.add((curSc.short_name || curSc.shortName).trim().toLowerCase())
+  }
+  if (Array.isArray(props.availableSubClasses)) {
+    for (const sc of props.availableSubClasses) {
+      if (typeof sc === 'string') {
+        scNames.add(sc.split('|')[0].trim().toLowerCase())
+      } else if (sc && typeof sc === 'object') {
+        if (sc.name) scNames.add(sc.name.trim().toLowerCase())
+        if (sc.short_name || sc.shortName) scNames.add((sc.short_name || sc.shortName).trim().toLowerCase())
       }
     }
   }
 
-  for (const f of allFeatures) {
-    const pName = (f.name || '').trim().toLowerCase()
-    if (Array.isArray(f.entries)) {
-      walkEntries(f.entries, pName)
+  const hasOtherAtLevel = (fName, fLevel) => {
+    return uniqueFeatures.some(other => {
+      const oName = (other.name || '').trim().toLowerCase()
+      return oName !== fName && Number(other.level) === Number(fLevel) && !scNames.has(oName) && !isSubclassFeatureItem(other)
+    })
+  }
+
+  const filtered = uniqueFeatures.filter(f => {
+    const name = (f.name || '').trim().toLowerCase()
+    if (scNames.has(name) && hasOtherAtLevel(name, f.level)) {
+      return false
     }
-  }
+    return true
+  })
 
-  // Deduplicate features by name and level, filtering out redundant child cards
-  const seen = new Set()
-  const uniqueFeatures = []
-  for (const f of allFeatures) {
-    const rawName = (f.name || '').trim().toLowerCase()
-    if (!rawName) continue
-    if (embeddedNames.has(rawName)) continue
-
-    const k = `${rawName}_${f.level || 1}`
-    if (seen.has(k)) continue
-    seen.add(k)
-    uniqueFeatures.push(f)
-  }
-
-  return uniqueFeatures.sort((a, b) => (Number(a.level) || 1) - (Number(b.level) || 1))
+  return filtered.sort((a, b) => (Number(a.level) || 1) - (Number(b.level) || 1))
 })
 </script>
 

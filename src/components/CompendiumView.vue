@@ -112,9 +112,6 @@ const homebrewForm = ref({
   category: 'G',
   prerequisite: '',
   repeatable: false,
-  // adventure
-  level_range: 'Level 1-5',
-  summary: '',
   // subclass
   class_name: 'Fighter',
   short_name: '',
@@ -132,7 +129,6 @@ const openCreateHomebrew = () => {
     items: 'item',
     monsters: 'monster',
     feats: 'feat',
-    adventures: 'adventure',
     classes: 'subclass',
     races: 'subrace'
   }
@@ -198,9 +194,6 @@ const submitHomebrew = async () => {
       data.category = f.category || 'G'
       data.prerequisite = f.prerequisite || null
       data.repeatable = Boolean(f.repeatable)
-    } else if (cat === 'adventure') {
-      data.level_range = f.level_range || 'Level 1-5'
-      data.summary = f.summary || ''
     } else if (cat === 'subclass') {
       data.class_name = f.class_name
       data.short_name = f.short_name || f.name
@@ -234,7 +227,6 @@ const deleteHomebrewItem = async (item) => {
       items: 'item',
       monsters: 'monster',
       feats: 'feat',
-      adventures: 'adventure',
       classes: 'subclass',
       races: 'subrace'
     }
@@ -694,13 +686,6 @@ const fetchData = async () => {
       const list = Array.isArray(res.data?.data) ? res.data.data : []
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'races' }))
-    } else if (activeTab.value === 'adventures') {
-      const params = { edition }
-      if (q) params.search = q
-      const res = await axios.get(`${API_URL}/compendium/adventures`, { params })
-      const list = Array.isArray(res.data?.data) ? res.data.data : []
-      hasMore.value = false
-      rawList.value = list.map(item => ({ ...item, _category: 'adventures' }))
     } else if (activeTab.value === 'all') {
       allPage.value = 1
       const baseParams = { edition, sources: sourcesParam }
@@ -1268,9 +1253,6 @@ const getItemBadge = (item) => {
   if (item._category === 'backgrounds') {
     return 'Background'
   }
-  if (item._category === 'adventures' || item.levelRange) {
-    return item.levelRange ? `Adventure (${item.levelRange})` : 'Adventure'
-  }
   if (item._category === 'monsters' || item.cr !== undefined) {
     return `CR ${item.cr ?? '—'}`
   }
@@ -1714,16 +1696,6 @@ onBeforeUnmount(() => {
             ]"
           >
             Optional Features
-          </button>
-          <button
-            type="button"
-            @click="setTab('adventures')"
-            :class="[
-              'px-3.5 py-1.5 font-semibold uppercase tracking-wider rounded transition cursor-pointer whitespace-nowrap text-[11px]',
-              activeTab === 'adventures' ? 'bg-gray-900 text-white shadow-xs' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            ]"
-          >
-            Adventures
           </button>
         </div>
 
@@ -2352,21 +2324,6 @@ onBeforeUnmount(() => {
               <strong>Prerequisite: </strong> {{ formatPrerequisite(selectedItem.prerequisite) }}
             </div>
 
-            <!-- Adventure Details -->
-            <div
-              v-else-if="selectedItem._category === 'adventures' || selectedItem.levelRange"
-              class="space-y-2.5 bg-gray-50 p-3 rounded border border-gray-200 text-[11px]"
-            >
-              <div v-if="selectedItem.levelRange">
-                <span class="text-gray-400 block font-medium">Recommended Levels</span>
-                <span class="font-semibold text-gray-800">{{ selectedItem.levelRange }}</span>
-              </div>
-              <div v-if="selectedItem.summary" class="pt-1 border-t border-gray-200">
-                <span class="text-gray-400 block font-medium mb-0.5">Summary</span>
-                <p class="text-gray-700 leading-relaxed">{{ selectedItem.summary }}</p>
-              </div>
-            </div>
-
             <!-- Monster Stat Block -->
             <div
               v-if="selectedItem._category === 'monsters' || selectedItem.cr !== undefined"
@@ -2798,7 +2755,6 @@ onBeforeUnmount(() => {
               <option value="item">Item / Equipment</option>
               <option value="monster">Monster / Creature</option>
               <option value="feat">Feat</option>
-              <option value="adventure">Adventure</option>
               <option value="subclass">Subclass</option>
               <option value="subrace">Subrace / Lineage</option>
             </select>
@@ -3058,19 +3014,6 @@ onBeforeUnmount(() => {
                 <input type="checkbox" v-model="homebrewForm.repeatable" class="rounded text-gray-900" />
                 <span>Repeatable Feat</span>
               </label>
-            </div>
-          </div>
-
-          <!-- ADVENTURE Fields -->
-          <div v-if="homebrewCategory === 'adventure'" class="space-y-2.5 p-3 bg-gray-50 border border-gray-200 rounded">
-            <div class="font-semibold text-gray-800 border-b border-gray-200 pb-1">Adventure Details</div>
-            <div>
-              <label class="block text-[11px] text-gray-600 mb-0.5">Recommended Level Range</label>
-              <input type="text" v-model="homebrewForm.level_range" placeholder="Level 1-5" class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs" />
-            </div>
-            <div>
-              <label class="block text-[11px] text-gray-600 mb-0.5">Summary</label>
-              <textarea v-model="homebrewForm.summary" rows="2" placeholder="Brief premise of the adventure..." class="w-full bg-white border border-gray-300 rounded p-2 text-xs"></textarea>
             </div>
           </div>
 
