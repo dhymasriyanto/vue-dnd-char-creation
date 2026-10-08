@@ -2,10 +2,12 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
+import { useCharacterStore } from '../stores/character'
 import { renderAnnotatedText } from '../utils/textRenderer'
 import { IconChevronUp, IconChevronDown } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
+const characterStore = useCharacterStore()
 
 const props = defineProps({
   edition: {
@@ -321,6 +323,9 @@ const fetchSpells = async () => {
     params.set('edition', props.edition)
     params.set('className', queryClassName.value)
     params.set('maxLevel', String(Math.max(1, maxSpellLevel.value)))
+    if (characterStore.selectedSources && characterStore.selectedSources.length) {
+      params.set('sources', characterStore.selectedSources.join(','))
+    }
 
     const res = await axios.get(`${API_URL}/compendium/spells?${params.toString()}`)
     allSpells.value = Array.isArray(res.data?.data) ? res.data.data : []
@@ -332,7 +337,7 @@ const fetchSpells = async () => {
   }
 }
 
-watch(() => [props.edition, queryClassName.value, maxSpellLevel.value], () => {
+watch(() => [props.edition, queryClassName.value, maxSpellLevel.value, characterStore.selectedSources?.slice()], () => {
   fetchSpells()
 }, { immediate: true })
 

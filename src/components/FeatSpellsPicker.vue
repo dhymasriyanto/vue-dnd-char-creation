@@ -2,10 +2,12 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import { useConfig } from '../config'
+import { useCharacterStore } from '../stores/character'
 import { renderAnnotatedText } from '../utils/textRenderer'
 import { IconSearch, IconX, IconChevronDown, IconChevronUp, IconCheck, IconPlus } from '@tabler/icons-vue'
 
 const API_URL = useConfig().API_URL
+const characterStore = useCharacterStore()
 
 const props = defineProps({
   edition: {
@@ -104,6 +106,9 @@ const fetchCompendiumSpells = async () => {
     const params = new URLSearchParams()
     params.set('edition', props.edition || '2024')
     params.set('maxLevel', '2') // Feats grant cantrips, 1st level, and occasionally 2nd (e.g. Misty Step)
+    if (characterStore.selectedSources && characterStore.selectedSources.length) {
+      params.set('sources', characterStore.selectedSources.join(','))
+    }
     const res = await axios.get(`${API_URL}/compendium/spells?${params.toString()}`)
     allCompendiumSpells.value = Array.isArray(res.data?.data) ? res.data.data : []
   } catch (err) {
@@ -118,7 +123,7 @@ onMounted(() => {
   autoAddFixedSpells()
 })
 
-watch(() => props.edition, () => {
+watch(() => [props.edition, characterStore.selectedSources?.slice()], () => {
   fetchCompendiumSpells()
 })
 

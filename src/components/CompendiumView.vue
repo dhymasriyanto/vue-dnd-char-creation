@@ -41,7 +41,6 @@ const rawList = ref([])
 const selectedItem = ref(null)
 
 // Specific sub-filters
-const sourceFilter = ref('all')
 const spellLevelFilter = ref('all')
 const spellClassFilter = ref('all')
 const itemTypeFilter = ref('all')
@@ -61,6 +60,17 @@ const homebrewCategory = ref('spell')
 const isSavingHomebrew = ref(false)
 const homebrewError = ref('')
 const homebrewToast = ref('')
+
+// Class Table & Subclass Detail state in Compendium
+const classTableData = ref(null)
+const isLoadingClassTable = ref(false)
+const classViewTab = ref('features') // 'features' | 'table'
+const selectedSubclass = ref(null)
+const subclassDetail = ref(null)
+const isLoadingSubclass = ref(false)
+const inspectingClassFeature = ref(null)
+const classTableCache = new Map()
+const subclassCache = new Map()
 
 const homebrewForm = ref({
   name: '',
@@ -281,55 +291,154 @@ const isItemSelected = (item) => {
   return (selectedItem.value.source || '') === (item.source || '')
 }
 
-const sourceOptions2024 = [
-  { label: 'All Sources', value: 'all' },
-  { label: 'Homebrew (Custom)', value: 'Homebrew' },
-  { label: "XPHB (Player's Handbook 2024)", value: 'XPHB' },
-  { label: "XDMG (DM Guide 2024)", value: 'XDMG' },
-  { label: "XMM (Monster Manual 2024)", value: 'XMM' },
-  { label: 'PHB (2014 Core)', value: 'PHB' },
-  { label: 'DMG (2014 Core)', value: 'DMG' },
-  { label: 'MM (2014 Core)', value: 'MM' },
-  { label: 'MPMM (Multiverse)', value: 'MPMM' },
-  { label: 'TCE (Tasha)', value: 'TCE' },
-  { label: 'XGE (Xanathar)', value: 'XGE' },
-  { label: 'FTD (Fizban)', value: 'FTD' },
-  { label: 'BGG (Bigby)', value: 'BGG' },
-  { label: 'ERLW (Eberron)', value: 'ERLW' },
-  { label: 'SCAG (Sword Coast)', value: 'SCAG' },
-  { label: 'GoS (Ghosts of Saltmarsh)', value: 'GoS' },
-  { label: 'AAG (Spelljammer)', value: 'AAG' },
-  { label: 'BGDIA (Descent into Avernus)', value: 'BGDIA' },
-  { label: 'AI (Acquisitions Inc.)', value: 'AI' },
-  { label: 'EGW (Wildemount)', value: 'EGW' },
-  { label: 'VRGR (Van Richten)', value: 'VRGR' },
-  { label: 'FRHoF (Heroes of Faerûn)', value: 'FRHoF' },
-  { label: 'EFA (Elemental Evil / Eberron)', value: 'EFA' }
+const CORE_SOURCES_2024 = ['XPHB', 'XDMG', 'XMM', 'Homebrew']
+const EXPANDED_SOURCES_2024 = [
+  'TCE', 'XGE', 'EFA', 'FRHoF', 'AU', 'RHW', 'SCAG', 'EGW', 'FTD', 'BGG', 'VRGR',
+  'DSotDQ', 'BGDIA', 'AI', 'GGR', 'SCC', 'AAG', 'BMT', 'GoS', 'SatO', 'ABH',
+  'PSA', 'PSK', 'PSI', 'PSZ', 'PSX', 'PSD', 'EEPC', 'ERLW', 'MOT', 'WBtW', 'ToA',
+  'IDRotF', 'LLK', 'LFL', 'AWM', 'LR', 'OGA', 'TTP', 'PHB', 'DMG', 'MM', 'MPMM'
 ]
 
-const sourceOptions2014 = [
-  { label: 'All Sources', value: 'all' },
-  { label: 'Homebrew (Custom)', value: 'Homebrew' },
-  { label: "PHB (Player's Handbook 2014)", value: 'PHB' },
-  { label: 'DMG (Dungeon Master)', value: 'DMG' },
-  { label: 'MM (Monster Manual)', value: 'MM' },
-  { label: 'XGE (Xanathar)', value: 'XGE' },
-  { label: 'TCE (Tasha)', value: 'TCE' },
-  { label: 'SCAG (Sword Coast)', value: 'SCAG' },
-  { label: 'VGM (Volo)', value: 'VGM' },
-  { label: 'MTF (Mordenkainen)', value: 'MTF' },
-  { label: 'MPMM (Multiverse)', value: 'MPMM' },
-  { label: 'ERLW (Eberron)', value: 'ERLW' },
-  { label: 'GoS (Ghosts of Saltmarsh)', value: 'GoS' },
-  { label: 'AAG (Spelljammer)', value: 'AAG' },
-  { label: 'BGDIA (Descent into Avernus)', value: 'BGDIA' },
-  { label: 'AI (Acquisitions Inc.)', value: 'AI' },
-  { label: 'EGW (Wildemount)', value: 'EGW' },
-  { label: 'VRGR (Van Richten)', value: 'VRGR' }
+const CORE_SOURCES_2014 = ['PHB', 'DMG', 'MM', 'Homebrew']
+const EXPANDED_SOURCES_2014 = [
+  'TCE', 'XGE', 'SCAG', 'EFA', 'EGW', 'ERLW', 'FTD', 'MPMM', 'VGM', 'MTF',
+  'BGG', 'DSotDQ', 'VRGR', 'GGR', 'BGDIA', 'SCC', 'AI', 'SatO', 'AAG', 'RHW',
+  'MOT', 'EEPC', 'BMT', 'GoS', 'WBtW', 'FRHoF', 'PSA', 'PSK', 'PSZ', 'PSX',
+  'PSI', 'PSD', 'AU', 'UATheMysticClass', 'AWM', 'LR', 'OGA', 'TTP', 'ToA', 'IDRotF', 'LLK'
 ]
 
-const currentSourceOptions = computed(() => {
-  return currentEdition.value === '2024' ? sourceOptions2024 : sourceOptions2014
+const SOURCE_LABELS = {
+  // Core
+  XPHB: "Player's Handbook 2024",
+  XDMG: "Dungeon Master's Guide 2024",
+  XMM: "Monster Manual 2024",
+  Homebrew: "Homebrew (Custom)",
+  PHB: "Player's Handbook 2014",
+  DMG: "Dungeon Master's Guide 2014",
+  MM: "Monster Manual 2014",
+
+  // Major Expansions
+  TCE: "Tasha's Cauldron of Everything",
+  XGE: "Xanathar's Guide to Everything",
+  MPMM: "Mordenkainen Presents: MotM",
+  VGM: "Volo's Guide to Monsters",
+  MTF: "Mordenkainen's Tome of Foes",
+  FTD: "Fizban's Treasury of Dragons",
+  BGG: "Bigby Presents: Glory of the Giants",
+  BMT: "The Book of Many Things",
+
+  // Settings & Supplements
+  EFA: "Eberron: Forge of the Artificer",
+  ERLW: "Eberron: Rising from the Last War",
+  SCAG: "Sword Coast Adventurer's Guide",
+  EGW: "Explorer's Guide to Wildemount",
+  VRGR: "Van Richten's Guide to Ravenloft",
+  GGR: "Guildmasters' Guide to Ravnica",
+  MOT: "Mythic Odysseys of Theros",
+  DSotDQ: "Dragonlance: Shadow of the Dragon Queen",
+  SCC: "Strixhaven: Curriculum of Chaos",
+  SatO: "Planescape: Sigil & Outlands",
+  AAG: "Astral Adventurer's Guide",
+  AI: "Acquisitions Incorporated",
+  EEPC: "Elemental Evil Player's Companion",
+
+  // Adventures & Extras
+  BGDIA: "Baldur's Gate: Descent into Avernus",
+  GoS: "Ghosts of Saltmarsh",
+  WBtW: "The Wild Beyond the Witchlight",
+  FRHoF: "Heroes of Faerûn",
+  RHW: "Red Hand of Doom",
+  ABH: "Adventures & Backgrounds",
+
+  // Plane Shift & Unearthed Arcana
+  PSA: "Plane Shift: Amonkhet",
+  PSK: "Plane Shift: Kaladesh",
+  PSZ: "Plane Shift: Zendikar",
+  PSX: "Plane Shift: Ixalan",
+  PSI: "Plane Shift: Innistrad",
+  PSD: "Plane Shift: Dominaria",
+  AU: "Unearthed Arcana",
+  UATheMysticClass: "Mystic (UA)",
+  AWM: "Adventure with Monsters",
+  LR: "Locathah Rising",
+  OGA: "One Grung Above",
+  TTP: "The Tortle Package",
+  LFL: "Legends from Lorwyn",
+  ToA: "Tomb of Annihilation",
+  IDRotF: "Rime of the Frostmaiden",
+  LLK: "Lost Laboratory of Kwalish"
+}
+
+const getDefaultSources = (edition) => {
+  return edition === '2024'
+    ? new Set(CORE_SOURCES_2024)
+    : new Set([...CORE_SOURCES_2014, ...EXPANDED_SOURCES_2014])
+}
+
+const selectedSources = ref(getDefaultSources(currentEdition.value))
+const isSourceDropdownOpen = ref(false)
+const sourceDropdownRef = ref(null)
+
+const currentCoreSourceList = computed(() => {
+  const list = currentEdition.value === '2024' ? CORE_SOURCES_2024 : CORE_SOURCES_2014
+  return list.map(code => ({ code, label: SOURCE_LABELS[code] || code }))
+})
+
+const currentExpandedSourceList = computed(() => {
+  const list = currentEdition.value === '2024' ? EXPANDED_SOURCES_2024 : EXPANDED_SOURCES_2014
+  return list.map(code => ({ code, label: SOURCE_LABELS[code] || code }))
+})
+
+const currentAllSources = computed(() => {
+  return currentEdition.value === '2024'
+    ? [...CORE_SOURCES_2024, ...EXPANDED_SOURCES_2024]
+    : [...CORE_SOURCES_2014, ...EXPANDED_SOURCES_2014]
+})
+
+const isSourceSelected = (code) => {
+  return selectedSources.value.has(code)
+}
+
+const toggleSource = (code) => {
+  const next = new Set(selectedSources.value)
+  if (next.has(code)) {
+    next.delete(code)
+  } else {
+    next.add(code)
+  }
+  selectedSources.value = next
+  fetchData()
+}
+
+const setSourcesSelectAll = () => {
+  selectedSources.value = new Set(currentAllSources.value)
+  fetchData()
+}
+
+const setSourcesCoreOnly = () => {
+  const coreList = currentEdition.value === '2024' ? CORE_SOURCES_2024 : CORE_SOURCES_2014
+  selectedSources.value = new Set(coreList)
+  fetchData()
+}
+
+const clearAllSources = () => {
+  selectedSources.value = new Set()
+  fetchData()
+}
+
+const sourceDropdownLabel = computed(() => {
+  const coreList = currentEdition.value === '2024' ? CORE_SOURCES_2024 : CORE_SOURCES_2014
+  const allList = currentAllSources.value
+  const size = selectedSources.value.size
+
+  if (size === 0) return 'No Sources'
+  if (size === allList.length && allList.every(s => selectedSources.value.has(s))) {
+    return 'All Sources'
+  }
+  if (size === coreList.length && coreList.every(s => selectedSources.value.has(s))) {
+    return 'Core Only'
+  }
+  return `Sources (${size})`
 })
 
 const monsterCrList = [
@@ -448,9 +557,10 @@ const initFromNavState = () => {
   if (compendiumParams.value) {
     if (compendiumParams.value.edition) {
       currentEdition.value = compendiumParams.value.edition
+      selectedSources.value = getDefaultSources(compendiumParams.value.edition)
     }
     if (compendiumParams.value.source) {
-      sourceFilter.value = compendiumParams.value.source
+      selectedSources.value = new Set([compendiumParams.value.source])
     }
     if (compendiumParams.value.class) {
       spellClassFilter.value = compendiumParams.value.class.toLowerCase()
@@ -493,13 +603,21 @@ const fetchData = async () => {
   hasMore.value = true
   const edition = currentEdition.value
   const q = searchQuery.value.trim()
-  const src = sourceFilter.value !== 'all' ? sourceFilter.value : null
+  const sourcesArr = Array.from(selectedSources.value)
+
+  if (sourcesArr.length === 0) {
+    rawList.value = []
+    hasMore.value = false
+    isLoading.value = false
+    return
+  }
+
+  const sourcesParam = sourcesArr.join(',')
 
   try {
     if (activeTab.value === 'spells') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
       if (spellClassFilter.value !== 'all') params.className = spellClassFilter.value
       if (spellLevelFilter.value !== 'all') params.level = spellLevelFilter.value
 
@@ -508,9 +626,8 @@ const fetchData = async () => {
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'spells' }))
     } else if (activeTab.value === 'items') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
       if (itemTypeFilter.value !== 'all') params.type = itemTypeFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/items`, { params })
@@ -518,9 +635,8 @@ const fetchData = async () => {
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'items' }))
     } else if (activeTab.value === 'monsters') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
       if (monsterCrFilter.value !== 'all') params.cr = monsterCrFilter.value
       if (monsterTypeFilter.value !== 'all') params.type = monsterTypeFilter.value
 
@@ -529,9 +645,8 @@ const fetchData = async () => {
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'monsters' }))
     } else if (activeTab.value === 'feats') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
       if (featCategoryFilter.value !== 'all') params.category = featCategoryFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/feats`, { params })
@@ -539,9 +654,8 @@ const fetchData = async () => {
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'feats' }))
     } else if (activeTab.value === 'rules') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
       if (ruleCategoryFilter.value !== 'all') params.category = ruleCategoryFilter.value
 
       const res = await axios.get(`${API_URL}/compendium/rules`, { params })
@@ -549,36 +663,32 @@ const fetchData = async () => {
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'rules' }))
     } else if (activeTab.value === 'optionalfeatures') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
 
       const res = await axios.get(`${API_URL}/compendium/optionalfeatures`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'optionalfeatures' }))
     } else if (activeTab.value === 'backgrounds') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
 
       const res = await axios.get(`${API_URL}/compendium/backgrounds`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'backgrounds' }))
     } else if (activeTab.value === 'classes') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
 
       const res = await axios.get(`${API_URL}/compendium/classes`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
       if (list.length < PAGE_SIZE) hasMore.value = false
       rawList.value = list.map(item => ({ ...item, _category: 'classes' }))
     } else if (activeTab.value === 'races') {
-      const params = { edition, limit: PAGE_SIZE, offset: 0 }
+      const params = { edition, limit: PAGE_SIZE, offset: 0, sources: sourcesParam }
       if (q) params.search = q
-      if (src) params.source = src
 
       const res = await axios.get(`${API_URL}/compendium/races`, { params })
       const list = Array.isArray(res.data?.data) ? res.data.data : []
@@ -593,9 +703,8 @@ const fetchData = async () => {
       rawList.value = list.map(item => ({ ...item, _category: 'adventures' }))
     } else if (activeTab.value === 'all') {
       allPage.value = 1
-      const baseParams = { edition }
+      const baseParams = { edition, sources: sourcesParam }
       if (q) baseParams.search = q
-      if (src) baseParams.source = src
       const [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes] = await Promise.all([
         axios.get(`${API_URL}/compendium/classes`, { params: { ...baseParams, limit: 20, offset: 0 } }),
         axios.get(`${API_URL}/compendium/races`, { params: { ...baseParams, limit: 20, offset: 0 } }),
@@ -633,11 +742,11 @@ const fetchData = async () => {
       })
     }
 
-    if (src) {
-      const srcUpper = src.toUpperCase()
+    if (sourcesArr.length > 0) {
+      const srcUpper = new Set(sourcesArr.map(s => s.toUpperCase()))
       rawList.value = rawList.value.filter(item => {
         if (!item.source) return true
-        return item.source.toUpperCase() === srcUpper
+        return srcUpper.has(item.source.toUpperCase())
       })
     }
 
@@ -665,15 +774,20 @@ const fetchMore = async () => {
   isLoadingMore.value = true
   const edition = currentEdition.value
   const q = searchQuery.value.trim()
-  const src = sourceFilter.value !== 'all' ? sourceFilter.value : null
+  const sourcesArr = Array.from(selectedSources.value)
+  if (sourcesArr.length === 0) {
+    isLoadingMore.value = false
+    hasMore.value = false
+    return
+  }
+  const sourcesParam = sourcesArr.join(',')
 
   try {
     if (activeTab.value === 'all') {
       const offset = allPage.value * 20
       allPage.value++
-      const baseParams = { edition, limit: 20, offset }
+      const baseParams = { edition, limit: 20, offset, sources: sourcesParam }
       if (q) baseParams.search = q
-      if (src) baseParams.source = src
 
       const [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes] = await Promise.all([
         axios.get(`${API_URL}/compendium/classes`, { params: baseParams }),
@@ -700,9 +814,9 @@ const fetchMore = async () => {
       const nextBatch = [...classes, ...races, ...spells, ...items, ...monsters, ...feats, ...rules, ...optFeatures, ...backgrounds]
       const existingKeys = new Set(rawList.value.map(i => `${i._category}:${i.id ?? i.name}:${i.source || ''}`))
       let uniqueNext = nextBatch.filter(i => !existingKeys.has(`${i._category}:${i.id ?? i.name}:${i.source || ''}`))
-      if (src) {
-        const srcUpper = src.toUpperCase()
-        uniqueNext = uniqueNext.filter(item => !item.source || item.source.toUpperCase() === srcUpper)
+      if (sourcesArr.length > 0) {
+        const srcUpper = new Set(sourcesArr.map(s => s.toUpperCase()))
+        uniqueNext = uniqueNext.filter(item => !item.source || srcUpper.has(item.source.toUpperCase()))
       }
 
       const anyHasMore = [classesRes, racesRes, spellsRes, itemsRes, monstersRes, featsRes, rulesRes, optRes, bgRes].some(
@@ -718,9 +832,8 @@ const fetchMore = async () => {
 
     const offset = rawList.value.length
     let endpoint = ''
-    const params = { edition, limit: PAGE_SIZE, offset }
+    const params = { edition, limit: PAGE_SIZE, offset, sources: sourcesParam }
     if (q) params.search = q
-    if (src) params.source = src
 
     if (activeTab.value === 'classes') {
       endpoint = `${API_URL}/compendium/classes`
@@ -756,7 +869,11 @@ const fetchMore = async () => {
     const mapped = list.map(item => ({ ...item, _category: activeTab.value }))
 
     const existingKeys = new Set(rawList.value.map(i => `${i._category}:${i.id ?? i.name}:${i.source || ''}`))
-    const uniqueNext = mapped.filter(i => !existingKeys.has(`${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+    let uniqueNext = mapped.filter(i => !existingKeys.has(`${i._category}:${i.id ?? i.name}:${i.source || ''}`))
+    if (sourcesArr.length > 0) {
+      const srcUpper = new Set(sourcesArr.map(s => s.toUpperCase()))
+      uniqueNext = uniqueNext.filter(item => !item.source || srcUpper.has(item.source.toUpperCase()))
+    }
 
     if (mapped.length < PAGE_SIZE || uniqueNext.length === 0) {
       hasMore.value = false
@@ -779,9 +896,212 @@ watch(isCompendiumOpen, (isOpen) => {
   }
 })
 
-watch(currentEdition, () => {
+watch(currentEdition, (newEd) => {
+  classTableCache.clear()
+  subclassCache.clear()
+  selectedSubclass.value = null
+  subclassDetail.value = null
+  inspectingClassFeature.value = null
+  selectedSources.value = getDefaultSources(newEd)
   fetchData()
 })
+
+watch(selectedSources, (newSet) => {
+  if (selectedSubclass.value && selectedSubclass.value.source) {
+    const upperSet = new Set(Array.from(newSet).map(s => s.toUpperCase()))
+    if (!upperSet.has(selectedSubclass.value.source.toUpperCase())) {
+      clearSelectedSubclass()
+    }
+  }
+})
+
+const getOrdinal = (n) => {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+const formatSkillChoices = (choices) => {
+  if (!choices) return ''
+  const arr = Array.isArray(choices) ? choices : [choices]
+  return arr.map(c => {
+    if (!c) return ''
+    if (c.any) return `Choose any ${c.any} skills`
+    if (c.choose) {
+      const from = (c.choose.from || []).map(s => String(s).charAt(0).toUpperCase() + String(s).slice(1)).join(', ')
+      return `Choose ${c.choose.count || 1} from ${from}`
+    }
+    return ''
+  }).filter(Boolean).join('; ')
+}
+
+const formatClassEquipment = (eq) => {
+  if (!eq) return ''
+  if (typeof eq === 'string') return eq
+  if (Array.isArray(eq.entries)) return eq.entries.map(clean5eToolsMarkup).join(' ')
+  return ''
+}
+
+const filteredSubclasses = computed(() => {
+  if (!selectedItem.value?.subclasses) return []
+  const upperSet = new Set(Array.from(selectedSources.value).map(s => s.toUpperCase()))
+  return selectedItem.value.subclasses.filter(sc => {
+    if (!sc.source) return true
+    return upperSet.has(sc.source.toUpperCase())
+  })
+})
+
+const subclassLevelsList = computed(() => {
+  if (!subclassDetail.value?.features || !subclassDetail.value.features.length) return ''
+  const levels = Array.from(new Set(subclassDetail.value.features.map(f => Number(f.level) || 1))).sort((a, b) => a - b)
+  return levels.map(lvl => `Level ${lvl}`).join(', ')
+})
+
+const groupedClassFeatures = computed(() => {
+  if (!classTableData.value?.allFeatures) return []
+  const baseMap = new Map()
+  for (const f of classTableData.value.allFeatures) {
+    const lvl = Number(f.level) || 1
+    if (!baseMap.has(lvl)) baseMap.set(lvl, [])
+    baseMap.get(lvl).push({ ...f, isSubclassFeature: false })
+  }
+
+  const scMap = new Map()
+  if (subclassDetail.value?.features && Array.isArray(subclassDetail.value.features)) {
+    for (const scf of subclassDetail.value.features) {
+      const lvl = Number(scf.level) || 1
+      if (!scMap.has(lvl)) scMap.set(lvl, [])
+      scMap.get(lvl).push({
+        ...scf,
+        isSubclassFeature: true,
+        subclassName: subclassDetail.value.name
+      })
+    }
+  }
+
+  const allLevels = new Set([...baseMap.keys(), ...scMap.keys()])
+  const result = []
+
+  for (const lvl of Array.from(allLevels).sort((a, b) => a - b)) {
+    let baseList = baseMap.get(lvl) || []
+    const scList = scMap.get(lvl) || []
+
+    if (scList.length > 0) {
+      baseList = baseList.filter(f => !/subclass\s+feature/i.test(f.name || ''))
+    }
+
+    const merged = [...baseList, ...scList]
+    if (merged.length > 0) {
+      result.push({
+        level: lvl,
+        levelLabel: getOrdinal(lvl),
+        features: merged
+      })
+    }
+  }
+
+  return result
+})
+
+const totalFeaturesCount = computed(() => {
+  return groupedClassFeatures.value.reduce((acc, g) => acc + g.features.length, 0)
+})
+
+const getRowFeatures = (row) => {
+  if (!row) return []
+  const baseFeats = (row.features || []).map(f => ({ ...f, isSubclassFeature: false }))
+  if (!subclassDetail.value?.features) return baseFeats
+
+  const scFeats = subclassDetail.value.features
+    .filter(f => Number(f.level) === Number(row.level))
+    .map(f => ({
+      ...f,
+      isSubclassFeature: true,
+      subclassName: subclassDetail.value.name
+    }))
+
+  if (scFeats.length === 0) return baseFeats
+
+  const filteredBase = baseFeats.filter(f => !/subclass\s+feature/i.test(f.name || ''))
+  return [...filteredBase, ...scFeats]
+}
+
+const fetchClassTableForCompendium = async (className, edition = '2024') => {
+  if (!className) return
+  const cacheKey = `${className.toLowerCase()}_${edition}`
+  if (classTableCache.has(cacheKey)) {
+    classTableData.value = classTableCache.get(cacheKey)
+    return
+  }
+  isLoadingClassTable.value = true
+  try {
+    const res = await axios.get(`${API_URL}/compendium/class-table`, {
+      params: { name: className, edition }
+    })
+    if (res.data?.data) {
+      classTableData.value = res.data.data
+      classTableCache.set(cacheKey, res.data.data)
+    } else {
+      classTableData.value = null
+    }
+  } catch (err) {
+    console.warn('Failed to load class table in compendium:', err)
+    classTableData.value = null
+  } finally {
+    isLoadingClassTable.value = false
+  }
+}
+
+const selectSubclass = async (sc) => {
+  if (selectedSubclass.value?.id === sc.id || (selectedSubclass.value?.name === sc.name && selectedSubclass.value?.source === sc.source)) {
+    selectedSubclass.value = null
+    subclassDetail.value = null
+    return
+  }
+  classViewTab.value = 'features'
+  selectedSubclass.value = sc
+  const cacheKey = sc.id || `${sc.name}_${sc.source}_${sc.edition || currentEdition.value}`
+  if (subclassCache.has(cacheKey)) {
+    subclassDetail.value = subclassCache.get(cacheKey)
+    return
+  }
+  isLoadingSubclass.value = true
+  try {
+    const res = await axios.get(`${API_URL}/compendium/subclass-detail`, {
+      params: {
+        id: sc.id || undefined,
+        name: sc.name,
+        class_name: selectedItem.value?.name,
+        edition: sc.edition || currentEdition.value
+      }
+    })
+    if (res.data?.data) {
+      subclassDetail.value = res.data.data
+      subclassCache.set(cacheKey, res.data.data)
+    } else {
+      subclassDetail.value = null
+    }
+  } catch (err) {
+    console.warn('Failed to load subclass detail:', err)
+    subclassDetail.value = null
+  } finally {
+    isLoadingSubclass.value = false
+  }
+}
+
+const clearSelectedSubclass = () => {
+  selectedSubclass.value = null
+  subclassDetail.value = null
+}
+
+watch(() => selectedItem.value, (newItem) => {
+  selectedSubclass.value = null
+  subclassDetail.value = null
+  inspectingClassFeature.value = null
+  if (newItem && (newItem._category === 'classes' || newItem.hitDice)) {
+    fetchClassTableForCompendium(newItem.name, newItem.edition || currentEdition.value)
+  }
+}, { immediate: true })
 
 const formatSpellLevel = (level) => {
   const lvl = Number(level)
@@ -1203,8 +1523,15 @@ const onKeyDown = (e) => {
   }
 }
 
+const onClickOutside = (e) => {
+  if (sourceDropdownRef.value && !sourceDropdownRef.value.contains(e.target)) {
+    isSourceDropdownOpen.value = false
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
+  document.addEventListener('click', onClickOutside)
   if (isCompendiumOpen.value) {
     initFromNavState()
   }
@@ -1212,6 +1539,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
+  document.removeEventListener('click', onClickOutside)
 })
 </script>
 
@@ -1220,7 +1548,7 @@ onBeforeUnmount(() => {
     v-if="isCompendiumOpen"
     class="min-h-screen bg-gray-100 flex flex-col text-xs text-gray-800"
     :data-edition="currentEdition"
-    :data-source="sourceFilter !== 'all' ? sourceFilter : (currentEdition === '2024' ? 'XPHB' : 'PHB')"
+    :data-source="selectedSources.size > 0 ? Array.from(selectedSources)[0] : (currentEdition === '2024' ? 'XPHB' : 'PHB')"
   >
     <!-- Top Navigation Bar -->
     <header class="bg-white border-b border-gray-200 sticky top-0 z-40 px-4 py-3 shadow-xs">
@@ -1431,17 +1759,100 @@ onBeforeUnmount(() => {
             <span>Create Homebrew</span>
           </button>
 
-          <!-- Source Filter Dropdown -->
-          <div class="flex items-center gap-1.5 min-w-[130px]">
-            <v-select
-              v-model="sourceFilter"
-              :options="currentSourceOptions"
-              :reduce="src => src.value"
-              label="label"
-              :clearable="false"
-              class="w-full"
-              @update:model-value="fetchData"
-            />
+          <!-- Source Multi-Select Checklist Dropdown -->
+          <div class="relative min-w-[140px]" ref="sourceDropdownRef">
+            <button
+              type="button"
+              @click="isSourceDropdownOpen = !isSourceDropdownOpen"
+              class="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-xs font-medium text-gray-800 hover:bg-white flex items-center justify-between gap-2 cursor-pointer shadow-2xs"
+            >
+              <span class="truncate">{{ sourceDropdownLabel }}</span>
+              <svg
+                class="w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform"
+                :class="isSourceDropdownOpen ? 'rotate-180' : ''"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+
+            <!-- Dropdown Menu -->
+            <div
+              v-if="isSourceDropdownOpen"
+              class="absolute left-0 md:right-0 md:left-auto top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl z-50 p-2 space-y-2 text-xs"
+            >
+              <!-- Quick Action Buttons -->
+              <div class="flex items-center justify-between border-b border-gray-100 pb-1.5 text-[11px]">
+                <button
+                  type="button"
+                  @click="setSourcesCoreOnly"
+                  class="text-gray-700 hover:text-black font-semibold cursor-pointer px-1.5 py-0.5 rounded hover:bg-gray-100"
+                >
+                  Core Only
+                </button>
+                <button
+                  type="button"
+                  @click="setSourcesSelectAll"
+                  class="text-gray-700 hover:text-black font-semibold cursor-pointer px-1.5 py-0.5 rounded hover:bg-gray-100"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  @click="clearAllSources"
+                  class="text-red-600 hover:text-red-800 font-semibold cursor-pointer px-1.5 py-0.5 rounded hover:bg-red-50"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <!-- Sources List -->
+              <div class="max-h-60 overflow-y-auto space-y-2 pr-1 divide-y divide-gray-100">
+                <!-- Core Section -->
+                <div class="space-y-0.5">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1 pt-0.5">
+                    Core {{ currentEdition }}
+                  </div>
+                  <label
+                    v-for="src in currentCoreSourceList"
+                    :key="src.code"
+                    class="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-gray-50 cursor-pointer text-gray-800 select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isSourceSelected(src.code)"
+                      @change="toggleSource(src.code)"
+                      class="rounded text-gray-900 focus:ring-0 cursor-pointer"
+                    />
+                    <span class="font-mono font-bold text-[11px] text-gray-900 w-14 shrink-0">{{ src.code }}</span>
+                    <span class="truncate text-[11px] text-gray-600">{{ src.label }}</span>
+                  </label>
+                </div>
+
+                <!-- Expanded / Supplements Section -->
+                <div v-if="currentExpandedSourceList.length" class="space-y-0.5 pt-1.5">
+                  <div class="text-[10px] font-bold uppercase tracking-wider text-gray-400 px-1">
+                    {{ currentEdition === '2024' ? 'Expanded / Legacy (2014)' : 'Supplements & Settings' }}
+                  </div>
+                  <label
+                    v-for="src in currentExpandedSourceList"
+                    :key="src.code"
+                    class="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-gray-50 cursor-pointer text-gray-800 select-none"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isSourceSelected(src.code)"
+                      @change="toggleSource(src.code)"
+                      class="rounded text-gray-900 focus:ring-0 cursor-pointer"
+                    />
+                    <span class="font-mono font-bold text-[11px] text-gray-700 w-14 shrink-0">{{ src.code }}</span>
+                    <span class="truncate text-[11px] text-gray-600">{{ src.label }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- Spells Sub-filters: Class Dropdown -->
@@ -1629,7 +2040,7 @@ onBeforeUnmount(() => {
         <div
           class="md:col-span-7 bg-white rounded border border-gray-200 shadow-xs p-4 sm:p-5 flex flex-col h-[650px] overflow-y-auto"
           :data-edition="selectedItem?.edition || currentEdition"
-          :data-source="selectedItem?.source || (sourceFilter !== 'all' ? sourceFilter : (currentEdition === '2024' ? 'XPHB' : 'PHB'))"
+          :data-source="selectedItem?.source || (selectedSources.size > 0 ? Array.from(selectedSources)[0] : (currentEdition === '2024' ? 'XPHB' : 'PHB'))"
         >
           <div v-if="selectedItem" class="space-y-4">
             <!-- Detail Header -->
@@ -1827,21 +2238,43 @@ onBeforeUnmount(() => {
                 <div v-if="selectedItem.toolProficiencies && selectedItem.toolProficiencies.length">
                   <strong class="text-gray-700">Tool Proficiencies:</strong> {{ formatClassProf(selectedItem.toolProficiencies) }}
                 </div>
+                <div v-if="selectedItem.skillChoices && formatSkillChoices(selectedItem.skillChoices)">
+                  <strong class="text-gray-700">Skills:</strong> {{ formatSkillChoices(selectedItem.skillChoices) }}
+                </div>
+                <div v-if="selectedItem.startingEquipment && formatClassEquipment(selectedItem.startingEquipment)">
+                  <strong class="text-gray-700">Starting Equipment:</strong> <span v-html="renderAnnotatedText(formatClassEquipment(selectedItem.startingEquipment))"></span>
+                </div>
               </div>
 
               <div v-if="selectedItem.subclasses && selectedItem.subclasses.length" class="pt-2 border-t border-gray-200 space-y-1.5">
-                <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900">
-                  {{ selectedItem.subclassTitle || 'Subclasses' }} ({{ selectedItem.subclasses.length }})
-                </h4>
+                <div class="flex items-center justify-between flex-wrap gap-1">
+                  <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900">
+                    {{ selectedItem.subclassTitle || 'Subclasses' }} ({{ selectedItem.subclasses.length }})
+                  </h4>
+                  <span class="text-[10px] text-gray-500 italic">Click subclass to view embedded features</span>
+                </div>
                 <div class="flex flex-wrap gap-1.5">
-                  <span
+                  <button
                     v-for="sc in selectedItem.subclasses"
-                    :key="sc.name + sc.source"
-                    class="px-2 py-1 bg-white border border-gray-200 rounded text-gray-800 font-medium text-[11px] shadow-xs flex items-center gap-1.5"
+                    :key="sc.id || (sc.name + sc.source)"
+                    type="button"
+                    @click="selectSubclass(sc)"
+                    :class="[
+                      'px-2 py-1 rounded font-medium text-[11px] shadow-2xs flex items-center gap-1.5 transition cursor-pointer border',
+                      (selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source))
+                        ? 'bg-gray-900 text-white border-gray-900 shadow-sm ring-1 ring-gray-900'
+                        : 'bg-white hover:bg-gray-100 text-gray-800 border-gray-200 hover:border-gray-300'
+                    ]"
                   >
                     <span>{{ sc.name }}</span>
-                    <span v-if="sc.source" class="text-[9px] font-mono px-1 py-0.2 bg-gray-100 rounded text-gray-500">{{ sc.source }}</span>
-                  </span>
+                    <span
+                      v-if="sc.source"
+                      :class="(selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source)) ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-500'"
+                      class="text-[9px] font-mono px-1 py-0.2 rounded"
+                    >
+                      {{ sc.source }}
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -2019,7 +2452,7 @@ onBeforeUnmount(() => {
 
             <!-- Description Body -->
             <div class="prose-xs leading-relaxed text-gray-800 space-y-2 pt-1">
-              <div v-if="selectedItem._category !== 'monsters' && selectedItem.cr === undefined && selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true)" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
+              <div v-if="selectedItem._category !== 'monsters' && selectedItem.cr === undefined && selectedItem.entries && (Array.isArray(selectedItem.entries) ? selectedItem.entries.length : true) && selectedItem._category !== 'classes'" v-html="renderAnnotatedText(formatEntries(selectedItem.entries))"></div>
               <!-- Dynamic Item Rules fallback for weapons, armor, and gear -->
               <div v-else-if="isItemCategory(selectedItem)" class="space-y-3">
                 <div v-if="getItemCategoryAndRange(selectedItem)" class="italic text-gray-600 font-medium">
@@ -2042,7 +2475,280 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
-              <div v-else-if="!selectedItem.trait && !selectedItem.action && selectedItem._category !== 'monsters' && selectedItem.cr === undefined" class="text-gray-400 italic text-xs py-2">
+
+              <!-- Comprehensive Class Progression Table, Class Features, and Embedded Subclass -->
+              <div v-else-if="selectedItem._category === 'classes'" class="space-y-4 not-prose">
+                <!-- Class Navigation Tabs -->
+                <div class="flex items-center gap-2 border-b border-gray-200 pb-2">
+                  <button
+                    type="button"
+                    @click="classViewTab = 'features'"
+                    :class="[
+                      'px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5',
+                      classViewTab === 'features'
+                        ? 'bg-gray-900 text-white shadow-xs'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ]"
+                  >
+                    <span>Class Features & Subclasses</span>
+                  </button>
+                  <button
+                    type="button"
+                    @click="classViewTab = 'table'"
+                    :class="[
+                      'px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5',
+                      classViewTab === 'table'
+                        ? 'bg-gray-900 text-white shadow-xs'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    ]"
+                  >
+                    <span>Class Progression Table (1–20)</span>
+                    <span v-if="classTableData?.rows" class="text-[10px] font-mono px-1 rounded bg-white/20 text-white">1–20</span>
+                  </button>
+                </div>
+
+                <!-- Loading State -->
+                <div v-if="isLoadingClassTable" class="p-6 text-center text-gray-400 italic text-xs">
+                  Loading class progression and features...
+                </div>
+
+                <!-- TAB 1: Features & Subclasses -->
+                <div v-else-if="classViewTab === 'features'" class="space-y-4">
+                  <!-- Subclass Selector Bar in Features Tab -->
+                  <div
+                    v-if="filteredSubclasses.length"
+                    class="p-3 bg-white rounded-lg border border-gray-200 shadow-2xs space-y-2"
+                  >
+                    <div class="flex items-center justify-between flex-wrap gap-1">
+                      <div class="font-bold text-xs uppercase tracking-wider text-gray-900 flex items-center gap-1.5">
+                        <span>{{ selectedItem.subclassTitle || 'Subclasses' }}</span>
+                        <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-gray-100 text-gray-600 font-normal">
+                          {{ filteredSubclasses.length }}
+                        </span>
+                      </div>
+                      <span class="text-[10px] text-gray-500 italic">
+                        Klik subclass untuk melihat detail &amp; seluruh fitur langsung di sini
+                      </span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        v-for="sc in filteredSubclasses"
+                        :key="sc.id || (sc.name + sc.source)"
+                        type="button"
+                        @click="selectSubclass(sc)"
+                        :class="[
+                          'px-2.5 py-1 rounded font-medium text-xs shadow-2xs flex items-center gap-1.5 transition cursor-pointer border',
+                          (selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source))
+                            ? 'bg-gray-900 text-white border-gray-900 shadow-xs ring-1 ring-gray-900'
+                            : 'bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-200 hover:border-gray-300'
+                        ]"
+                      >
+                        <span>{{ sc.name }}</span>
+                        <span
+                          v-if="sc.source"
+                          :class="(selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source)) ? 'bg-gray-800 text-gray-200' : 'bg-gray-200 text-gray-600'"
+                          class="text-[9px] font-mono px-1 py-0.2 rounded"
+                        >
+                          {{ sc.source }}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Active Subclass Summary Banner (Clean bordered theme, concise) -->
+                  <div
+                    v-if="selectedSubclass"
+                    class="p-3.5 sm:p-4 bg-white border-2 border-gray-800 rounded-lg space-y-2 text-gray-900 shadow-xs"
+                  >
+                    <div class="flex items-start justify-between gap-2 border-b border-gray-200 pb-2">
+                      <div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                          Active Subclass Preview
+                        </div>
+                        <h3 class="text-sm sm:text-base font-bold text-gray-900 flex items-center gap-2 mt-0.5">
+                          <span>{{ subclassDetail?.name || selectedSubclass.name }}</span>
+                          <span
+                            v-if="subclassDetail?.source || selectedSubclass.source"
+                            class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 border border-gray-300 text-gray-700"
+                          >
+                            {{ subclassDetail?.source || selectedSubclass.source }}
+                          </span>
+                        </h3>
+                      </div>
+                      <button
+                        type="button"
+                        @click="clearSelectedSubclass"
+                        class="px-2 py-1 text-xs text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 transition cursor-pointer flex items-center gap-1 shrink-0 font-medium"
+                        title="Deselect subclass"
+                      >
+                        ✕ Close Subclass
+                      </button>
+                    </div>
+
+                    <div v-if="isLoadingSubclass" class="py-2 text-center text-gray-400 italic text-xs">
+                      Loading subclass features...
+                    </div>
+
+                    <div v-else-if="subclassDetail" class="space-y-2">
+                      <div
+                        v-if="subclassDetail.entries && subclassDetail.entries.length"
+                        class="text-xs text-gray-600 leading-relaxed italic"
+                        v-html="renderAnnotatedText(formatEntries(subclassDetail.entries))"
+                      ></div>
+                    </div>
+                  </div>
+
+                  <!-- Complete Class Features (Levels 1 to 20 with Embedded Subclass Features) -->
+                  <div class="space-y-3">
+                    <div class="flex items-center justify-between border-b border-gray-200 pb-1">
+                      <h3 class="font-bold text-xs uppercase tracking-wider text-gray-900">
+                        Class Features (Levels 1–20)
+                      </h3>
+                      <span v-if="totalFeaturesCount" class="text-[10px] text-gray-500 font-mono">
+                        {{ totalFeaturesCount }} Features Total
+                      </span>
+                    </div>
+
+                    <div v-if="groupedClassFeatures.length" class="space-y-4">
+                      <div
+                        v-for="group in groupedClassFeatures"
+                        :key="group.level"
+                        class="space-y-2 border-l-2 border-gray-300 pl-3 pt-0.5"
+                      >
+                        <div class="font-bold text-xs text-gray-900 flex items-center gap-2">
+                          <span class="px-2 py-0.5 rounded bg-gray-200 text-gray-800 text-[10px] font-mono">
+                            {{ group.levelLabel }} Level
+                          </span>
+                        </div>
+
+                        <div class="space-y-2.5">
+                          <div
+                            v-for="feat in group.features"
+                            :key="(feat.isSubclassFeature ? 'sc_' : 'base_') + (feat.id || feat.name)"
+                            :class="[
+                              feat.isSubclassFeature
+                                ? 'p-3 bg-white border-2 border-gray-800 rounded-md space-y-1.5 shadow-xs'
+                                : 'p-3 bg-gray-50/70 border border-gray-200 rounded-md space-y-1.5 shadow-2xs'
+                            ]"
+                          >
+                            <div
+                              :class="[
+                                'flex items-center justify-between flex-wrap gap-1 border-b pb-1',
+                                feat.isSubclassFeature ? 'border-gray-200' : 'border-gray-200/60'
+                              ]"
+                            >
+                              <div class="flex items-center gap-2">
+                                <span
+                                  v-if="feat.isSubclassFeature"
+                                  class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[10px] font-semibold border border-gray-400"
+                                >
+                                  Level {{ feat.level }} Subclass Feature
+                                </span>
+                                <h4 class="font-bold text-xs text-gray-900">
+                                  {{ feat.name }}
+                                </h4>
+                              </div>
+                              <div class="flex items-center gap-1.5 text-[9px] font-mono">
+                                <span v-if="feat.isSubclassFeature" class="text-gray-600 font-sans font-medium">
+                                  {{ feat.subclassName }}
+                                </span>
+                                <span
+                                  v-if="feat.source"
+                                  class="text-gray-400"
+                                >
+                                  {{ feat.source }}<span v-if="feat.page"> p. {{ feat.page }}</span>
+                                </span>
+                              </div>
+                            </div>
+                            <div
+                              class="text-xs leading-relaxed text-gray-700"
+                              v-html="renderAnnotatedText(formatEntries(feat.entries))"
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-else class="text-gray-400 italic text-xs py-4 text-center">
+                      No features available for this class.
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TAB 2: Class Progression Table (1-20) -->
+                <div v-else-if="classViewTab === 'table'" class="space-y-3">
+                  <div v-if="classTableData" class="overflow-x-auto border border-gray-200 rounded shadow-xs bg-white">
+                    <table class="w-full text-left text-xs divide-y divide-gray-200">
+                      <thead class="bg-gray-50 text-[10px] font-bold text-gray-600 uppercase tracking-wider">
+                        <tr>
+                          <th class="py-2.5 px-3 whitespace-nowrap text-center">Level</th>
+                          <th class="py-2.5 px-3 whitespace-nowrap text-center">PB</th>
+                          <th class="py-2.5 px-3 min-w-[200px]">Class Features</th>
+                          <th
+                            v-for="(hdr, hIdx) in classTableData.headers"
+                            :key="hIdx"
+                            class="py-2.5 px-3 whitespace-nowrap text-center font-mono"
+                          >
+                            {{ hdr }}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-gray-100 bg-white">
+                        <tr
+                          v-for="row in classTableData.rows"
+                          :key="row.level"
+                          class="hover:bg-gray-50/80 transition"
+                        >
+                          <td class="py-2 px-3 text-center whitespace-nowrap font-mono text-gray-700">
+                            {{ row.levelLabel }}
+                          </td>
+                          <td class="py-2 px-3 text-center whitespace-nowrap font-mono text-gray-600">
+                            {{ row.proficiencyBonus }}
+                          </td>
+                          <td class="py-2 px-3">
+                            <div v-if="getRowFeatures(row).length" class="flex flex-wrap gap-1">
+                              <button
+                                v-for="feat in getRowFeatures(row)"
+                                :key="(feat.isSubclassFeature ? 'sc_' : 'base_') + (feat.id || feat.name)"
+                                type="button"
+                                @click="inspectingClassFeature = feat"
+                                :class="[
+                                  'px-2 py-0.5 rounded text-[11px] border transition cursor-pointer text-left flex items-center gap-1 shadow-2xs',
+                                  feat.isSubclassFeature
+                                    ? (inspectingClassFeature?.name === feat.name
+                                        ? 'border-2 border-gray-900 bg-gray-100 text-gray-900 font-semibold'
+                                        : 'border-2 border-gray-800 bg-white hover:bg-gray-50 text-gray-900 font-medium')
+                                    : inspectingClassFeature?.name === feat.name
+                                      ? 'border-gray-900 bg-gray-100 text-gray-900 font-semibold'
+                                      : 'border-gray-200 bg-white hover:bg-gray-100 text-gray-800'
+                                ]"
+                              >
+                                <span
+                                  v-if="feat.isSubclassFeature"
+                                  class="text-[9px] px-1 py-0.2 rounded bg-gray-100 border border-gray-300 text-gray-600 font-mono"
+                                >
+                                  Subclass
+                                </span>
+                                <span>{{ feat.name }}</span>
+                              </button>
+                            </div>
+                            <span v-else class="text-gray-400 italic text-[11px]">—</span>
+                          </td>
+                          <td
+                            v-for="(val, vIdx) in row.customValues"
+                            :key="vIdx"
+                            class="py-2 px-3 text-center whitespace-nowrap font-mono text-gray-700"
+                          >
+                            {{ val || '—' }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <div v-else-if="!selectedItem.trait && !selectedItem.action && selectedItem._category !== 'monsters' && selectedItem.cr === undefined && selectedItem._category !== 'classes'" class="text-gray-400 italic text-xs py-2">
                 No additional rules text recorded for this entry.
               </div>
             </div>
@@ -2455,6 +3161,35 @@ onBeforeUnmount(() => {
         <span>{{ homebrewToast }}</span>
       </div>
     </transition>
+
+    <!-- Class Feature Detail Modal in Compendium -->
+    <div
+      v-if="inspectingClassFeature"
+      @click.self="inspectingClassFeature = null"
+      class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4"
+    >
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-lg w-full max-h-[85vh] flex flex-col overflow-hidden text-xs">
+        <div class="p-3.5 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+          <div>
+            <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+              Level {{ inspectingClassFeature.level }} {{ inspectingClassFeature.isSubclassFeature ? ('Subclass Feature • ' + (inspectingClassFeature.subclassName || '')) : 'Feature' }}
+            </span>
+            <h4 class="font-bold text-sm text-gray-900">{{ inspectingClassFeature.name }}</h4>
+          </div>
+          <button
+            type="button"
+            @click="inspectingClassFeature = null"
+            class="text-gray-400 hover:text-gray-700 p-1 cursor-pointer leading-none"
+          >
+            <IconX class="w-4 h-4" />
+          </button>
+        </div>
+        <div
+          class="p-4 overflow-y-auto space-y-2 text-xs text-gray-800 leading-relaxed"
+          v-html="renderAnnotatedText(formatEntries(inspectingClassFeature.entries))"
+        ></div>
+      </div>
+    </div>
   </div>
 </template>
 

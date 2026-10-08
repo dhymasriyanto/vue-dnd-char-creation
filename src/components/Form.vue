@@ -254,22 +254,100 @@ watch(() => characterRace.value, (newRace) => {
 // Source Books Configuration
 const SOURCE_OPTIONS_2024 = [
   { code: 'XPHB', label: "Player's Handbook 2024 (Core/SRD)" },
-  { code: 'XDMG', label: "Dungeon Master's Guide 2024" }
+  { code: 'XDMG', label: "Dungeon Master's Guide 2024" },
+  { code: 'XMM', label: "Monster Manual 2024" },
+  { code: 'TCE', label: "Tasha's Cauldron (2024 Adapted)" },
+  { code: 'XGE', label: "Xanathar's Guide (2024 Adapted)" },
+  { code: 'EFA', label: "Eberron: Forge of the Artificer" },
+  { code: 'FRHoF', label: "Heroes of Faerûn" },
+  { code: 'AU', label: "Unearthed Arcana" },
+  { code: 'RHW', label: "Red Hand of Doom" },
+  { code: 'SCAG', label: "Sword Coast" },
+  { code: 'EGW', label: "Explorer's Guide to Wildemount" },
+  { code: 'FTD', label: "Fizban's Treasury" },
+  { code: 'BGG', label: "Bigby Presents: Giants" },
+  { code: 'VRGR', label: "Van Richten's Ravenloft" },
+  { code: 'DSotDQ', label: "Dragonlance" },
+  { code: 'BGDIA', label: "Descent into Avernus" },
+  { code: 'AI', label: "Acquisitions Incorporated" },
+  { code: 'GGR', label: "Guildmasters' Guide to Ravnica" },
+  { code: 'SCC', label: "Strixhaven" },
+  { code: 'AAG', label: "Astral Adventurer's Guide" },
+  { code: 'BMT', label: "The Book of Many Things" },
+  { code: 'GoS', label: "Ghosts of Saltmarsh" },
+  { code: 'SatO', label: "Planescape: Sigil & Outlands" },
+  { code: 'ABH', label: "Adventures & Backgrounds" },
+  { code: 'PSA', label: "Plane Shift: Amonkhet" },
+  { code: 'PSK', label: "Plane Shift: Kaladesh" },
+  { code: 'PSI', label: "Plane Shift: Innistrad" },
+  { code: 'PSZ', label: "Plane Shift: Zendikar" },
+  { code: 'PSX', label: "Plane Shift: Ixalan" },
+  { code: 'PSD', label: "Plane Shift: Dominaria" },
+  { code: 'EEPC', label: "Elemental Evil Player's Companion" },
+  { code: 'ERLW', label: "Eberron: Rising from the Last War" },
+  { code: 'MOT', label: "Mythic Odysseys of Theros" },
+  { code: 'WBtW', label: "Wild Beyond the Witchlight" },
+  { code: 'ToA', label: "Tomb of Annihilation" },
+  { code: 'IDRotF', label: "Rime of the Frostmaiden" },
+  { code: 'LLK', label: "Lost Laboratory of Kwalish" },
+  { code: 'LFL', label: "Legends from Lorwyn" },
+  { code: 'AWM', label: "Adventure with Monsters" },
+  { code: 'LR', label: "Locathah Rising" },
+  { code: 'OGA', label: "One Grung Above" },
+  { code: 'TTP', label: "The Tortle Package" },
+  { code: 'PHB', label: "Player's Handbook 2014 (Adapted)" },
+  { code: 'DMG', label: "Dungeon Master's Guide 2014 (Adapted)" },
+  { code: 'MM', label: "Monster Manual 2014 (Adapted)" },
+  { code: 'MPMM', label: "Monsters Multiverse (Adapted)" },
+  { code: 'Homebrew', label: "Homebrew (Custom)" }
 ]
 
 const SOURCE_OPTIONS_2014 = [
   { code: 'PHB', label: "Player's Handbook 2014 (Core/SRD)" },
   { code: 'DMG', label: "Dungeon Master's Guide" },
   { code: 'MM', label: "Monster Manual" },
-  { code: 'XGE', label: "Xanathar's Guide" },
   { code: 'TCE', label: "Tasha's Cauldron" },
+  { code: 'XGE', label: "Xanathar's Guide" },
+  { code: 'MPMM', label: "Monsters Multiverse" },
   { code: 'VGM', label: "Volo's Guide" },
   { code: 'MTF', label: "Mordenkainen's Tome" },
-  { code: 'MPMM', label: "Monsters Multiverse" },
+  { code: 'FTD', label: "Fizban's Treasury" },
+  { code: 'BGG', label: "Bigby Presents: Giants" },
+  { code: 'BMT', label: "The Book of Many Things" },
+  { code: 'EFA', label: "Eberron: Forge of the Artificer" },
+  { code: 'ERLW', label: "Eberron: Rising from the Last War" },
   { code: 'SCAG', label: "Sword Coast" },
   { code: 'EGW', label: "Explorer's Guide to Wildemount" },
-  { code: 'FTD', label: "Fizban's Treasury" },
-  { code: 'ERLW', label: "Eberron" }
+  { code: 'VRGR', label: "Van Richten's Ravenloft" },
+  { code: 'GGR', label: "Guildmasters' Guide to Ravnica" },
+  { code: 'MOT', label: "Mythic Odysseys of Theros" },
+  { code: 'DSotDQ', label: "Dragonlance" },
+  { code: 'SCC', label: "Strixhaven" },
+  { code: 'SatO', label: "Planescape: Sigil & Outlands" },
+  { code: 'AAG', label: "Astral Adventurer's Guide" },
+  { code: 'AI', label: "Acquisitions Incorporated" },
+  { code: 'EEPC', label: "Elemental Evil Player's Companion" },
+  { code: 'BGDIA', label: "Descent into Avernus" },
+  { code: 'GoS', label: "Ghosts of Saltmarsh" },
+  { code: 'WBtW', label: "Wild Beyond the Witchlight" },
+  { code: 'IDRotF', label: "Rime of the Frostmaiden" },
+  { code: 'ToA', label: "Tomb of Annihilation" },
+  { code: 'LLK', label: "Lost Laboratory of Kwalish" },
+  { code: 'RHW', label: "Red Hand of Doom" },
+  { code: 'FRHoF', label: "Heroes of Faerûn" },
+  { code: 'PSA', label: "Plane Shift: Amonkhet" },
+  { code: 'PSK', label: "Plane Shift: Kaladesh" },
+  { code: 'PSZ', label: "Plane Shift: Zendikar" },
+  { code: 'PSX', label: "Plane Shift: Ixalan" },
+  { code: 'PSI', label: "Plane Shift: Innistrad" },
+  { code: 'PSD', label: "Plane Shift: Dominaria" },
+  { code: 'AU', label: "Unearthed Arcana" },
+  { code: 'UATheMysticClass', label: "Mystic (UA)" },
+  { code: 'AWM', label: "Adventure with Monsters" },
+  { code: 'LR', label: "Locathah Rising" },
+  { code: 'OGA', label: "One Grung Above" },
+  { code: 'TTP', label: "The Tortle Package" },
+  { code: 'Homebrew', label: "Homebrew (Custom)" }
 ]
 
 const { selectedSources } = storeToRefs(characterStore)
@@ -287,6 +365,20 @@ const toggleSource = (code) => {
     }
   } else {
     selectedSources.value.push(code)
+  }
+}
+
+const setSourcesSelectAll = () => {
+  if (!isFirstStep.value) return
+  selectedSources.value = currentSourceOptions.value.map(s => s.code)
+}
+
+const setSourcesCoreOnly = () => {
+  if (!isFirstStep.value) return
+  if (selectedEdition.value === '2024') {
+    selectedSources.value = ['XPHB', 'XDMG']
+  } else {
+    selectedSources.value = ['PHB', 'DMG', 'MM']
   }
 }
 
@@ -333,7 +425,7 @@ const filteredFeats = computed(() => {
 })
 
 const CLASS_SOURCES = {
-  artificer: ['TCE', 'ERLW'],
+  artificer: ['TCE', 'ERLW', 'EFA'],
   barbarian: ['PHB', 'XPHB'],
   bard: ['PHB', 'XPHB'],
   cleric: ['PHB', 'XPHB'],
@@ -347,7 +439,7 @@ const CLASS_SOURCES = {
   warlock: ['PHB', 'XPHB'],
   wizard: ['PHB', 'XPHB'],
   sidekick: ['TCE'],
-  mystic: ['UA']
+  mystic: ['UA', 'UATHEMYSTICCLASS']
 }
 
 const filteredClasses = computed(() => {
@@ -4488,11 +4580,27 @@ const submitForm = async () => {
 
     <!-- Source Books Toolbar (Disabled outside first step) -->
     <div class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs" :class="!isFirstStep ? 'bg-gray-100/70 border-gray-200' : ''">
-      <div class="flex items-center justify-between mb-1.5">
-        <div class="flex items-center gap-1.5 font-semibold text-gray-700">
+      <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+        <div class="flex items-center gap-2 font-semibold text-gray-700">
           <span>Sources:</span>
+          <div v-if="isFirstStep" class="flex items-center gap-1 font-normal">
+            <button
+              type="button"
+              @click="setSourcesCoreOnly"
+              class="px-1.5 py-0.5 text-[10px] bg-white hover:bg-gray-100 border border-gray-300 rounded font-medium cursor-pointer transition shadow-2xs"
+            >
+              Core Only
+            </button>
+            <button
+              type="button"
+              @click="setSourcesSelectAll"
+              class="px-1.5 py-0.5 text-[10px] bg-white hover:bg-gray-100 border border-gray-300 rounded font-medium cursor-pointer transition shadow-2xs"
+            >
+              Select All
+            </button>
+          </div>
         </div>
-        <span v-if="isFirstStep" class="text-[10px] text-gray-500">Core/SRD default</span>
+        <span v-if="isFirstStep" class="text-[10px] text-gray-500">Core default</span>
       </div>
       <div class="flex flex-wrap gap-1.5">
         <button
