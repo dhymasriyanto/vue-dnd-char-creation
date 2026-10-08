@@ -1,6 +1,18 @@
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.font-handwriting {
+  font-family: 'Caveat', cursive, sans-serif;
+}
+
+.brand-outlined {
+  color: #ffffff;
+  -webkit-text-stroke: 1.5px #111827;
+  paint-order: stroke fill;
+}
 
 @layer base {
   input[type="checkbox"]:not(.hidden) {

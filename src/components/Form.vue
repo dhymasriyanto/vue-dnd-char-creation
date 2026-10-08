@@ -49,7 +49,7 @@ const characterStore = useCharacterStore()
 const isEditMode = computed(() => !!props.characterToEdit?.id)
 
 const selectedEdition = ref('2024')
-const currentTab = ref('background')
+const currentTab = ref('class')
 const scrollRef = ref()
 const characterName = ref('')
 const characterRace = ref({})
@@ -2981,16 +2981,16 @@ watch(() => multiclasses.value.map(mc => mc.classSelected), () => {
 const activeSteps = computed(() => {
   return selectedEdition.value === '2024'
     ? [
+        { id: 'class', label: 'Class' },
+        { id: 'species', label: 'Species' },
         { id: 'background', label: 'Background' },
         { id: 'characteristics', label: 'Characteristics' },
-        { id: 'species', label: 'Species' },
-        { id: 'class', label: 'Class' },
         { id: 'abilities', label: 'Abilities' },
         { id: 'equipment', label: 'Equipment' }
       ]
     : [
-        { id: 'race', label: 'Race' },
         { id: 'class', label: 'Class' },
+        { id: 'race', label: 'Race' },
         { id: 'background', label: 'Background' },
         { id: 'characteristics', label: 'Characteristics' },
         { id: 'abilities', label: 'Abilities' },
@@ -3262,7 +3262,7 @@ const loadCharacterForEdit = async (data) => {
   const ed = data.edition || '2024'
   selectedEdition.value = ed
   characterStore.edition = ed
-  currentTab.value = ed === '2024' ? 'background' : 'race'
+  currentTab.value = 'class'
 
   const defaultSource = ed === '2024' ? 'XPHB' : 'PHB'
   const sourcesToEnable = new Set([defaultSource])
@@ -3371,9 +3371,19 @@ const loadCharacterForEdit = async (data) => {
 
   // Match background
   if (data.background) {
-    const bgMatch = backgrounds.value.find(b => b.name?.toLowerCase() === data.background.toLowerCase())
+    const bgMatch = backgrounds.value.find(b =>
+      b.name?.toLowerCase() === data.background.toLowerCase() &&
+      (b.source || '').toUpperCase() === defaultSource
+    ) || backgrounds.value.find(b =>
+      b.name?.toLowerCase() === data.background.toLowerCase() &&
+      selectedSources.value.includes((b.source || '').toUpperCase())
+    ) || backgrounds.value.find(b => b.name?.toLowerCase() === data.background.toLowerCase())
     if (bgMatch) {
       selectedBackgroundObj.value = bgMatch
+      if (bgMatch.source) {
+        const s = bgMatch.source.toUpperCase()
+        if (!selectedSources.value.includes(s)) selectedSources.value.push(s)
+      }
     }
   }
 
@@ -3478,7 +3488,7 @@ const loadCharacterForEdit = async (data) => {
     // Match subclass
     if (scObj?.name) {
       const scName = scObj.name.toLowerCase()
-      const matchSc = availableSubClasses.value.find(s => s.name?.toLowerCase() === scName)
+      const matchSc = availableSubClasses.value.find(s => s.name?.toLowerCase() === scName && (scObj.source ? s.source?.toLowerCase() === scObj.source.toLowerCase() : true)) || availableSubClasses.value.find(s => s.name?.toLowerCase() === scName)
       if (matchSc) {
         const s = (matchSc.source || defaultSource).toUpperCase()
         if (!selectedSources.value.includes(s)) {
@@ -3660,7 +3670,7 @@ const loadCharacterForEdit = async (data) => {
       const exactName = match ? match.name : rawName.trim()
       item.choice.type = 'feat'
       item.choice.featName = exactName
-      if (item.tier) {
+      if (item.classKey === 'primary' && item.tier) {
         if (!asiTierChoices[item.tier]) {
           asiTierChoices[item.tier] = {
             type: 'feat',
@@ -3742,7 +3752,7 @@ const changeEdition = async (newEdition) => {
   Object.keys(chosenClassEquipmentChoices).forEach(k => delete chosenClassEquipmentChoices[k])
   Object.keys(chosenBgEquipmentChoices).forEach(k => delete chosenBgEquipmentChoices[k])
   Object.keys(errors).forEach(k => delete errors[k])
-  currentTab.value = newEdition === '2024' ? 'background' : 'race'
+  currentTab.value = 'class'
   await fetchCompendiumData()
 }
 

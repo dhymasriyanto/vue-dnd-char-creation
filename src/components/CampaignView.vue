@@ -6,7 +6,8 @@ import { useAuth } from '../composables/useAuth'
 import {
   IconPlus,
   IconUsers,
-  IconShield,
+  IconUsersGroup,
+  IconSwords,
   IconDice,
   IconSend,
   IconCopy,
@@ -457,7 +458,7 @@ watch(() => props.initialCampaignId, (newId) => {
       <!-- Empty State -->
       <div v-else-if="campaigns.length === 0" class="py-16 text-center">
         <div class="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">
-          <IconShield class="w-7 h-7" />
+          <IconSwords class="w-7 h-7" />
         </div>
         <h3 class="text-sm font-bold text-gray-800">No Campaigns Found</h3>
         <p class="text-xs text-gray-500 max-w-sm mx-auto mt-1 mb-5">
@@ -514,7 +515,7 @@ watch(() => props.initialCampaignId, (newId) => {
                 <span>{{ camp.member_count || 1 }}</span>
               </span>
               <span class="flex items-center gap-1 font-medium text-gray-700" title="Characters">
-                <IconShield class="w-3.5 h-3.5 text-gray-400" />
+                <IconUsersGroup class="w-3.5 h-3.5 text-gray-400" />
                 <span>{{ camp.character_count || 0 }}</span>
               </span>
             </div>

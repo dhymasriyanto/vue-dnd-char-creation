@@ -5,7 +5,11 @@ export default {
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        handwriting: ["'Caveat'", 'cursive', 'sans-serif'],
+      },
+    },
   },
   plugins: [],
 }

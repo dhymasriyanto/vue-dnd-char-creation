@@ -16,7 +16,7 @@ import {
   IconLock,
   IconBook,
   IconUsers,
-  IconShield,
+  IconSwords,
   IconLogout,
   IconExternalLink,
   IconMenu2,
@@ -362,9 +362,10 @@ watch(isAuthenticated, (authenticated) => {
           <header class="bg-white border-b border-gray-200 sticky top-0 z-30">
             <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-3">
               <!-- Left: Brand -->
-              <div class="flex items-center gap-2.5">
-                <span class="w-6 h-6 rounded bg-gray-900 text-white flex items-center justify-center text-[10px] font-black tracking-wider">5e</span>
-                <span class="font-bold text-gray-900 text-sm tracking-tight">D&D Hub</span>
+              <div class="flex items-center">
+                <span class="font-handwriting font-bold text-2xl sm:text-3xl tracking-wide select-none leading-none">
+                  <span class="text-gray-900 font-extrabold">1</span><span class="brand-outlined font-bold">nitiative!</span>
+                </span>
               </div>
 
               <!-- Desktop Nav (Hidden on Mobile) -->
@@ -386,7 +387,7 @@ watch(isAuthenticated, (authenticated) => {
                     :class="mainMenu === 'campaign' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-500 hover:text-gray-900'"
                     class="px-3 py-1.5 rounded-md transition cursor-pointer flex items-center gap-1.5"
                   >
-                    <IconShield class="w-3.5 h-3.5" />
+                    <IconSwords class="w-3.5 h-3.5" />
                     <span>Campaign</span>
                   </button>
                 </nav>
@@ -475,7 +476,7 @@ watch(isAuthenticated, (authenticated) => {
                       :class="mainMenu === 'campaign' ? 'bg-gray-100 font-bold text-gray-900' : 'text-gray-700 hover:bg-gray-50 font-medium'"
                       class="w-full px-3.5 py-2.5 flex items-center gap-2.5 text-left transition cursor-pointer"
                     >
-                      <IconShield class="w-4 h-4 text-gray-600" />
+                      <IconSwords class="w-4 h-4 text-gray-600" />
                       <span>Campaign</span>
                     </button>
 

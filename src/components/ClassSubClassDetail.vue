@@ -211,15 +211,32 @@ const effectiveSubclassUnlockLevel = computed(() => {
   return Number(props.subclassUnlockLevel ?? props.subClassUnlockLevel ?? 3)
 })
 
-const isSubclassFeatureItem = (feat) => {
-  if (!feat) return false
-  if (feat._fromSubclass) return false
-  if (feat.isSubclassFeature || feat.gainSubclassFeature || feat.subclassFeature || feat.isSyntheticSubclassSlot) {
+const standardSubclassNames = [
+  'subclass',
+  'sacred oath',
+  'primal path',
+  'bard college',
+  'divine domain',
+  'druid circle',
+  'martial archetype',
+  'monastic tradition',
+  'ranger archetype',
+  'roguish archetype',
+  'sorcerous origin',
+  'otherworldly patron',
+  'arcane tradition',
+  'artificer specialist'
+]
+
+const isSubclassSlotCandidate = (feat) => {
+  if (!feat || feat._fromSubclass) return false
+  if (Number(feat.level || 1) !== effectiveSubclassUnlockLevel.value) return false
+  if (feat.isSyntheticSubclassSlot || feat.isSubclassFeature || feat.gainSubclassFeature || feat.subclassFeature) {
     return true
   }
-  const name = (feat.name || '').toLowerCase()
-  const isMatch = /(subclass|archetype|domain|circle|college|path|tradition|oath|patron|origin)/i.test(name)
-  return isMatch && Number(feat.level || 1) === effectiveSubclassUnlockLevel.value
+  const n = (feat.name || '').trim().toLowerCase()
+  if (n.includes('breaking') || n.includes('spell') || n.includes('channel divinity')) return false
+  return standardSubclassNames.some(sn => n === sn || n.endsWith(sn) || n.includes('subclass'))
 }
 
 const firstExpertiseLevel = computed(() => {
@@ -273,7 +290,7 @@ const combinedFeatures = computed(() => {
   allFeatures.push(...classFeatures, ...subClassFeatures)
 
   // 3. Subclass Slot if not already present
-  const hasSubSlot = allFeatures.some(f => isSubclassFeatureItem(f))
+  const hasSubSlot = allFeatures.some(f => isSubclassSlotCandidate(f))
   if (!hasSubSlot && props.classLevel >= effectiveSubclassUnlockLevel.value) {
     allFeatures.push({
       name: `${props.selected?.class?.name || 'Class'} Subclass`,
@@ -325,7 +342,7 @@ const combinedFeatures = computed(() => {
   const hasOtherAtLevel = (fName, fLevel) => {
     return uniqueFeatures.some(other => {
       const oName = (other.name || '').trim().toLowerCase()
-      return oName !== fName && Number(other.level) === Number(fLevel) && !scNames.has(oName) && !isSubclassFeatureItem(other)
+      return oName !== fName && Number(other.level) === Number(fLevel) && !scNames.has(oName) && !isSubclassSlotCandidate(other)
     })
   }
 
@@ -339,6 +356,36 @@ const combinedFeatures = computed(() => {
 
   return filtered.sort((a, b) => (Number(a.level) || 1) - (Number(b.level) || 1))
 })
+
+const subclassSlotKey = computed(() => {
+  const feats = combinedFeatures.value || []
+  const candidates = feats.filter(f => isSubclassSlotCandidate(f))
+  if (candidates.length > 0) {
+    const syn = candidates.find(f => f.isSyntheticSubclassSlot)
+    if (syn) return syn.id || syn.name
+    const sub = candidates.find(f => (f.name || '').toLowerCase().includes('subclass'))
+    if (sub) return sub.id || sub.name
+    return candidates[0].id || candidates[0].name
+  }
+
+  const loose = feats.filter(f => {
+    if (!f || f._fromSubclass) return false
+    if (Number(f.level || 1) !== effectiveSubclassUnlockLevel.value) return false
+    const n = (f.name || '').trim().toLowerCase()
+    if (n.includes('breaking') || n.includes('spell') || n.includes('channel divinity')) return false
+    return /(archetype|domain|circle|college|path|tradition|oath|patron|origin)/i.test(n)
+  })
+  if (loose.length > 0) {
+    return loose[0].id || loose[0].name
+  }
+  return null
+})
+
+const isSubclassFeatureItem = (feat) => {
+  if (!feat || feat._fromSubclass) return false
+  const key = feat.id || feat.name
+  return Boolean(subclassSlotKey.value && key === subclassSlotKey.value)
+}
 </script>
 
 <template>

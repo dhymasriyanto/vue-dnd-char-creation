@@ -2217,38 +2217,6 @@ onBeforeUnmount(() => {
                   <strong class="text-gray-700">Starting Equipment:</strong> <span v-html="renderAnnotatedText(formatClassEquipment(selectedItem.startingEquipment))"></span>
                 </div>
               </div>
-
-              <div v-if="selectedItem.subclasses && selectedItem.subclasses.length" class="pt-2 border-t border-gray-200 space-y-1.5">
-                <div class="flex items-center justify-between flex-wrap gap-1">
-                  <h4 class="font-bold text-xs uppercase tracking-wider text-gray-900">
-                    {{ selectedItem.subclassTitle || 'Subclasses' }} ({{ selectedItem.subclasses.length }})
-                  </h4>
-                  <span class="text-[10px] text-gray-500 italic">Click subclass to view embedded features</span>
-                </div>
-                <div class="flex flex-wrap gap-1.5">
-                  <button
-                    v-for="sc in selectedItem.subclasses"
-                    :key="sc.id || (sc.name + sc.source)"
-                    type="button"
-                    @click="selectSubclass(sc)"
-                    :class="[
-                      'px-2 py-1 rounded font-medium text-[11px] shadow-2xs flex items-center gap-1.5 transition cursor-pointer border',
-                      (selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source))
-                        ? 'bg-gray-900 text-white border-gray-900 shadow-sm ring-1 ring-gray-900'
-                        : 'bg-white hover:bg-gray-100 text-gray-800 border-gray-200 hover:border-gray-300'
-                    ]"
-                  >
-                    <span>{{ sc.name }}</span>
-                    <span
-                      v-if="sc.source"
-                      :class="(selectedSubclass?.id === sc.id || (selectedSubclass?.name === sc.name && selectedSubclass?.source === sc.source)) ? 'bg-gray-700 text-gray-200' : 'bg-gray-100 text-gray-500'"
-                      class="text-[9px] font-mono px-1 py-0.2 rounded"
-                    >
-                      {{ sc.source }}
-                    </span>
-                  </button>
-                </div>
-              </div>
             </div>
 
             <!-- Species / Race Details -->

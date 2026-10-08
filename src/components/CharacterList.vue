@@ -4,7 +4,6 @@ import axios from 'axios'
 import { useConfig } from '../config'
 import { useAuth } from '../composables/useAuth'
 import {
-  IconEye,
   IconEdit,
   IconTrash,
   IconPlus
@@ -218,15 +217,6 @@ onMounted(() => {
           <div class="flex items-center justify-end gap-1 pt-2 border-t border-gray-100" @click.stop>
             <button
               type="button"
-              @click="emit('select', c.public_id || c.id)"
-              title="View Sheet"
-              aria-label="View Sheet"
-              class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
-            >
-              <IconEye class="w-4 h-4" />
-            </button>
-            <button
-              type="button"
               @click="emit('edit', c.public_id || c.id)"
               title="Edit"
               aria-label="Edit"
@@ -303,15 +293,6 @@ onMounted(() => {
               </td>
               <td class="py-3 px-3 text-right">
                 <div class="inline-flex items-center gap-1" @click.stop>
-                  <button
-                    type="button"
-                    @click="emit('select', c.public_id || c.id)"
-                    title="View Sheet"
-                    aria-label="View Sheet"
-                    class="p-1.5 rounded border border-gray-200 bg-white hover:bg-gray-100 text-gray-700 transition cursor-pointer"
-                  >
-                    <IconEye class="w-4 h-4" />
-                  </button>
                   <button
                     type="button"
                     @click="emit('edit', c.public_id || c.id)"

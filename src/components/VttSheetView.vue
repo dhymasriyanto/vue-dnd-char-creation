@@ -48,7 +48,8 @@ import {
   IconBrandDiscord,
   IconFileTypePdf,
   IconLock,
-  IconTrash
+  IconTrash,
+  IconEye
 } from '@tabler/icons-vue'
 import { useAuth } from '../composables/useAuth'
 import { compressImage } from '../utils/imageCompressor'
@@ -95,13 +96,13 @@ const resolvedImageUrl = computed(() => {
 })
 
 const triggerAvatarUpload = () => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (isUploadingAvatar.value) return
   avatarFileInput.value?.click()
 }
 
 const handleAvatarFileChange = async (event) => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   const file = event.target?.files?.[0]
   if (!file) return
   try {
@@ -169,7 +170,7 @@ watch(() => parsedCharacteristics.value, (val) => {
 }, { immediate: true })
 
 const saveSheetNotes = async () => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (!char.value?.id) return
   try {
     isSavingNotes.value = true
@@ -283,7 +284,15 @@ const showToast = (msg) => {
   toastTimer = setTimeout(() => { toastMessage.value = '' }, 2500)
 }
 
-const { user } = useAuth()
+const { user, isAuthenticated } = useAuth()
+
+const isReadOnly = computed(() => {
+  return Boolean(
+    props.readOnly ||
+    !isAuthenticated.value ||
+    (char.value?.user_id && user.value?.id !== char.value.user_id)
+  )
+})
 
 // Export & Share modal state
 const showExportModal = ref(false)
@@ -302,7 +311,7 @@ watch(() => char.value?.is_public, (v) => {
 
 const isUpdatingVisibility = ref(false)
 const toggleVisibility = async () => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (!char.value?.id) return
   const nextVal = !isPublicChar.value
   isUpdatingVisibility.value = true
@@ -409,6 +418,24 @@ const downloadAvraeJson = () => {
   }
 }
 
+const isPreviewingPrintSheet = ref(false)
+
+const openPrintPreview = () => {
+  showExportModal.value = false
+  isPreviewingPrintSheet.value = true
+  if (typeof window !== 'undefined') {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+const closePrintPreview = () => {
+  isPreviewingPrintSheet.value = false
+}
+
+const triggerPrint = () => {
+  window.print()
+}
+
 const printSheet = () => {
   showExportModal.value = false
   setTimeout(() => {
@@ -446,7 +473,7 @@ watch(() => [vtt.value?.campaign_name, char.value?.campaign_name], () => {
 })
 
 const saveVitals = async (updates) => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (!char.value?.id) return
   try {
     await axios.put(`${API_URL}/character/${char.value.id}`, updates)
@@ -901,7 +928,7 @@ const loadPersistedSheetState = () => {
 }
 
 const persistSheetState = (immediate = false) => {
-  if (props.readOnly || !char.value?.id || isInitializingSheetResources) return
+  if (isReadOnly.value || !char.value?.id || isInitializingSheetResources) return
 
   const payload = {
     expended_slots: { ...expendedSlots.value },
@@ -1147,7 +1174,7 @@ const isSavingCurrency = ref(false)
 const currencySavedToast = ref(false)
 
 const saveCurrency = async () => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (!char.value?.id) return
   isSavingCurrency.value = true
   try {
@@ -1504,7 +1531,7 @@ const isSavingEquipment = ref(false)
 const equipmentSavedToast = ref(false)
 
 const saveEquipment = async () => {
-  if (props.readOnly) return
+  if (isReadOnly.value) return
   if (!char.value?.id) return
   isSavingEquipment.value = true
   try {
@@ -1898,6 +1925,7 @@ const setRollResult = (result) => {
 }
 
 const rollDice = (label, mod = 0, formula = null) => {
+  if (isReadOnly.value) return
   const modNum = Number(mod) || 0
   const isAdv = diceRollMode.value === 'adv'
   const isDis = diceRollMode.value === 'dis'
@@ -1942,6 +1970,7 @@ const rollDice = (label, mod = 0, formula = null) => {
 }
 
 const rollAnyDie = (faces) => {
+  if (isReadOnly.value) return
   const mod = Number(customModifier.value) || 0
   const count = 1
 
@@ -4073,6 +4102,46 @@ const getSpellsAtLevel = (lvl) => {
   return sheetLeveledSpells.value.filter(s => Number(s.level) === Number(lvl))
 }
 
+const printAttackRows = computed(() => {
+  const list = []
+  if (Array.isArray(vtt.value?.attacks) && vtt.value.attacks.length > 0) {
+    for (const atk of vtt.value.attacks) {
+      list.push({
+        name: atk.name || '',
+        attack_bonus: (atk.attack_bonus >= 0 ? '+' : '') + (atk.attack_bonus ?? ''),
+        damage: (atk.damage_roll || '') + (atk.damage_type ? ' ' + atk.damage_type : '')
+      })
+    }
+  } else if (Array.isArray(attackTableEntries.value) && attackTableEntries.value.length > 0) {
+    for (const atk of attackTableEntries.value.slice(0, 5)) {
+      list.push({
+        name: atk.name || '',
+        attack_bonus: atk.toHitLabel || (atk.toHit != null ? (atk.toHit >= 0 ? '+' : '') + atk.toHit : ''),
+        damage: (atk.damageLabel || atk.damageFormula || '') + (atk.damageType ? ' ' + atk.damageType : '')
+      })
+    }
+  }
+  while (list.length < 5) {
+    list.push({ name: '', attack_bonus: '', damage: '' })
+  }
+  return list
+})
+
+const getPrintSpellRows = (lvl, minRows = 8) => {
+  const spells = Number(lvl) === 0 ? (sheetCantrips.value || []) : getSpellsAtLevel(lvl)
+  const count = Math.min(Math.max(minRows, spells.length), minRows + 2)
+  const rows = []
+  for (let i = 0; i < count; i++) {
+    const sp = spells[i]
+    rows.push({
+      id: sp?.id || sp?.name || `lvl_${lvl}_slot_${i}`,
+      name: sp?.name || '',
+      prepared: sp ? Boolean(sp.prepared || sp.is_prepared) : false
+    })
+  }
+  return rows
+}
+
 const expandedSpells = ref({})
 const toggleSpell = (id) => {
   expandedSpells.value[id] = !expandedSpells.value[id]
@@ -4274,6 +4343,7 @@ const renderSpellEntryHtml = (entry) => {
 }
 
 const quickRollDie = (sides) => {
+  if (isReadOnly.value) return
   isDiceTrayOpen.value = false
   const count = Math.max(1, Number(diceMultiplier.value) || 1)
   const mod = Number(diceMod.value) || 0
@@ -4523,7 +4593,7 @@ watch(() => charSpells.value, (list) => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-2 sm:mx-auto my-4 sm:my-6 p-3.5 sm:p-6 bg-white text-gray-800 rounded border border-gray-200 shadow-sm font-sans pb-24 print:hidden">
+  <div v-show="!isPreviewingPrintSheet" class="max-w-4xl mx-2 sm:mx-auto my-4 sm:my-6 p-3.5 sm:p-6 bg-white text-gray-800 rounded border border-gray-200 shadow-sm font-sans pb-24 print:hidden">
     
     <!-- Top Header Bar -->
     <div class="flex flex-row justify-between items-start pb-4 border-b border-gray-200 gap-3 relative">
@@ -4531,9 +4601,9 @@ watch(() => charSpells.value, (list) => {
         <!-- Avatar / Initial with interactive click to change -->
         <div
           @click="triggerAvatarUpload"
-          :class="readOnly ? 'cursor-default' : 'cursor-pointer hover:border-gray-500'"
+          :class="isReadOnly ? 'cursor-default' : 'cursor-pointer hover:border-gray-500'"
           class="w-11 h-11 sm:w-12 sm:h-12 rounded-lg border border-gray-300 bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-base sm:text-lg overflow-hidden shrink-0 shadow-xs relative group transition"
-          :title="readOnly ? 'Character Portrait' : 'Click to change portrait (Max 2MB)'"
+          :title="isReadOnly ? 'Character Portrait' : 'Click to change portrait (Max 2MB)'"
         >
           <img
             v-if="resolvedImageUrl"
@@ -4544,7 +4614,7 @@ watch(() => charSpells.value, (list) => {
           <span v-else>{{ (char.name || 'H').charAt(0).toUpperCase() }}</span>
 
           <!-- Hover overlay -->
-          <div v-if="!readOnly" class="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px] font-semibold text-center leading-tight p-0.5">
+          <div v-if="!isReadOnly" class="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition text-[9px] font-semibold text-center leading-tight p-0.5">
             <span v-if="isUploadingAvatar">...</span>
             <template v-else>
               <IconCamera class="w-3.5 h-3.5 mb-0.5" />
@@ -4581,6 +4651,7 @@ watch(() => charSpells.value, (list) => {
       <div class="hidden sm:flex items-center gap-1 sm:gap-1.5 shrink-0 pt-0.5 flex-wrap justify-end">
         <!-- Campaign Trigger (Clean text, no icon) -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="openCampaignModal"
           class="bg-white hover:bg-gray-100 text-gray-700 px-2 py-1.5 rounded border border-gray-300 font-medium transition cursor-pointer shadow-xs text-xs max-w-[130px] truncate"
@@ -4589,8 +4660,9 @@ watch(() => charSpells.value, (list) => {
           {{ campaignName || 'No Campaign' }}
         </button>
 
-        <!-- Heroic Inspiration Toggle -->
+        <!-- Heroic Inspiration (Interactive for owner, static badge for viewers) -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="toggleInspiration"
           class="p-1.5 rounded border transition cursor-pointer shadow-xs flex items-center justify-center"
@@ -4601,9 +4673,19 @@ watch(() => charSpells.value, (list) => {
           <IconStarFilled v-if="isInspired" class="w-4 h-4 text-amber-500" />
           <IconStar v-else class="w-4 h-4 text-gray-400" />
         </button>
+        <span
+          v-else
+          class="p-1.5 rounded border shadow-xs flex items-center justify-center select-none"
+          :class="isInspired ? 'bg-amber-100 border-amber-400 text-amber-600' : 'bg-gray-50 border-gray-200 text-gray-400'"
+          :title="isInspired ? 'Heroic Inspiration (Active)' : 'Heroic Inspiration (Inactive)'"
+        >
+          <IconStarFilled v-if="isInspired" class="w-4 h-4 text-amber-500" />
+          <IconStar v-else class="w-4 h-4 text-gray-300" />
+        </span>
 
         <!-- Short Rest (Icon only, no text) -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="openShortRestModal"
           class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
@@ -4615,6 +4697,7 @@ watch(() => charSpells.value, (list) => {
 
         <!-- Long Rest (Icon only, no text) -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="openLongRestModal"
           class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
@@ -4659,7 +4742,7 @@ watch(() => charSpells.value, (list) => {
 
         <!-- Edit Character (hidden in read-only) -->
         <button
-          v-if="!readOnly"
+          v-if="!isReadOnly"
           type="button"
           @click="emit('edit', char.id)"
           class="bg-white hover:bg-gray-100 text-gray-700 p-1.5 rounded border border-gray-300 transition cursor-pointer shadow-xs flex items-center justify-center"
@@ -4704,31 +4787,48 @@ watch(() => charSpells.value, (list) => {
           <div class="px-3 py-2 flex items-center justify-between">
             <span class="font-medium text-gray-600">Campaign</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="openCampaignModal(); isMobileMenuOpen = false"
               class="font-semibold text-gray-900 hover:underline max-w-[110px] truncate"
             >
               {{ campaignName || 'No Campaign' }}
             </button>
+            <span
+              v-else
+              class="font-semibold text-gray-900 max-w-[110px] truncate"
+            >
+              {{ campaignName || 'No Campaign' }}
+            </span>
           </div>
 
           <!-- Inspiration in Mobile Menu -->
           <div class="px-3 py-2 flex items-center justify-between">
             <span class="font-medium text-gray-600">Inspiration</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="toggleInspiration"
               :class="isInspired ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-gray-100 text-gray-600 border-gray-200'"
-              class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1"
+              class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 cursor-pointer"
             >
               <IconStarFilled v-if="isInspired" class="w-3.5 h-3.5 text-amber-500" />
               <IconStar v-else class="w-3.5 h-3.5 text-gray-400" />
               <span>{{ isInspired ? 'Active' : 'Off' }}</span>
             </button>
+            <span
+              v-else
+              :class="isInspired ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-gray-100 text-gray-500 border-gray-200'"
+              class="px-2 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 select-none"
+            >
+              <IconStarFilled v-if="isInspired" class="w-3.5 h-3.5 text-amber-500" />
+              <IconStar v-else class="w-3.5 h-3.5 text-gray-400" />
+              <span>{{ isInspired ? 'Active' : 'Off' }}</span>
+            </span>
           </div>
 
           <!-- Rests -->
-          <div class="py-1">
+          <div v-if="!isReadOnly" class="py-1">
             <button
               type="button"
               @click="openShortRestModal(); isMobileMenuOpen = false"
@@ -4770,7 +4870,7 @@ watch(() => charSpells.value, (list) => {
               <span>Compendium</span>
             </button>
             <button
-              v-if="!readOnly"
+              v-if="!isReadOnly"
               type="button"
               @click="emit('edit', char.id); isMobileMenuOpen = false"
               class="w-full px-3 py-2 text-left hover:bg-gray-50 flex items-center gap-2.5 text-gray-700"
@@ -4840,6 +4940,7 @@ watch(() => charSpells.value, (list) => {
 
         <!-- Initiative -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="rollDice('Initiative', computedInitiative)"
           class="sm:col-span-2 bg-gray-100/70 hover:bg-gray-200/80 p-1.5 sm:p-2 rounded border border-gray-300 text-center transition cursor-pointer group flex flex-col items-center justify-center h-[72px] sm:h-[76px]"
@@ -4849,9 +4950,19 @@ watch(() => charSpells.value, (list) => {
             {{ computedInitiative >= 0 ? '+' : '' }}{{ computedInitiative }}
           </span>
         </button>
+        <div
+          v-else
+          class="sm:col-span-2 bg-gray-100/70 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px] select-none"
+        >
+          <span class="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold leading-none">Initiative</span>
+          <span class="text-lg sm:text-xl font-bold text-gray-900 leading-none mt-1.5">
+            {{ computedInitiative >= 0 ? '+' : '' }}{{ computedInitiative }}
+          </span>
+        </div>
 
         <!-- Speed -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="openSpeedModal"
           class="sm:col-span-2 bg-gray-100/70 hover:bg-gray-200/80 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px] cursor-pointer transition group"
@@ -4867,6 +4978,20 @@ watch(() => charSpells.value, (list) => {
             </span>
           </div>
         </button>
+        <div
+          v-else
+          class="sm:col-span-2 bg-gray-100/70 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px] select-none"
+        >
+          <span class="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold leading-none">Speed</span>
+          <span class="text-lg sm:text-xl font-bold text-gray-900 leading-none mt-1">
+            {{ customSpeeds.walk }} <span class="text-xs font-normal text-gray-500">ft</span>
+          </span>
+          <div v-if="otherSpeedsList.length > 0" class="text-[7.5px] sm:text-[8px] text-gray-500 font-medium truncate max-w-full px-0.5 mt-0.5 leading-tight">
+            <span v-for="(s, idx) in otherSpeedsList" :key="s.type">
+              {{ s.type }} {{ s.speed }}ft{{ idx < otherSpeedsList.length - 1 ? ' · ' : '' }}
+            </span>
+          </div>
+        </div>
 
         <!-- Proficiency Bonus -->
         <div class="sm:col-span-1 bg-gray-100/70 p-1.5 sm:p-2 rounded border border-gray-300 text-center flex flex-col items-center justify-center h-[72px] sm:h-[76px]">
@@ -4880,11 +5005,11 @@ watch(() => charSpells.value, (list) => {
         <div class="grid grid-cols-3 gap-1 items-start text-center">
           <!-- Current HP -->
           <div
-            @click="openHpModal"
-            class="flex flex-col items-center cursor-pointer group hover:bg-gray-200/60 rounded px-1 -mx-0.5 py-0.5 transition"
-            title="Manage Hit Points"
+            :class="isReadOnly ? 'flex flex-col items-center px-1 -mx-0.5 py-0.5 select-none' : 'flex flex-col items-center cursor-pointer group hover:bg-gray-200/60 rounded px-1 -mx-0.5 py-0.5 transition'"
+            @click="!isReadOnly && openHpModal()"
+            :title="isReadOnly ? 'Hit Points' : 'Manage Hit Points'"
           >
-            <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none group-hover:text-gray-900 transition-colors">Hit Points</span>
+            <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none" :class="{ 'group-hover:text-gray-900 transition-colors': !isReadOnly }">Hit Points</span>
             <div class="flex items-baseline gap-0.5 mt-0.5">
               <span class="text-base sm:text-lg font-bold leading-none" :class="currentHp <= (effectiveMaxHp/3) ? 'text-red-700' : 'text-gray-900'">
                 {{ currentHp }}
@@ -4898,6 +5023,7 @@ watch(() => charSpells.value, (list) => {
             <span class="text-[8px] sm:text-[9px] text-gray-500 uppercase font-bold tracking-wider leading-none">Temp HP</span>
             <div class="mt-0.5">
               <input
+                v-if="!isReadOnly"
                 type="number"
                 min="0"
                 v-model.number="tempHpInput"
@@ -4907,6 +5033,12 @@ watch(() => charSpells.value, (list) => {
                 placeholder="0"
                 title="Temporary Hit Points (click to edit)"
               />
+              <span
+                v-else
+                class="w-10 sm:w-11 text-center text-sm sm:text-base font-bold text-gray-900 h-5 flex items-center justify-center font-mono leading-none select-none"
+              >
+                {{ tempHpInput || 0 }}
+              </span>
             </div>
           </div>
 
@@ -4920,7 +5052,7 @@ watch(() => charSpells.value, (list) => {
         </div>
 
         <!-- Heal / Damage Controls -->
-        <div class="flex items-center gap-1 sm:gap-1.5 pt-1 border-t border-gray-200/80">
+        <div v-if="!isReadOnly" class="flex items-center gap-1 sm:gap-1.5 pt-1 border-t border-gray-200/80">
           <button
             type="button"
             @click="applyHeal"
@@ -4955,6 +5087,7 @@ watch(() => charSpells.value, (list) => {
         <span class="text-[10px] font-bold uppercase text-gray-500">{{ name.slice(0, 3) }}</span>
         
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="rollDice(`${name.toUpperCase()} Check`, stat.modifier)"
           class="text-xl font-bold text-gray-900 hover:text-gray-700 transition cursor-pointer my-0.5"
@@ -4962,11 +5095,18 @@ watch(() => charSpells.value, (list) => {
         >
           {{ stat.modifier_string }}
         </button>
+        <span
+          v-else
+          class="text-xl font-bold text-gray-900 my-0.5 select-none font-mono block"
+        >
+          {{ stat.modifier_string }}
+        </span>
 
         <span class="text-[11px] text-gray-500 font-mono">{{ stat.score }}</span>
 
         <!-- Saving Throw Roll Button -->
         <button
+          v-if="!isReadOnly"
           type="button"
           @click="rollDice(`${name.toUpperCase()} Save`, vtt.saving_throws?.[name]?.total || stat.modifier)"
           class="mt-1 text-[10px] px-1 py-0.5 rounded transition cursor-pointer border"
@@ -4974,6 +5114,13 @@ watch(() => charSpells.value, (list) => {
         >
           Save {{ vtt.saving_throws?.[name]?.modifier_string || stat.modifier_string }}
         </button>
+        <span
+          v-else
+          class="mt-1 text-[10px] px-1 py-0.5 rounded border select-none inline-block font-mono"
+          :class="vtt.saving_throws?.[name]?.proficient ? 'bg-gray-200 border-gray-400 text-gray-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-600'"
+        >
+          Save {{ vtt.saving_throws?.[name]?.modifier_string || stat.modifier_string }}
+        </span>
       </div>
     </div>
 
@@ -4985,6 +5132,7 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center justify-between pb-1.5 border-b border-gray-100">
             <span class="text-[11px] font-bold uppercase tracking-wider text-gray-700">Defenses</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="openAddDefenseModal"
               class="text-gray-600 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
@@ -5004,7 +5152,7 @@ watch(() => charSpells.value, (list) => {
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
                 >
                   <span>{{ d }}</span>
-                  <button type="button" @click.stop="removeDefense('resistances', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                  <button v-if="!isReadOnly" type="button" @click.stop="removeDefense('resistances', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
                 </span>
               </div>
             </div>
@@ -5019,7 +5167,7 @@ watch(() => charSpells.value, (list) => {
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
                 >
                   <span>{{ d }}</span>
-                  <button type="button" @click.stop="removeDefense('immunities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                  <button v-if="!isReadOnly" type="button" @click.stop="removeDefense('immunities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
                 </span>
               </div>
             </div>
@@ -5034,7 +5182,7 @@ watch(() => charSpells.value, (list) => {
                   class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
                 >
                   <span>{{ d }}</span>
-                  <button type="button" @click.stop="removeDefense('vulnerabilities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                  <button v-if="!isReadOnly" type="button" @click.stop="removeDefense('vulnerabilities', d)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
                 </span>
               </div>
             </div>
@@ -5050,6 +5198,7 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center justify-between mb-1.5">
             <span class="text-[9px] uppercase font-bold text-gray-400">Saving Throw Advantages & Notes</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="showSaveNoteModal = true"
               class="text-gray-500 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
@@ -5078,6 +5227,7 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center justify-between pb-1.5 border-b border-gray-100">
             <span class="text-[11px] font-bold uppercase tracking-wider text-gray-700">Conditions</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="showConditionModal = true"
               class="text-gray-600 hover:text-gray-900 text-[10px] font-semibold cursor-pointer"
@@ -5094,7 +5244,7 @@ watch(() => charSpells.value, (list) => {
                 class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 border border-gray-300 text-gray-800"
               >
                 <span>{{ c }}</span>
-                <button type="button" @click.stop="removeCondition(c)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
+                <button v-if="!isReadOnly" type="button" @click.stop="removeCondition(c)" class="hover:text-black font-bold leading-none cursor-pointer">×</button>
               </span>
             </div>
             <div v-else class="text-xs text-gray-400 py-2 italic text-center">
@@ -5269,7 +5419,7 @@ watch(() => charSpells.value, (list) => {
               {{ classSummary }}
             </span>
           </div>
-          <span class="text-[10px] text-gray-500 hidden sm:inline">
+          <span v-if="!isReadOnly" class="text-[10px] text-gray-500 hidden sm:inline">
             Click bubbles to spend/restore
           </span>
         </div>
@@ -5303,26 +5453,40 @@ watch(() => charSpells.value, (list) => {
             <div class="flex items-center justify-between gap-2 pt-1 border-t border-gray-100">
               <!-- Bubble Counter for small pools (<= 8) -->
               <div v-if="res.max <= 8 && res.type === 'counter'" class="flex items-center gap-1.5 flex-wrap">
-                <button
-                  v-for="idx in res.max"
-                  :key="idx"
-                  type="button"
-                  @click="toggleResourceSlot(res, idx)"
-                  class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                  :title="isResourceSlotExpended(res, idx) ? 'Click to restore use' : 'Click to spend use'"
-                >
+                <template v-if="!isReadOnly">
+                  <button
+                    v-for="idx in res.max"
+                    :key="idx"
+                    type="button"
+                    @click="toggleResourceSlot(res, idx)"
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                    :title="isResourceSlotExpended(res, idx) ? 'Click to restore use' : 'Click to spend use'"
+                  >
+                    <span
+                      v-if="!isResourceSlotExpended(res, idx)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </button>
+                </template>
+                <template v-else>
                   <span
-                    v-if="!isResourceSlotExpended(res, idx)"
-                    class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
-                  ></span>
-                </button>
-                <span class="font-mono text-[10px] font-semibold text-gray-700 ml-1">
+                    v-for="idx in res.max"
+                    :key="idx"
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                  >
+                    <span
+                      v-if="!isResourceSlotExpended(res, idx)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </span>
+                </template>
+                <span class="font-mono text-[10px] font-semibold text-gray-700 ml-1 select-none">
                   {{ getResourceAvailable(res) }}/{{ res.max }}
                 </span>
               </div>
 
               <!-- Number counter for pools or points (Ki, Lay on Hands, Sorcery Points) -->
-              <div v-else class="flex items-center gap-1">
+              <div v-else-if="!isReadOnly" class="flex items-center gap-1">
                 <button
                   type="button"
                   @click="spendResource(res.id, res.type === 'pool' ? 5 : 1)"
@@ -5345,9 +5509,14 @@ watch(() => charSpells.value, (list) => {
                   +
                 </button>
               </div>
+              <div v-else class="flex items-center">
+                <span class="font-mono text-xs font-bold text-gray-900 px-1 select-none">
+                  {{ getResourceAvailable(res) }} / {{ res.displayMax }}
+                </span>
+              </div>
 
               <!-- Quick action button -->
-              <div class="flex items-center gap-1 shrink-0">
+              <div v-if="!isReadOnly" class="flex items-center gap-1 shrink-0">
                 <button
                   v-if="res.id === 'barb_rage'"
                   type="button"
@@ -5404,6 +5573,7 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center gap-2">
             <span class="text-[10px] text-gray-500 font-mono">{{ attackTableEntries.length }} Available</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="openAddCustomAction('attack')"
               class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -5458,7 +5628,7 @@ watch(() => charSpells.value, (list) => {
                 <!-- HIT / DC Column -->
                 <td class="py-2.5 px-3 text-center whitespace-nowrap">
                   <button
-                    v-if="entry.toHit != null"
+                    v-if="!isReadOnly && entry.toHit != null"
                     type="button"
                     @click="rollDice(`${entry.name} Attack`, entry.toHit)"
                     class="px-2.5 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-xs transition cursor-pointer shadow-2xs font-mono"
@@ -5466,6 +5636,12 @@ watch(() => charSpells.value, (list) => {
                   >
                     {{ entry.toHitLabel }}
                   </button>
+                  <span
+                    v-else-if="isReadOnly && entry.toHit != null"
+                    class="px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-xs select-none font-mono inline-block"
+                  >
+                    {{ entry.toHitLabel }}
+                  </span>
                   <span
                     v-else-if="entry.isDc"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-700 rounded font-bold text-[10px] font-mono whitespace-nowrap"
@@ -5479,7 +5655,7 @@ watch(() => charSpells.value, (list) => {
                 <!-- DAMAGE Column -->
                 <td class="py-2.5 px-3 text-center whitespace-nowrap">
                   <button
-                    v-if="entry.damageDice"
+                    v-if="!isReadOnly && entry.damageDice"
                     type="button"
                     @click="rollFormula(`${entry.name} Damage`, entry.damageFormula, entry.damageMod)"
                     class="px-2.5 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-xs transition cursor-pointer shadow-2xs font-mono"
@@ -5487,6 +5663,12 @@ watch(() => charSpells.value, (list) => {
                   >
                     {{ entry.damageLabel }}
                   </button>
+                  <span
+                    v-else-if="isReadOnly && entry.damageDice"
+                    class="px-2.5 py-1 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-xs select-none font-mono inline-block"
+                  >
+                    {{ entry.damageLabel }}
+                  </span>
                   <span v-else class="text-gray-400 font-mono text-xs">—</span>
                 </td>
 
@@ -5494,7 +5676,7 @@ watch(() => charSpells.value, (list) => {
                 <td class="py-2.5 px-3 text-gray-500 text-[11px]">
                   <div class="flex items-center justify-between gap-1">
                     <span class="line-clamp-1" :title="entry.notes">{{ entry.notes }}</span>
-                    <div v-if="entry.type === 'custom'" class="flex items-center gap-1 shrink-0">
+                    <div v-if="!isReadOnly && entry.type === 'custom'" class="flex items-center gap-1 shrink-0">
                       <div v-if="entry.customActionRef?.resource" class="flex items-center gap-1 font-mono text-[10px]">
                         <button
                           type="button"
@@ -5535,6 +5717,7 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center gap-2">
             <span class="text-[10px] text-gray-500 hidden sm:inline">Standard & Custom Actions</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="openAddCustomAction('action')"
               class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -5577,12 +5760,19 @@ watch(() => charSpells.value, (list) => {
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Use an attack to seize a creature within reach using 1 free hand.</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice('Grapple Check (Athletics)', computedSkills.athletics?.total || 0)"
               class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer"
             >
               Roll Athletics ({{ (computedSkills.athletics?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.athletics?.total || 0 }})
             </button>
+            <span
+              v-else
+              class="text-[10px] text-gray-700 font-semibold text-left select-none"
+            >
+              Athletics ({{ (computedSkills.athletics?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.athletics?.total || 0 }})
+            </span>
           </div>
 
           <!-- Help -->
@@ -5598,12 +5788,19 @@ watch(() => charSpells.value, (list) => {
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Make a Stealth check to conceal yourself.</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice('Stealth Check (Hide)', computedSkills.stealth?.total || 0)"
               class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer"
             >
               Roll Stealth ({{ (computedSkills.stealth?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.stealth?.total || 0 }})
             </button>
+            <span
+              v-else
+              class="text-[10px] text-gray-700 font-semibold text-left select-none"
+            >
+              Stealth ({{ (computedSkills.stealth?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.stealth?.total || 0 }})
+            </span>
           </div>
 
           <!-- Improvise -->
@@ -5618,7 +5815,7 @@ watch(() => charSpells.value, (list) => {
               <div class="font-bold text-gray-900">Influence</div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Attempt to alter the attitude of a creature through interaction.</p>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 flex-wrap text-[10px]">
               <button
                 type="button"
                 @click="rollDice('Persuasion Check (Influence)', computedSkills.persuasion?.total || 0)"
@@ -5642,6 +5839,13 @@ watch(() => charSpells.value, (list) => {
               >
                 Intimidation
               </button>
+            </div>
+            <div v-else class="flex items-center gap-1.5 flex-wrap text-[10px] select-none text-gray-700">
+              <span>Persuasion</span>
+              <span>•</span>
+              <span>Deception</span>
+              <span>•</span>
+              <span>Intimidation</span>
             </div>
           </div>
 
@@ -5672,7 +5876,7 @@ watch(() => charSpells.value, (list) => {
               <div class="font-bold text-gray-900">Search</div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Devote attention to finding something hidden.</p>
             </div>
-            <div class="flex items-center gap-1.5 text-[10px]">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 text-[10px]">
               <button
                 type="button"
                 @click="rollDice('Perception Check (Search)', computedSkills.perception?.total || 0)"
@@ -5689,6 +5893,11 @@ watch(() => charSpells.value, (list) => {
                 Investigation
               </button>
             </div>
+            <div v-else class="flex items-center gap-1.5 text-[10px] select-none text-gray-700">
+              <span>Perception</span>
+              <span>•</span>
+              <span>Investigation</span>
+            </div>
           </div>
 
           <!-- Shove -->
@@ -5698,12 +5907,19 @@ watch(() => charSpells.value, (list) => {
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Push a creature 5 ft. away or knock it prone using the Attack action.</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice('Shove Check (Athletics)', computedSkills.athletics?.total || 0)"
               class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer"
             >
               Roll Athletics ({{ (computedSkills.athletics?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.athletics?.total || 0 }})
             </button>
+            <span
+              v-else
+              class="text-[10px] text-gray-700 font-semibold text-left select-none"
+            >
+              Athletics ({{ (computedSkills.athletics?.total || 0) >= 0 ? '+' : '' }}{{ computedSkills.athletics?.total || 0 }})
+            </span>
           </div>
 
           <!-- Study -->
@@ -5712,7 +5928,7 @@ watch(() => charSpells.value, (list) => {
               <div class="font-bold text-gray-900">Study</div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Dedicate an action to recall lore or analyze a creature with an INT check.</p>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 flex-wrap text-[10px]">
               <button type="button" @click="rollDice('Arcana Check', computedSkills.arcana?.total || 0)" class="text-gray-700 hover:text-gray-900 underline cursor-pointer">Arcana</button>
               <span>•</span>
               <button type="button" @click="rollDice('History Check', computedSkills.history?.total || 0)" class="text-gray-700 hover:text-gray-900 underline cursor-pointer">History</button>
@@ -5720,6 +5936,15 @@ watch(() => charSpells.value, (list) => {
               <button type="button" @click="rollDice('Nature Check', computedSkills.nature?.total || 0)" class="text-gray-700 hover:text-gray-900 underline cursor-pointer">Nature</button>
               <span>•</span>
               <button type="button" @click="rollDice('Religion Check', computedSkills.religion?.total || 0)" class="text-gray-700 hover:text-gray-900 underline cursor-pointer">Religion</button>
+            </div>
+            <div v-else class="flex items-center gap-1.5 flex-wrap text-[10px] select-none text-gray-700">
+              <span>Arcana</span>
+              <span>•</span>
+              <span>History</span>
+              <span>•</span>
+              <span>Nature</span>
+              <span>•</span>
+              <span>Religion</span>
             </div>
           </div>
 
@@ -5741,6 +5966,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Take 1 additional Action on your turn (Short Rest recharge).</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="activateActionSurge"
               :disabled="getResourceAvailable({ id: 'fighter_action_surge', max: getCharClassLevel('fighter') >= 17 ? 2 : 1 }) <= 0"
@@ -5761,7 +5987,7 @@ watch(() => charSpells.value, (list) => {
               </div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Turn Undead / Sacred Weapon / Harness Divine Power.</p>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 flex-wrap text-[10px]">
               <button
                 v-if="hasCharClass('cleric')"
                 type="button"
@@ -5800,7 +6026,7 @@ watch(() => charSpells.value, (list) => {
               </div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Heal damage from pool, or spend 5 HP to cure 1 poison or disease.</p>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 flex-wrap text-[10px]">
               <button
                 type="button"
                 @click="activateLayOnHands(1)"
@@ -5839,6 +6065,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Magically assume the shape of a beast you have seen before.</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="spendResource('druid_wild_shape', 1); showToast('Wild Shape assumed! Expended 1 use.')"
               :disabled="getResourceAvailable({ id: 'druid_wild_shape', max: 2 }) <= 0"
@@ -5905,6 +6132,7 @@ watch(() => charSpells.value, (list) => {
               <div v-if="Number(sp.level) > 0" class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
                 <span class="text-gray-500 font-medium">Slot:</span>
                 <button
+                  v-if="!isReadOnly"
                   type="button"
                   @click.stop="toggleFeatFreeCast(sp)"
                   class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
@@ -5915,6 +6143,15 @@ watch(() => charSpells.value, (list) => {
                     class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
                   ></span>
                 </button>
+                <span
+                  v-else
+                  class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white"
+                >
+                  <span
+                    v-if="!isFeatCastExpended(sp)"
+                    class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                  ></span>
+                </span>
                 <span class="font-mono font-semibold text-gray-800">
                   {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
                 </span>
@@ -5922,25 +6159,39 @@ watch(() => charSpells.value, (list) => {
 
               <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                 <button
+                  v-if="!isReadOnly"
                   type="button"
                   @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
                   class="px-2 py-0.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
                 >
                   Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
                 </button>
+                <span
+                  v-else
+                  class="px-2 py-0.5 bg-white border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                >
+                  Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                </span>
               </template>
               <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula">
                 <button
+                  v-if="!isReadOnly"
                   type="button"
                   @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                   class="px-2 py-0.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
                 >
                   Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                 </button>
+                <span
+                  v-else
+                  class="px-2 py-0.5 bg-white border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                >
+                  Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                </span>
               </template>
 
               <!-- Cast Free / Cast Slot -->
-              <template v-if="Number(sp.level) > 0">
+              <template v-if="!isReadOnly && Number(sp.level) > 0">
                 <button
                   type="button"
                   @click="castSpell(sp, false)"
@@ -5970,7 +6221,7 @@ watch(() => charSpells.value, (list) => {
                   Cast (Slot)
                 </button>
               </template>
-              <template v-else>
+              <template v-else-if="!isReadOnly">
                 <button
                   type="button"
                   @click="castSpell(sp)"
@@ -6021,22 +6272,35 @@ watch(() => charSpells.value, (list) => {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button
-                    v-if="act.hasAttack"
+                    v-if="!isReadOnly && act.hasAttack"
                     type="button"
                     @click="rollCustomActionAttack(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasAttack"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </span>
                   <button
-                    v-if="act.hasDamage && act.damageDice"
+                    v-if="!isReadOnly && act.hasDamage && act.damageDice"
                     type="button"
                     @click="rollCustomActionDamage(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Dmg ({{ getCustomActionDamageLabel(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasDamage && act.damageDice"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click="deleteCustomAction(act.id)"
                     class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
@@ -6064,7 +6328,7 @@ watch(() => charSpells.value, (list) => {
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreCustomActionUse(act)"
@@ -6118,26 +6382,40 @@ watch(() => charSpells.value, (list) => {
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 font-medium">Uses:</span>
                   <div v-if="act.max <= 8" class="flex items-center gap-1">
-                    <button
-                      v-for="idx in act.max"
-                      :key="idx"
-                      type="button"
-                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
-                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
-                    >
+                    <template v-if="!isReadOnly">
+                      <button
+                        v-for="idx in act.max"
+                        :key="idx"
+                        type="button"
+                        @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                        :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </button>
+                    </template>
+                    <template v-else>
                       <span
-                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
-                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
-                      ></span>
-                    </button>
+                        v-for="idx in act.max"
+                        :key="idx"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </span>
+                    </template>
                   </div>
-                  <span class="font-mono text-gray-700 font-bold ml-1">
+                  <span class="font-mono text-gray-700 font-bold ml-1 select-none">
                     {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreResource(act.id, 1)"
@@ -6174,6 +6452,7 @@ watch(() => charSpells.value, (list) => {
             Bonus Actions
           </h3>
           <button
+            v-if="!isReadOnly"
             type="button"
             @click="openAddCustomAction('bonus')"
             class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -6191,12 +6470,19 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Attack with second light melee weapon (no ability mod to damage)</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice('Off-Hand Attack', vtt.proficiency_bonus || 2)"
               class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
             >
               Roll Off-Hand
             </button>
+            <span
+              v-else
+              class="px-2 py-1 bg-gray-100 border border-gray-200 text-gray-700 rounded font-semibold text-[10px] select-none shrink-0 font-mono"
+            >
+              Off-Hand
+            </span>
           </div>
 
           <!-- Barbarian Rage -->
@@ -6214,6 +6500,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Bonus Damage +{{ rageBonusDamage }} · Adv on STR Checks/Saves · B/P/S Resistance</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="toggleClassState('barb_rage', 'barb_rage')"
               class="px-2.5 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6235,6 +6522,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Regain 1d10 + {{ getCharClassLevel('fighter') }} HP as a Bonus Action</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="activateSecondWind"
               :disabled="getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) <= 0"
@@ -6254,12 +6542,19 @@ watch(() => charSpells.value, (list) => {
                 <p class="text-[10px] text-gray-500">Make 1 Unarmed Strike as a Bonus Action (Martial Arts)</p>
               </div>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="rollDice('Bonus Unarmed Strike', unarmedStrikeDetails.toHit)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
               >
                 Strike {{ unarmedStrikeDetails.toHit >= 0 ? '+' : '' }}{{ unarmedStrikeDetails.toHit }} ({{ unarmedStrikeDetails.damageDice }})
               </button>
+              <span
+                v-else
+                class="px-2 py-1 bg-gray-100 border border-gray-200 text-gray-700 rounded font-semibold text-[10px] select-none shrink-0 font-mono"
+              >
+                Strike {{ unarmedStrikeDetails.toHit >= 0 ? '+' : '' }}{{ unarmedStrikeDetails.toHit }} ({{ unarmedStrikeDetails.damageDice }})
+              </span>
             </div>
 
             <!-- Ki / Focus Options (Level 2+) -->
@@ -6270,6 +6565,7 @@ watch(() => charSpells.value, (list) => {
                   <p class="text-[10px] text-gray-500">Make 2 Unarmed Strikes as a Bonus Action (Costs 1 Focus/Ki)</p>
                 </div>
                 <button
+                  v-if="!isReadOnly"
                   type="button"
                   @click="activateMonkKiAction('Flurry of Blows', 1)"
                   class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6282,7 +6578,7 @@ watch(() => charSpells.value, (list) => {
                   <span class="font-bold text-gray-900 text-xs">Patient Defense</span>
                   <p class="text-[10px] text-gray-500">{{ (char.edition || '2024') === '2024' ? 'Disengage (Free) or spend 1 Focus to Disengage AND Dodge' : 'Take Dodge action as a Bonus Action (Costs 1 Ki)' }}</p>
                 </div>
-                <div class="flex items-center gap-1.5 shrink-0">
+                <div v-if="!isReadOnly" class="flex items-center gap-1.5 shrink-0">
                   <button
                     v-if="(char.edition || '2024') === '2024'"
                     type="button"
@@ -6305,7 +6601,7 @@ watch(() => charSpells.value, (list) => {
                   <span class="font-bold text-gray-900 text-xs">Step of the Wind</span>
                   <p class="text-[10px] text-gray-500">{{ (char.edition || '2024') === '2024' ? 'Dash (Free) or spend 1 Focus to Dash AND Disengage, double jump' : 'Disengage & Dash, jump distance doubled (Costs 1 Ki)' }}</p>
                 </div>
-                <div class="flex items-center gap-1.5 shrink-0">
+                <div v-if="!isReadOnly" class="flex items-center gap-1.5 shrink-0">
                   <button
                     v-if="(char.edition || '2024') === '2024'"
                     type="button"
@@ -6331,6 +6627,7 @@ watch(() => charSpells.value, (list) => {
                   <p class="text-[10px] text-gray-500">Regain all Focus points + heal {{ monkLevel }} + {{ monkMartialArtsDie }} HP (1/Long Rest)</p>
                 </div>
                 <button
+                  v-if="!isReadOnly"
                   type="button"
                   @click="activateUncannyMetabolism"
                   :disabled="getResourceAvailable(classResourceTrackers.find(r => r.id === 'monk_uncanny_metabolism')) <= 0"
@@ -6349,7 +6646,7 @@ watch(() => charSpells.value, (list) => {
               <span class="font-bold text-gray-900 text-xs">Cunning Action</span>
               <p class="text-[10px] text-gray-500">Take Dash, Disengage, or Hide as a Bonus Action.</p>
             </div>
-            <div class="flex items-center gap-1.5 flex-wrap">
+            <div v-if="!isReadOnly" class="flex items-center gap-1.5 flex-wrap">
               <button type="button" @click="showToast('Cunning Dash activated!')" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Dash</button>
               <button type="button" @click="showToast('Cunning Disengage activated!')" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Disengage</button>
               <button type="button" @click="rollDice('Stealth Check (Cunning Hide)', computedSkills.stealth?.total || 0)" class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold cursor-pointer">Hide</button>
@@ -6368,6 +6665,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Grant inspiration die to an ally within 60 ft</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollResourceDie(classResourceTrackers.find(r => r.id === 'bard_inspiration'))"
               class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6398,6 +6696,7 @@ watch(() => charSpells.value, (list) => {
                 <div class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
                   <span class="text-gray-500 font-medium">Slot:</span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click.stop="toggleFeatFreeCast(sp)"
                     class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
@@ -6408,37 +6707,48 @@ watch(() => charSpells.value, (list) => {
                       class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
                     ></span>
                   </button>
+                  <span
+                    v-else
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white"
+                  >
+                    <span
+                      v-if="!isFeatCastExpended(sp)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </span>
                   <span class="font-mono font-semibold text-gray-800">
                     {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
                   </span>
                 </div>
-                <button
-                  type="button"
-                  @click="castSpell(sp, false)"
-                  :disabled="isFeatCastExpended(sp)"
-                  :class="[
-                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
-                    !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                  ]"
-                >
-                  {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
-                </button>
-                <button
-                  v-if="allSpellLevels.length > 0"
-                  type="button"
-                  @click="castSpell(sp, true)"
-                  :disabled="getAvailableSlots(sp.level) === 0"
-                  :class="[
-                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
-                    getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
-                  ]"
-                  title="Cast with spell slot"
-                >
-                  Cast (Slot)
-                </button>
+                <template v-if="!isReadOnly">
+                  <button
+                    type="button"
+                    @click="castSpell(sp, false)"
+                    :disabled="isFeatCastExpended(sp)"
+                    :class="[
+                      'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                      !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                    ]"
+                  >
+                    {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                  </button>
+                  <button
+                    v-if="allSpellLevels.length > 0"
+                    type="button"
+                    @click="castSpell(sp, true)"
+                    :disabled="getAvailableSlots(sp.level) === 0"
+                    :class="[
+                      'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                      getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
+                    ]"
+                    title="Cast with spell slot"
+                  >
+                    Cast (Slot)
+                  </button>
+                </template>
               </template>
               <button
-                v-else
+                v-else-if="!isReadOnly"
                 type="button"
                 @click="castSpell(sp)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6472,22 +6782,35 @@ watch(() => charSpells.value, (list) => {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button
-                    v-if="act.hasAttack"
+                    v-if="!isReadOnly && act.hasAttack"
                     type="button"
                     @click="rollCustomActionAttack(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasAttack"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </span>
                   <button
-                    v-if="act.hasDamage && act.damageDice"
+                    v-if="!isReadOnly && act.hasDamage && act.damageDice"
                     type="button"
                     @click="rollCustomActionDamage(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Dmg ({{ getCustomActionDamageLabel(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasDamage && act.damageDice"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click="deleteCustomAction(act.id)"
                     class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
@@ -6515,7 +6838,7 @@ watch(() => charSpells.value, (list) => {
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreCustomActionUse(act)"
@@ -6569,26 +6892,40 @@ watch(() => charSpells.value, (list) => {
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 font-medium">Uses:</span>
                   <div v-if="act.max <= 8" class="flex items-center gap-1">
-                    <button
-                      v-for="idx in act.max"
-                      :key="idx"
-                      type="button"
-                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
-                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
-                    >
+                    <template v-if="!isReadOnly">
+                      <button
+                        v-for="idx in act.max"
+                        :key="idx"
+                        type="button"
+                        @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                        :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </button>
+                    </template>
+                    <template v-else>
                       <span
-                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
-                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
-                      ></span>
-                    </button>
+                        v-for="idx in act.max"
+                        :key="idx"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </span>
+                    </template>
                   </div>
-                  <span class="font-mono text-gray-700 font-bold ml-1">
+                  <span class="font-mono text-gray-700 font-bold ml-1 select-none">
                     {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreResource(act.id, 1)"
@@ -6625,6 +6962,7 @@ watch(() => charSpells.value, (list) => {
             Reactions
           </h3>
           <button
+            v-if="!isReadOnly"
             type="button"
             @click="openAddCustomAction('reaction')"
             class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -6647,6 +6985,7 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Reroll a failed saving throw as a reaction</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="activateIndomitable"
               :disabled="getResourceAvailable({ id: 'fighter_indomitable', max: 1 }) <= 0"
@@ -6672,6 +7011,7 @@ watch(() => charSpells.value, (list) => {
                 <p class="text-[10px] text-gray-500">Reduce damage from incoming attack by 1d10 + {{ getAbilityMod('dex') }} + {{ monkLevel }} (Reaction)</p>
               </div>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="deflectAttacksReaction"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6687,6 +7027,7 @@ watch(() => charSpells.value, (list) => {
                 <p class="text-[10px] text-gray-500">Reduce falling damage by {{ 5 * monkLevel }} HP (Reaction)</p>
               </div>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="showToast(`Slow Fall activated! Reduced fall damage by ${5 * monkLevel} HP.`)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6702,6 +7043,7 @@ watch(() => charSpells.value, (list) => {
                 <p class="text-[10px] text-gray-500">Target must make CON save or be Stunned until end of next turn (Costs 1 Ki)</p>
               </div>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="activateMonkKiAction('Stunning Strike', 1)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6718,12 +7060,19 @@ watch(() => charSpells.value, (list) => {
               <p class="text-[10px] text-gray-500">Make 1 melee attack when a hostile creature leaves your reach</p>
             </div>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice('Opportunity Attack', equippedWeapons[0]?.toHit || unarmedStrikeDetails.toHit)"
               class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
             >
               Strike {{ (equippedWeapons[0]?.toHit || unarmedStrikeDetails.toHit) >= 0 ? '+' : '' }}{{ equippedWeapons[0]?.toHit || unarmedStrikeDetails.toHit }}
             </button>
+            <span
+              v-else
+              class="px-2 py-1 bg-gray-100 border border-gray-200 text-gray-700 rounded font-semibold text-[10px] select-none shrink-0 font-mono"
+            >
+              Strike {{ (equippedWeapons[0]?.toHit || unarmedStrikeDetails.toHit) >= 0 ? '+' : '' }}{{ equippedWeapons[0]?.toHit || unarmedStrikeDetails.toHit }}
+            </span>
           </div>
 
           <!-- Reaction Spells if any -->
@@ -6748,6 +7097,7 @@ watch(() => charSpells.value, (list) => {
                 <div class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
                   <span class="text-gray-500 font-medium">Slot:</span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click.stop="toggleFeatFreeCast(sp)"
                     class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
@@ -6758,37 +7108,48 @@ watch(() => charSpells.value, (list) => {
                       class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
                     ></span>
                   </button>
+                  <span
+                    v-else
+                    class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white"
+                  >
+                    <span
+                      v-if="!isFeatCastExpended(sp)"
+                      class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                    ></span>
+                  </span>
                   <span class="font-mono font-semibold text-gray-800">
                     {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
                   </span>
                 </div>
-                <button
-                  type="button"
-                  @click="castSpell(sp, false)"
-                  :disabled="isFeatCastExpended(sp)"
-                  :class="[
-                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
-                    !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                  ]"
-                >
-                  {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
-                </button>
-                <button
-                  v-if="allSpellLevels.length > 0"
-                  type="button"
-                  @click="castSpell(sp, true)"
-                  :disabled="getAvailableSlots(sp.level) === 0"
-                  :class="[
-                    'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
-                    getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
-                  ]"
-                  title="Cast with spell slot"
-                >
-                  Cast (Slot)
-                </button>
+                <template v-if="!isReadOnly">
+                  <button
+                    type="button"
+                    @click="castSpell(sp, false)"
+                    :disabled="isFeatCastExpended(sp)"
+                    :class="[
+                      'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                      !isFeatCastExpended(sp) ? 'bg-gray-900 hover:bg-black text-white cursor-pointer' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
+                    ]"
+                  >
+                    {{ isFeatCastExpended(sp) ? 'Free Expended' : 'Cast Free' }}
+                  </button>
+                  <button
+                    v-if="allSpellLevels.length > 0"
+                    type="button"
+                    @click="castSpell(sp, true)"
+                    :disabled="getAvailableSlots(sp.level) === 0"
+                    :class="[
+                      'px-2 py-1 rounded font-semibold text-[10px] transition shrink-0',
+                      getAvailableSlots(sp.level) > 0 ? 'bg-gray-800 hover:bg-gray-900 text-white cursor-pointer' : 'bg-gray-100 text-gray-300 border border-gray-200 cursor-not-allowed'
+                    ]"
+                    title="Cast with spell slot"
+                  >
+                    Cast (Slot)
+                  </button>
+                </template>
               </template>
               <button
-                v-else
+                v-else-if="!isReadOnly"
                 type="button"
                 @click="castSpell(sp)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
@@ -6822,22 +7183,35 @@ watch(() => charSpells.value, (list) => {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button
-                    v-if="act.hasAttack"
+                    v-if="!isReadOnly && act.hasAttack"
                     type="button"
                     @click="rollCustomActionAttack(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasAttack"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </span>
                   <button
-                    v-if="act.hasDamage && act.damageDice"
+                    v-if="!isReadOnly && act.hasDamage && act.damageDice"
                     type="button"
                     @click="rollCustomActionDamage(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Dmg ({{ getCustomActionDamageLabel(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasDamage && act.damageDice"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click="deleteCustomAction(act.id)"
                     class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
@@ -6865,7 +7239,7 @@ watch(() => charSpells.value, (list) => {
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreCustomActionUse(act)"
@@ -6919,26 +7293,40 @@ watch(() => charSpells.value, (list) => {
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 font-medium">Uses:</span>
                   <div v-if="act.max <= 8" class="flex items-center gap-1">
-                    <button
-                      v-for="idx in act.max"
-                      :key="idx"
-                      type="button"
-                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
-                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
-                    >
+                    <template v-if="!isReadOnly">
+                      <button
+                        v-for="idx in act.max"
+                        :key="idx"
+                        type="button"
+                        @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                        :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </button>
+                    </template>
+                    <template v-else>
                       <span
-                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
-                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
-                      ></span>
-                    </button>
+                        v-for="idx in act.max"
+                        :key="idx"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </span>
+                    </template>
                   </div>
-                  <span class="font-mono text-gray-700 font-bold ml-1">
+                  <span class="font-mono text-gray-700 font-bold ml-1 select-none">
                     {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreResource(act.id, 1)"
@@ -6975,6 +7363,7 @@ watch(() => charSpells.value, (list) => {
             Other & Interactions
           </h3>
           <button
+            v-if="!isReadOnly"
             type="button"
             @click="openAddCustomAction('other')"
             class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -7018,22 +7407,35 @@ watch(() => charSpells.value, (list) => {
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
                   <button
-                    v-if="act.hasAttack"
+                    v-if="!isReadOnly && act.hasAttack"
                     type="button"
                     @click="rollCustomActionAttack(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasAttack"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </span>
                   <button
-                    v-if="act.hasDamage && act.damageDice"
+                    v-if="!isReadOnly && act.hasDamage && act.damageDice"
                     type="button"
                     @click="rollCustomActionDamage(act)"
                     class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
                   >
                     Dmg ({{ getCustomActionDamageLabel(act) }})
                   </button>
+                  <span
+                    v-else-if="isReadOnly && act.hasDamage && act.damageDice"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded font-bold text-[10px] font-mono select-none"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </span>
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click="deleteCustomAction(act.id)"
                     class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
@@ -7057,11 +7459,11 @@ watch(() => charSpells.value, (list) => {
                     ></span>
                   </div>
                   <span class="font-mono text-gray-700 font-bold ml-1">
-                    {{ getCustomActionAvailable(act) }} / {{ act.resource.max }}
+                    {{ getResourceAvailable(act) }} / {{ act.resource.max }}
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreCustomActionUse(act)"
@@ -7115,26 +7517,40 @@ watch(() => charSpells.value, (list) => {
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500 font-medium">Uses:</span>
                   <div v-if="act.max <= 8" class="flex items-center gap-1">
-                    <button
-                      v-for="idx in act.max"
-                      :key="idx"
-                      type="button"
-                      @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
-                      class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                      :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
-                    >
+                    <template v-if="!isReadOnly">
+                      <button
+                        v-for="idx in act.max"
+                        :key="idx"
+                        type="button"
+                        @click="toggleResourceSlot({ id: act.id, max: act.max }, idx)"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                        :title="isResourceSlotExpended({ id: act.id, max: act.max }, idx) ? 'Click to restore use' : 'Click to spend use'"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </button>
+                    </template>
+                    <template v-else>
                       <span
-                        v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
-                        class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
-                      ></span>
-                    </button>
+                        v-for="idx in act.max"
+                        :key="idx"
+                        class="w-3.5 h-3.5 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                      >
+                        <span
+                          v-if="!isResourceSlotExpended({ id: act.id, max: act.max }, idx)"
+                          class="w-1.5 h-1.5 rounded-full bg-gray-900 pointer-events-none"
+                        ></span>
+                      </span>
+                    </template>
                   </div>
-                  <span class="font-mono text-gray-700 font-bold ml-1">
+                  <span class="font-mono text-gray-700 font-bold ml-1 select-none">
                     {{ getResourceAvailable({ id: act.id, max: act.max }) }} / {{ act.max }}
                   </span>
                   <span class="text-[9px] text-gray-400 capitalize">({{ act.recharge }} rest)</span>
                 </div>
-                <div class="flex items-center gap-1">
+                <div v-if="!isReadOnly" class="flex items-center gap-1">
                   <button
                     type="button"
                     @click="restoreResource(act.id, 1)"
@@ -7195,6 +7611,7 @@ watch(() => charSpells.value, (list) => {
             <div class="bg-white border border-gray-200 rounded p-2">
               <div class="text-[10px] text-gray-500 uppercase font-semibold">Spell Attack Bonus</div>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="rollDice('Spell Attack Roll', charSpellAttackBonus)"
                 class="text-sm font-bold text-gray-900 hover:text-black transition font-mono cursor-pointer underline decoration-dotted"
@@ -7202,6 +7619,12 @@ watch(() => charSpells.value, (list) => {
               >
                 {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
               </button>
+              <span
+                v-else
+                class="text-sm font-bold text-gray-900 font-mono select-none block"
+              >
+                {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+              </span>
             </div>
 
             <div class="bg-white border border-gray-200 rounded p-2">
@@ -7215,6 +7638,7 @@ watch(() => charSpells.value, (list) => {
             <div class="flex items-center justify-between">
               <span class="text-[11px] font-bold text-gray-800 uppercase tracking-wider">Spell Slot Tracker</span>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="restoreAllSlots"
                 class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold cursor-pointer"
@@ -7240,19 +7664,33 @@ watch(() => charSpells.value, (list) => {
                 </div>
 
                 <div class="flex flex-wrap gap-1.5">
-                  <button
-                    v-for="slotIdx in getMaxSlots(lvl)"
-                    :key="slotIdx"
-                    type="button"
-                    @click="toggleSlot(lvl, slotIdx)"
-                    class="w-5 h-5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
-                    :title="isSlotExpended(lvl, slotIdx) ? `Restore Level ${lvl} Slot ${slotIdx}` : `Expend Level ${lvl} Slot ${slotIdx}`"
-                  >
+                  <template v-if="!isReadOnly">
+                    <button
+                      v-for="slotIdx in getMaxSlots(lvl)"
+                      :key="slotIdx"
+                      type="button"
+                      @click="toggleSlot(lvl, slotIdx)"
+                      class="w-5 h-5 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
+                      :title="isSlotExpended(lvl, slotIdx) ? `Restore Level ${lvl} Slot ${slotIdx}` : `Expend Level ${lvl} Slot ${slotIdx}`"
+                    >
+                      <span
+                        v-if="!isSlotExpended(lvl, slotIdx)"
+                        class="w-2.5 h-2.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </button>
+                  </template>
+                  <template v-else>
                     <span
-                      v-if="!isSlotExpended(lvl, slotIdx)"
-                      class="w-2.5 h-2.5 rounded-full bg-gray-900 pointer-events-none"
-                    ></span>
-                  </button>
+                      v-for="slotIdx in getMaxSlots(lvl)"
+                      :key="slotIdx"
+                      class="w-5 h-5 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white select-none"
+                    >
+                      <span
+                        v-if="!isSlotExpended(lvl, slotIdx)"
+                        class="w-2.5 h-2.5 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </span>
+                  </template>
                 </div>
               </div>
             </div>
@@ -7294,6 +7732,7 @@ watch(() => charSpells.value, (list) => {
                 <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0 pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
                   <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                     <button
+                      v-if="!isReadOnly"
                       type="button"
                       @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
                       class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7301,8 +7740,14 @@ watch(() => charSpells.value, (list) => {
                     >
                       Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
                     </button>
+                    <span
+                      v-else
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                    >
+                      Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                    </span>
                     <button
-                      v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                      v-if="!isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
                       type="button"
                       @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                       class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7310,6 +7755,12 @@ watch(() => charSpells.value, (list) => {
                     >
                       Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                     </button>
+                    <span
+                      v-else-if="isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                    >
+                      Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                    </span>
                   </template>
 
                   <template v-else-if="extractSpellMechanics(sp, char.level, charCasterMod).saveAbility">
@@ -7320,7 +7771,7 @@ watch(() => charSpells.value, (list) => {
                       DC {{ charSpellSaveDc }} {{ extractSpellMechanics(sp, char.level, charCasterMod).saveAbility.slice(0, 3).toUpperCase() }} Save
                     </span>
                     <button
-                      v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                      v-if="!isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
                       type="button"
                       @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                       class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7328,9 +7779,16 @@ watch(() => charSpells.value, (list) => {
                     >
                       Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                     </button>
+                    <span
+                      v-else-if="isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                    >
+                      Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                    </span>
                   </template>
 
                   <button
+                    v-if="!isReadOnly"
                     type="button"
                     @click="castSpell(sp)"
                     class="px-2.5 py-0.5 bg-gray-800 hover:bg-gray-900 text-white rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7426,6 +7884,7 @@ watch(() => charSpells.value, (list) => {
                   <div class="flex items-center gap-1.5 flex-wrap justify-end shrink-0 pt-1 sm:pt-0 border-t border-gray-200/50 sm:border-t-0">
                     <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                       <button
+                        v-if="!isReadOnly"
                         type="button"
                         @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
                         class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7433,8 +7892,14 @@ watch(() => charSpells.value, (list) => {
                       >
                         Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
                       </button>
+                      <span
+                        v-else
+                        class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                      >
+                        Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                      </span>
                       <button
-                        v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                        v-if="!isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
                         type="button"
                         @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                         class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7442,6 +7907,12 @@ watch(() => charSpells.value, (list) => {
                       >
                         Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                       </button>
+                      <span
+                        v-else-if="isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                        class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                      >
+                        Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                      </span>
                     </template>
 
                     <template v-else-if="extractSpellMechanics(sp, char.level, charCasterMod).saveAbility">
@@ -7452,7 +7923,7 @@ watch(() => charSpells.value, (list) => {
                         DC {{ charSpellSaveDc }} {{ extractSpellMechanics(sp, char.level, charCasterMod).saveAbility.slice(0, 3).toUpperCase() }} Save
                       </span>
                       <button
-                        v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                        v-if="!isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
                         type="button"
                         @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                         class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
@@ -7460,9 +7931,16 @@ watch(() => charSpells.value, (list) => {
                       >
                         Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                       </button>
+                      <span
+                        v-else-if="isReadOnly && extractSpellMechanics(sp, char.level, charCasterMod).diceFormula"
+                        class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                      >
+                        Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                      </span>
                     </template>
 
                     <button
+                      v-if="!isReadOnly"
                       type="button"
                       @click="castSpell(sp)"
                       :disabled="getMaxSlots(lvl) > 0 && getAvailableSlots(lvl) === 0"
@@ -7533,7 +8011,7 @@ watch(() => charSpells.value, (list) => {
             </div>
             <div class="flex items-center gap-2">
               <button
-                v-if="allSpellLevels.length === 0"
+                v-if="!isReadOnly && allSpellLevels.length === 0"
                 type="button"
                 @click="restoreAllSlots"
                 class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold cursor-pointer underline"
@@ -7586,6 +8064,7 @@ watch(() => charSpells.value, (list) => {
                   <div v-if="Number(sp.level) > 0" class="inline-flex items-center gap-1.5 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded text-[10px] select-none">
                     <span class="text-gray-500 font-medium">Slot:</span>
                     <button
+                      v-if="!isReadOnly"
                       type="button"
                       @click.stop="toggleFeatFreeCast(sp)"
                       class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center transition cursor-pointer hover:scale-110 active:scale-95 bg-white"
@@ -7596,6 +8075,15 @@ watch(() => charSpells.value, (list) => {
                         class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
                       ></span>
                     </button>
+                    <span
+                      v-else
+                      class="w-4 h-4 rounded-full border-2 border-gray-900 flex items-center justify-center bg-white"
+                    >
+                      <span
+                        v-if="!isFeatCastExpended(sp)"
+                        class="w-2 h-2 rounded-full bg-gray-900 pointer-events-none"
+                      ></span>
+                    </span>
                     <span class="font-mono font-semibold text-gray-800">
                       {{ isFeatCastExpended(sp) ? '0' : '1' }} / 1
                     </span>
@@ -7603,25 +8091,39 @@ watch(() => charSpells.value, (list) => {
 
                   <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).hasAttack">
                     <button
+                      v-if="!isReadOnly"
                       type="button"
                       @click="rollDice(`${sp.name} Attack`, charSpellAttackBonus)"
                       class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
                     >
                       Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
                     </button>
+                    <span
+                      v-else
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                    >
+                      Attack {{ charSpellAttackBonus >= 0 ? '+' : '' }}{{ charSpellAttackBonus }}
+                    </span>
                   </template>
                   <template v-if="extractSpellMechanics(sp, char.level, charCasterMod).diceFormula">
                     <button
+                      v-if="!isReadOnly"
                       type="button"
                       @click="rollFormula(`${sp.name} Damage`, extractSpellMechanics(sp, char.level, charCasterMod).diceFormula)"
                       class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded text-[10px] font-semibold transition cursor-pointer"
                     >
                       Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
                     </button>
+                    <span
+                      v-else
+                      class="px-2 py-0.5 bg-gray-100 border border-gray-200 text-gray-800 rounded text-[10px] font-semibold select-none"
+                    >
+                      Damage ({{ extractSpellMechanics(sp, char.level, charCasterMod).diceFormula }})
+                    </span>
                   </template>
 
                   <!-- Cast buttons -->
-                  <template v-if="Number(sp.level) > 0">
+                  <template v-if="!isReadOnly && Number(sp.level) > 0">
                     <button
                       type="button"
                       @click="castSpell(sp, false)"
@@ -7651,7 +8153,7 @@ watch(() => charSpells.value, (list) => {
                       Cast (Slot)
                     </button>
                   </template>
-                  <template v-else>
+                  <template v-else-if="!isReadOnly">
                     <button
                       type="button"
                       @click="castSpell(sp)"
@@ -7770,12 +8272,19 @@ watch(() => charSpells.value, (list) => {
           <div class="flex items-center gap-2">
             <span class="text-gray-500 font-mono text-[11px]">Passive {{ sk.passive }}</span>
             <button
+              v-if="!isReadOnly"
               type="button"
               @click="rollDice(`${sName.replace(/_/g, ' ').toUpperCase()} Check`, sk.total)"
               class="px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-800 font-mono font-bold transition cursor-pointer text-xs"
             >
               {{ sk.modifier_string }}
             </button>
+            <span
+              v-else
+              class="px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-800 font-mono font-bold text-xs select-none"
+            >
+              {{ sk.modifier_string }}
+            </span>
           </div>
         </div>
       </div>
@@ -7787,6 +8296,7 @@ watch(() => charSpells.value, (list) => {
             Custom Skills ({{ customSkills.length }})
           </h3>
           <button
+            v-if="!isReadOnly"
             type="button"
             @click="showCustomSkillModal = true"
             class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
@@ -7815,13 +8325,21 @@ watch(() => charSpells.value, (list) => {
             <div class="flex items-center gap-2">
               <span class="text-gray-500 font-mono text-[11px]">Passive {{ csk.passive }}</span>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="rollDice(`${csk.name.toUpperCase()} Check`, csk.total)"
                 class="px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-800 font-mono font-bold transition cursor-pointer text-xs"
               >
                 {{ csk.modifier_string }}
               </button>
+              <span
+                v-else
+                class="px-2 py-0.5 rounded bg-gray-100 border border-gray-200 text-gray-800 font-mono font-bold text-xs select-none"
+              >
+                {{ csk.modifier_string }}
+              </span>
               <button
+                v-if="!isReadOnly"
                 type="button"
                 @click="deleteCustomSkill(csk.id)"
                 class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
@@ -8196,7 +8714,7 @@ watch(() => charSpells.value, (list) => {
           <!-- PP -->
           <div class="bg-white p-2 border border-gray-200 rounded">
             <span class="text-[10px] text-gray-500 font-semibold uppercase block mb-1">PP</span>
-            <div class="flex items-center justify-center gap-1">
+            <div v-if="!isReadOnly" class="flex items-center justify-center gap-1">
               <button
                 type="button"
                 @click="adjustCurrency('pp', -1)"
@@ -8215,12 +8733,15 @@ watch(() => charSpells.value, (list) => {
                 class="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-bold leading-none cursor-pointer"
               >+</button>
             </div>
+            <div v-else class="text-xs font-bold py-0.5 text-gray-900 font-mono select-none">
+              {{ currency.pp || 0 }}
+            </div>
           </div>
 
           <!-- GP -->
           <div class="bg-white p-2 border border-gray-200 rounded">
             <span class="text-[10px] text-gray-500 font-semibold uppercase block mb-1">GP</span>
-            <div class="flex items-center justify-center gap-1">
+            <div v-if="!isReadOnly" class="flex items-center justify-center gap-1">
               <button
                 type="button"
                 @click="adjustCurrency('gp', -1)"
@@ -8239,12 +8760,15 @@ watch(() => charSpells.value, (list) => {
                 class="w-5 h-5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-bold leading-none cursor-pointer"
               >+</button>
             </div>
+            <div v-else class="text-xs font-bold py-0.5 text-gray-900 font-mono select-none">
+              {{ currency.gp || 0 }}
+            </div>
           </div>
 
           <!-- EP -->
           <div class="bg-white p-2 border border-gray-200 rounded">
             <span class="text-[10px] text-gray-500 font-semibold uppercase block mb-1">EP</span>
-            <div class="flex items-center justify-center gap-1">
+            <div v-if="!isReadOnly" class="flex items-center justify-center gap-1">
               <button
                 type="button"
                 @click="adjustCurrency('ep', -1)"
@@ -8263,12 +8787,15 @@ watch(() => charSpells.value, (list) => {
                 class="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-bold leading-none cursor-pointer"
               >+</button>
             </div>
+            <div v-else class="text-xs font-bold py-0.5 text-gray-900 font-mono select-none">
+              {{ currency.ep || 0 }}
+            </div>
           </div>
 
           <!-- SP -->
           <div class="bg-white p-2 border border-gray-200 rounded">
             <span class="text-[10px] text-gray-500 font-semibold uppercase block mb-1">SP</span>
-            <div class="flex items-center justify-center gap-1">
+            <div v-if="!isReadOnly" class="flex items-center justify-center gap-1">
               <button
                 type="button"
                 @click="adjustCurrency('sp', -1)"
@@ -8287,12 +8814,15 @@ watch(() => charSpells.value, (list) => {
                 class="w-5 h-5 bg-gray-100 hover:bg-gray-200 rounded text-xs font-bold leading-none cursor-pointer"
               >+</button>
             </div>
+            <div v-else class="text-xs font-bold py-0.5 text-gray-900 font-mono select-none">
+              {{ currency.sp || 0 }}
+            </div>
           </div>
 
           <!-- CP -->
           <div class="bg-white p-2 border border-gray-200 rounded">
             <span class="text-[10px] text-gray-500 font-semibold uppercase block mb-1">CP</span>
-            <div class="flex items-center justify-center gap-1">
+            <div v-if="!isReadOnly" class="flex items-center justify-center gap-1">
               <button
                 type="button"
                 @click="adjustCurrency('cp', -1)"
@@ -8310,6 +8840,9 @@ watch(() => charSpells.value, (list) => {
                 @click="adjustCurrency('cp', 1)"
                 class="w-5 h-5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-bold leading-none cursor-pointer"
               >+</button>
+            </div>
+            <div v-else class="text-xs font-bold py-0.5 text-gray-900 font-mono select-none">
+              {{ currency.cp || 0 }}
             </div>
           </div>
         </div>
@@ -8354,7 +8887,7 @@ watch(() => charSpells.value, (list) => {
             <span class="text-[10px] text-gray-500 font-normal">({{ liveEquipment.length }} items)</span>
             <span v-if="equipmentSavedToast" class="text-[10px] text-green-600 font-semibold">Saved</span>
           </div>
-          <div class="flex items-center gap-1.5">
+          <div v-if="!isReadOnly" class="flex items-center gap-1.5">
             <button
               type="button"
               @click="openAddCustomItem"
@@ -8450,7 +8983,7 @@ watch(() => charSpells.value, (list) => {
                 <th class="py-2 px-2 text-center">Status</th>
                 <th class="py-2 px-2 text-center">Qty</th>
                 <th class="py-2 px-3 text-right">Weight</th>
-                <th class="py-2 px-3 text-right">Actions</th>
+                <th v-if="!isReadOnly" class="py-2 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -8476,13 +9009,13 @@ watch(() => charSpells.value, (list) => {
                 <td class="py-2 px-2 text-center">
                   <span
                     v-if="eq.status === 'equipped'"
-                    class="text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded"
+                    class="text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded select-none"
                   >
                     Equipped
                   </span>
-                  <span v-else-if="isContainerItem(eq)" class="text-[10px] text-gray-400 font-mono">Container</span>
+                  <span v-else-if="isContainerItem(eq)" class="text-[10px] text-gray-400 font-mono select-none">Container</span>
                   <select
-                    v-else-if="availableContainers.length > 0"
+                    v-else-if="!isReadOnly && availableContainers.length > 0"
                     :value="eq.container_name || ''"
                     @change="setItemContainer(eq, $event.target.value)"
                     class="text-[10px] p-1 border border-gray-300 rounded bg-white text-gray-700 cursor-pointer"
@@ -8492,11 +9025,11 @@ watch(() => charSpells.value, (list) => {
                       {{ c.name }}
                     </option>
                   </select>
-                  <span v-else class="text-[10px] text-gray-400">Backpack</span>
+                  <span v-else class="text-[10px] text-gray-600 font-mono select-none">{{ eq.container_name || 'Backpack' }}</span>
                 </td>
                 <td class="py-2 px-2 text-center">
                   <button
-                    v-if="isItemEquippable(eq) && !eq.container_name"
+                    v-if="!isReadOnly && isItemEquippable(eq) && !eq.container_name"
                     type="button"
                     @click="toggleEquipStatus(eq)"
                     :class="eq.status === 'equipped' ? 'bg-gray-200 text-gray-800 border-gray-300 font-bold' : 'bg-gray-50 text-gray-600 border-gray-200'"
@@ -8504,11 +9037,14 @@ watch(() => charSpells.value, (list) => {
                   >
                     {{ eq.status === 'equipped' ? 'Equipped' : 'Equip' }}
                   </button>
+                  <span v-else-if="eq.status === 'equipped'" class="text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded select-none">
+                    Equipped
+                  </span>
                   <span v-else-if="isItemEquippable(eq) && eq.container_name" class="text-[10px] text-gray-400 select-none" :title="'Stored in ' + eq.container_name">—</span>
                   <span v-else class="text-[10px] text-gray-400 select-none">—</span>
                 </td>
                 <td class="py-2 px-2 text-center font-mono">
-                  <div class="inline-flex items-center gap-1">
+                  <div v-if="!isReadOnly" class="inline-flex items-center gap-1">
                     <button
                       type="button"
                       @click="changeItemAmount(eq, -1)"
@@ -8521,9 +9057,12 @@ watch(() => charSpells.value, (list) => {
                       class="w-4 h-4 bg-gray-100 hover:bg-gray-200 rounded text-[10px] font-bold leading-none cursor-pointer"
                     >+</button>
                   </div>
+                  <span v-else class="w-6 text-center text-xs font-semibold select-none font-mono">
+                    {{ eq.amount || 1 }}
+                  </span>
                 </td>
                 <td class="py-2 px-3 text-right font-mono text-gray-600">{{ eq.weight || '0' }} lb</td>
-                <td class="py-2 px-3 text-right">
+                <td v-if="!isReadOnly" class="py-2 px-3 text-right">
                   <button
                     type="button"
                     @click="removeItem(eq)"
@@ -8654,7 +9193,7 @@ watch(() => charSpells.value, (list) => {
           <h2 class="text-sm font-bold text-gray-900 tracking-wider uppercase">CHARACTERISTICS & DETAILS</h2>
           <p class="text-[11px] text-gray-500 mt-0.5">Physical appearance, traits, lifestyle, and character notes.</p>
         </div>
-        <div class="flex items-center gap-1.5">
+        <div v-if="!isReadOnly" class="flex items-center gap-1.5">
           <button
             type="button"
             @click="emit('edit')"
@@ -8823,7 +9362,7 @@ watch(() => charSpells.value, (list) => {
             </button>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div v-if="!isReadOnly" class="flex items-center gap-2">
             <span v-if="notesSavedToast" class="text-[11px] text-emerald-600 font-semibold animate-pulse">Saved!</span>
             <button
               type="button"
@@ -8843,7 +9382,9 @@ watch(() => charSpells.value, (list) => {
             <textarea
               v-model="sheetNotes.organizations"
               rows="2"
-              placeholder="+ Add Organizations"
+              :readonly="isReadOnly"
+              :placeholder="isReadOnly ? 'None' : '+ Add Organizations'"
+              :class="{ 'bg-gray-50 text-gray-700 cursor-default': isReadOnly }"
               class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
             ></textarea>
           </div>
@@ -8854,7 +9395,9 @@ watch(() => charSpells.value, (list) => {
             <textarea
               v-model="sheetNotes.allies"
               rows="2"
-              placeholder="+ Add Allies"
+              :readonly="isReadOnly"
+              :placeholder="isReadOnly ? 'None' : '+ Add Allies'"
+              :class="{ 'bg-gray-50 text-gray-700 cursor-default': isReadOnly }"
               class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
             ></textarea>
           </div>
@@ -8865,7 +9408,9 @@ watch(() => charSpells.value, (list) => {
             <textarea
               v-model="sheetNotes.enemies"
               rows="2"
-              placeholder="+ Add Enemies"
+              :readonly="isReadOnly"
+              :placeholder="isReadOnly ? 'None' : '+ Add Enemies'"
+              :class="{ 'bg-gray-50 text-gray-700 cursor-default': isReadOnly }"
               class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
             ></textarea>
           </div>
@@ -8876,7 +9421,9 @@ watch(() => charSpells.value, (list) => {
             <textarea
               v-model="sheetNotes.backstory"
               rows="4"
-              placeholder="+ Add Backstory"
+              :readonly="isReadOnly"
+              :placeholder="isReadOnly ? 'None' : '+ Add Backstory'"
+              :class="{ 'bg-gray-50 text-gray-700 cursor-default': isReadOnly }"
               class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
             ></textarea>
           </div>
@@ -8887,7 +9434,9 @@ watch(() => charSpells.value, (list) => {
             <textarea
               v-model="sheetNotes.other"
               rows="2"
-              placeholder="+ Add Other"
+              :readonly="isReadOnly"
+              :placeholder="isReadOnly ? 'None' : '+ Add Other'"
+              :class="{ 'bg-gray-50 text-gray-700 cursor-default': isReadOnly }"
               class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
             ></textarea>
           </div>
@@ -9035,7 +9584,7 @@ watch(() => charSpells.value, (list) => {
     </div>
 
     <!-- Floating Dice Roller FAB (Bottom-Right) -->
-    <div class="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50">
+    <div v-if="!isReadOnly" class="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50">
       <!-- Popover Menu -->
       <transition name="fade">
         <div
@@ -10025,28 +10574,28 @@ watch(() => charSpells.value, (list) => {
           <button
             type="button"
             @click="exportTab = 'pdf'"
-            :class="exportTab === 'pdf' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            :class="exportTab === 'pdf' ? 'border-b-2 border-gray-900 text-gray-900 bg-white font-bold' : 'text-gray-500 hover:text-gray-900'"
             class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
           >
-            <IconFileTypePdf class="w-4 h-4 text-red-600" />
+            <IconFileTypePdf class="w-4 h-4 text-gray-900" />
             <span>Print / PDF</span>
           </button>
           <button
             type="button"
             @click="exportTab = 'link'"
-            :class="exportTab === 'link' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            :class="exportTab === 'link' ? 'border-b-2 border-gray-900 text-gray-900 bg-white font-bold' : 'text-gray-500 hover:text-gray-900'"
             class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
           >
-            <IconLink class="w-4 h-4 text-blue-600" />
+            <IconLink class="w-4 h-4 text-gray-900" />
             <span>Public Link</span>
           </button>
           <button
             type="button"
             @click="exportTab = 'avrae'"
-            :class="exportTab === 'avrae' ? 'border-b-2 border-gray-900 text-gray-900 bg-white' : 'text-gray-500 hover:text-gray-800'"
+            :class="exportTab === 'avrae' ? 'border-b-2 border-gray-900 text-gray-900 bg-white font-bold' : 'text-gray-500 hover:text-gray-900'"
             class="px-3 py-2 rounded-t transition cursor-pointer flex items-center gap-1.5"
           >
-            <IconBrandDiscord class="w-4 h-4 text-indigo-600" />
+            <IconBrandDiscord class="w-4 h-4 text-gray-900" />
             <span>Discord Avrae</span>
           </button>
         </div>
@@ -10057,26 +10606,34 @@ watch(() => charSpells.value, (list) => {
           <div v-if="exportTab === 'pdf'" class="space-y-4">
             <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
               <div class="font-bold text-gray-900 text-sm flex items-center gap-2">
-                <IconPrinter class="w-4 h-4 text-gray-700" />
-                <span>Print or Save as PDF</span>
+                <IconPrinter class="w-4 h-4 text-gray-900" />
+                <span>Print or Save as PDF (3 Pages)</span>
               </div>
               <p class="text-xs text-gray-600 leading-relaxed">
-                Generates a clean, print-optimized character sheet containing ability scores, combat stats, attacks, skills, traits, and characteristics. You can save directly as a PDF from your browser's print dialog.
+                Generates a clean, 3-page standard D&amp;D character sheet: Page 1 (Combat, Skills, Actions &amp; Features), Page 2 (Spellcasting &amp; Spell Slots 1–9), Page 3 (Characteristics &amp; Backstory).
               </p>
             </div>
 
-            <div class="flex flex-col sm:flex-row gap-2.5 pt-2">
+            <div class="flex flex-col sm:flex-row gap-2.5 pt-1">
               <button
                 type="button"
                 @click="printSheet"
-                class="w-full py-2.5 px-4 bg-gray-900 hover:bg-black text-white rounded font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+                class="flex-1 py-2.5 px-4 bg-gray-900 hover:bg-black text-white rounded font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
               >
                 <IconPrinter class="w-4 h-4" />
                 <span>Print / Save as PDF</span>
               </button>
+              <button
+                type="button"
+                @click="openPrintPreview"
+                class="flex-1 py-2.5 px-4 bg-white hover:bg-gray-100 border border-gray-300 text-gray-900 rounded font-semibold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+              >
+                <IconEye class="w-4 h-4 text-gray-900" />
+                <span>Preview &amp; Edit Sheet</span>
+              </button>
             </div>
             <p class="text-[11px] text-gray-500 italic text-center">
-              Tip: In the print dialog, select <b>Save as PDF</b> and ensure "Background graphics" is enabled.
+              Tip: Di dialog print browser, pilih <b>Save as PDF</b> dan aktifkan opsi "Background graphics".
             </p>
           </div>
 
@@ -10084,22 +10641,20 @@ watch(() => charSpells.value, (list) => {
           <div v-else-if="exportTab === 'link'" class="space-y-4">
             <!-- Visibility Setting Card -->
             <div
-              class="p-3.5 border rounded-lg flex items-center justify-between gap-3"
-              :class="isPublicChar ? 'bg-emerald-50/70 border-emerald-200' : 'bg-amber-50/70 border-amber-200'"
+              class="p-3.5 border rounded-lg flex items-center justify-between gap-3 bg-gray-50 border-gray-200"
             >
               <div class="flex items-center gap-2.5 min-w-0">
                 <span
-                  class="p-2 rounded-full shrink-0"
-                  :class="isPublicChar ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                  class="p-2 rounded-full shrink-0 bg-gray-200 text-gray-800"
                 >
                   <IconWorld v-if="isPublicChar" class="w-4 h-4" />
                   <IconLock v-else class="w-4 h-4" />
                 </span>
                 <div class="min-w-0">
-                  <div class="font-bold text-xs" :class="isPublicChar ? 'text-emerald-900' : 'text-amber-900'">
+                  <div class="font-bold text-xs text-gray-900">
                     {{ isPublicChar ? 'Public Character' : 'Private Character' }}
                   </div>
-                  <div class="text-[11px]" :class="isPublicChar ? 'text-emerald-700' : 'text-amber-700'">
+                  <div class="text-[11px] text-gray-600">
                     {{ isPublicChar ? 'Anyone with this link can view this sheet' : 'Only you can view this sheet' }}
                   </div>
                 </div>
@@ -10109,8 +10664,7 @@ watch(() => charSpells.value, (list) => {
                 type="button"
                 @click="toggleVisibility"
                 :disabled="isUpdatingVisibility"
-                class="px-3 py-1.5 rounded text-xs font-semibold border transition cursor-pointer shrink-0 disabled:opacity-50"
-                :class="isPublicChar ? 'border-amber-300 bg-white hover:bg-amber-50 text-amber-800' : 'border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800'"
+                class="px-3 py-1.5 rounded text-xs font-semibold border transition cursor-pointer shrink-0 disabled:opacity-50 bg-gray-900 hover:bg-black text-white border-gray-900 shadow-xs"
               >
                 {{ isUpdatingVisibility ? 'Saving...' : (isPublicChar ? 'Make Private' : 'Make Public') }}
               </button>
@@ -10128,14 +10682,14 @@ watch(() => charSpells.value, (list) => {
                 <button
                   type="button"
                   @click="copyShareLink"
-                  class="px-4 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                  class="px-4 py-2 bg-gray-900 hover:bg-black text-white rounded text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0 shadow-xs"
                 >
                   <IconCheck v-if="copiedLink" class="w-4 h-4 text-emerald-400" />
                   <IconCopy v-else class="w-4 h-4" />
                   <span>{{ copiedLink ? 'Copied!' : 'Copy Link' }}</span>
                 </button>
               </div>
-              <p v-if="!isPublicChar" class="text-[11px] text-amber-700 mt-1.5 italic">
+              <p v-if="!isPublicChar" class="text-[11px] text-gray-500 mt-1.5 italic">
                 * Note: This character is currently Private. Anyone opening this link without logging into your account will receive a private character notice.
               </p>
             </div>
@@ -10143,12 +10697,12 @@ watch(() => charSpells.value, (list) => {
 
           <!-- 3. Discord Avrae Tab -->
           <div v-else-if="exportTab === 'avrae'" class="space-y-4">
-            <div class="bg-indigo-50/70 border border-indigo-200 rounded-lg p-3.5 space-y-1">
-              <div class="font-bold text-indigo-900 text-xs flex items-center gap-1.5">
-                <IconBrandDiscord class="w-4 h-4 text-indigo-700" />
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3.5 space-y-1">
+              <div class="font-bold text-gray-900 text-xs flex items-center gap-1.5">
+                <IconBrandDiscord class="w-4 h-4 text-gray-900" />
                 <span>Avrae Discord Bot Integration</span>
               </div>
-              <p class="text-xs text-indigo-800 leading-relaxed">
+              <p class="text-xs text-gray-600 leading-relaxed">
                 Export character stats, attacks, and spellbook into Avrae's character format or import combat attacks directly into your active character.
               </p>
             </div>
@@ -10173,8 +10727,8 @@ watch(() => charSpells.value, (list) => {
                   @click="copyAvraeJson"
                   class="px-3 py-2 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
-                  <IconCheck v-if="copiedAvraeJson" class="w-4 h-4 text-emerald-600" />
-                  <IconCopy v-else class="w-4 h-4" />
+                  <IconCheck v-if="copiedAvraeJson" class="w-4 h-4 text-gray-900" />
+                  <IconCopy v-else class="w-4 h-4 text-gray-700" />
                   <span>{{ copiedAvraeJson ? 'JSON Copied!' : 'Copy JSON' }}</span>
                 </button>
                 <button
@@ -10182,8 +10736,8 @@ watch(() => charSpells.value, (list) => {
                   @click="copyAvraeApiUrl"
                   class="px-3 py-2 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs"
                 >
-                  <IconCheck v-if="copiedAvraeApiUrl" class="w-4 h-4 text-emerald-600" />
-                  <IconLink v-else class="w-4 h-4" />
+                  <IconCheck v-if="copiedAvraeApiUrl" class="w-4 h-4 text-gray-900" />
+                  <IconLink v-else class="w-4 h-4 text-gray-700" />
                   <span>{{ copiedAvraeApiUrl ? 'URL Copied!' : 'Copy API URL' }}</span>
                 </button>
               </div>
@@ -10192,13 +10746,13 @@ watch(() => charSpells.value, (list) => {
             <!-- Attack Automation Macro (!a import) -->
             <div class="border border-gray-200 rounded-lg p-3.5 space-y-2.5">
               <div class="flex items-center justify-between">
-                <div class="font-bold text-gray-900 text-xs">Attack Automation (<code class="font-mono text-indigo-700">!a import</code>)</div>
+                <div class="font-bold text-gray-900 text-xs">Attack Automation (<code class="font-mono text-gray-900 font-bold">!a import</code>)</div>
                 <button
                   type="button"
                   @click="copyAvraeMacro"
-                  class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                  class="px-2.5 py-1 bg-gray-900 hover:bg-black text-white rounded text-[11px] font-semibold flex items-center gap-1 cursor-pointer shadow-xs"
                 >
-                  <IconCheck v-if="copiedAvraeMacro" class="w-3.5 h-3.5 text-emerald-300" />
+                  <IconCheck v-if="copiedAvraeMacro" class="w-3.5 h-3.5 text-gray-300" />
                   <IconCopy v-else class="w-3.5 h-3.5" />
                   <span>{{ copiedAvraeMacro ? 'Macro Copied!' : 'Copy Command' }}</span>
                 </button>

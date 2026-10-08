@@ -103,6 +103,16 @@ const isOptionalFeature = computed(() => {
 const onSelectSubclass = (key) => {
   emit('selectSubclass', key)
 }
+
+const isSubclassSelected = (sc) => {
+  if (!props.selectedSubClassKey || !sc) return false
+  const cardKey = `${sc.name}|${sc.source || ''}`
+  if (props.selectedSubClassKey === cardKey) return true
+  if (!props.selectedSubClassKey.includes('|')) {
+    return props.selectedSubClassKey.trim().toLowerCase() === (sc.name || '').trim().toLowerCase()
+  }
+  return false
+}
 </script>
 
 <template>
@@ -167,7 +177,7 @@ const onSelectSubclass = (key) => {
                 :key="sc.name + '|' + (sc.source || '')"
                 @click="onSelectSubclass(sc.name + '|' + (sc.source || ''))"
                 :class="[
-                  (selectedSubClassKey === (sc.name + '|' + (sc.source || '')) || selectedSubClassKey === sc.name || (selectedSubClassKey && selectedSubClassKey.startsWith(sc.name + '|')))
+                  isSubclassSelected(sc)
                     ? 'border-gray-800 bg-gray-100 ring-1 ring-gray-800'
                     : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50',
                   subclassError && !selectedSubClassKey ? 'border-red-400' : '',
@@ -206,6 +216,9 @@ const onSelectSubclass = (key) => {
               <span class="font-medium text-gray-900">Current Subclass:</span>
               <span class="ml-1 text-gray-900 font-semibold">
                 {{ (selectedSubClassKey || '').split('|')[0] }}
+              </span>
+              <span v-if="(selectedSubClassKey || '').split('|')[1]" class="ml-1 text-[11px] text-gray-500 font-mono">
+                ({{ (selectedSubClassKey || '').split('|')[1] }})
               </span>
             </div>
           </div>
