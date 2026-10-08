@@ -298,22 +298,40 @@ const combinedFeatures = computed(() => {
     })
   }
 
-  // Clean out redundant refSubclassFeature entries from feature texts
-  for (const f of allFeatures) {
-    if (Array.isArray(f.entries)) {
-      f.entries = f.entries.filter(e => {
-        if (!e) return false
-        if (typeof e === 'object' && e.type === 'refSubclassFeature') return false
-        return true
-      })
+  // Collect names of sub-features embedded inside parent feature entries
+  const embeddedNames = new Set()
+  const walkEntries = (entries, parentName) => {
+    if (!Array.isArray(entries)) return
+    for (const item of entries) {
+      if (!item || typeof item !== 'object') continue
+      if (item.name && typeof item.name === 'string') {
+        const n = item.name.trim().toLowerCase()
+        if (n && n !== parentName) {
+          embeddedNames.add(n)
+        }
+      }
+      if (Array.isArray(item.entries)) {
+        walkEntries(item.entries, parentName)
+      }
     }
   }
 
-  // Deduplicate features by name and level
+  for (const f of allFeatures) {
+    const pName = (f.name || '').trim().toLowerCase()
+    if (Array.isArray(f.entries)) {
+      walkEntries(f.entries, pName)
+    }
+  }
+
+  // Deduplicate features by name and level, filtering out redundant child cards
   const seen = new Set()
   const uniqueFeatures = []
   for (const f of allFeatures) {
-    const k = `${(f.name || '').trim().toLowerCase()}_${f.level || 1}`
+    const rawName = (f.name || '').trim().toLowerCase()
+    if (!rawName) continue
+    if (embeddedNames.has(rawName)) continue
+
+    const k = `${rawName}_${f.level || 1}`
     if (seen.has(k)) continue
     seen.add(k)
     uniqueFeatures.push(f)

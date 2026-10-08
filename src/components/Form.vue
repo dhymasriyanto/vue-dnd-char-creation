@@ -4411,8 +4411,8 @@ const submitForm = async () => {
     }
 
     if (isEditMode.value) {
-      await axios.put(`${API_URL}/character/${props.characterToEdit.id}`, payload)
-      const charKey = props.characterToEdit.public_id || props.characterToEdit.id
+      const updateRes = await axios.put(`${API_URL}/character/${props.characterToEdit.id}`, payload)
+      const charKey = updateRes.data?.data?.public_id || props.characterToEdit.public_id || props.characterToEdit.id
       const fullRes = await axios.get(`${API_URL}/character/${charKey}`)
       if (fullRes.data?.data) {
         emit('created', fullRes.data.data)

@@ -2215,42 +2215,84 @@ const attackTableEntries = computed(() => {
   return entries
 })
 
+// Multiclass & Class Level helpers
+const charClassesList = computed(() => {
+  if (Array.isArray(char.value?.classes) && char.value.classes.length > 0) return char.value.classes
+  if (Array.isArray(char.value?.class)) return char.value.class
+  if (char.value?.class) return [char.value.class]
+  return []
+})
+
+const getCharClassLevel = (className) => {
+  const target = (className || '').toLowerCase()
+  const found = charClassesList.value.find(c => {
+    const name = (c?.name || c?.class?.name || c?.class?.class?.name || '').toLowerCase()
+    return name === target
+  })
+  if (found) return Number(found.level) || 1
+  if ((charClassName.value || '').includes(target)) {
+    return Number(char.value?.level) || 1
+  }
+  return 0
+}
+
+const hasCharClass = (className) => getCharClassLevel(className) > 0
+
+const monkLevel = computed(() => getCharClassLevel('monk'))
+
+const monkMartialArtsDie = computed(() => {
+  const ml = monkLevel.value
+  if (ml <= 0) return null
+  const is2024 = (char.value?.edition || '2024') === '2024'
+  if (is2024) {
+    if (ml >= 17) return '1d12'
+    if (ml >= 11) return '1d10'
+    if (ml >= 5) return '1d8'
+    return '1d6'
+  } else {
+    if (ml >= 17) return '1d10'
+    if (ml >= 11) return '1d8'
+    if (ml >= 5) return '1d6'
+    return '1d4'
+  }
+})
+
 // Weapon calculations & Combat Actions
 const WEAPON_DEFINITIONS = {
-  dagger: { damage: '1d4', type: 'piercing', finesse: true, light: true, thrown: '20/60' },
-  dart: { damage: '1d4', type: 'piercing', finesse: true, ranged: true, range: '20/60' },
-  shortsword: { damage: '1d6', type: 'piercing', finesse: true, light: true },
-  scimitar: { damage: '1d6', type: 'slashing', finesse: true, light: true },
-  rapier: { damage: '1d8', type: 'piercing', finesse: true },
-  whip: { damage: '1d4', type: 'slashing', finesse: true, reach: true },
-  club: { damage: '1d4', type: 'bludgeoning', light: true },
-  greatclub: { damage: '1d8', type: 'bludgeoning', twoHanded: true },
-  mace: { damage: '1d6', type: 'bludgeoning' },
-  quarterstaff: { damage: '1d6', versatile: '1d8', type: 'bludgeoning' },
-  spear: { damage: '1d6', versatile: '1d8', type: 'piercing', thrown: '20/60' },
-  javelin: { damage: '1d6', type: 'piercing', thrown: '30/120' },
-  handaxe: { damage: '1d6', type: 'slashing', light: true, thrown: '20/60' },
-  battleaxe: { damage: '1d8', versatile: '1d10', type: 'slashing' },
-  flail: { damage: '1d8', type: 'bludgeoning' },
-  glaive: { damage: '1d10', type: 'slashing', reach: true, heavy: true, twoHanded: true },
-  greataxe: { damage: '1d12', type: 'slashing', heavy: true, twoHanded: true },
-  greatsword: { damage: '2d6', type: 'slashing', heavy: true, twoHanded: true },
-  halberd: { damage: '1d10', type: 'slashing', reach: true, heavy: true, twoHanded: true },
-  lance: { damage: '1d12', type: 'piercing', reach: true },
-  longsword: { damage: '1d8', versatile: '1d10', type: 'slashing' },
-  maul: { damage: '2d6', type: 'bludgeoning', heavy: true, twoHanded: true },
-  morningstar: { damage: '1d8', type: 'piercing' },
-  pike: { damage: '1d10', type: 'piercing', reach: true, heavy: true, twoHanded: true },
-  trident: { damage: '1d6', versatile: '1d8', type: 'piercing', thrown: '20/60' },
-  war_pick: { damage: '1d8', type: 'piercing' },
-  warhammer: { damage: '1d8', versatile: '1d10', type: 'bludgeoning' },
-  light_crossbow: { damage: '1d8', type: 'piercing', ranged: true, range: '80/320', twoHanded: true },
-  shortbow: { damage: '1d6', type: 'piercing', ranged: true, range: '80/320', twoHanded: true },
-  sling: { damage: '1d4', type: 'bludgeoning', ranged: true, range: '30/120' },
-  blowgun: { damage: '1', type: 'piercing', ranged: true, range: '25/100' },
-  hand_crossbow: { damage: '1d6', type: 'piercing', ranged: true, range: '30/120', light: true },
-  heavy_crossbow: { damage: '1d10', type: 'piercing', ranged: true, range: '100/400', heavy: true, twoHanded: true },
-  longbow: { damage: '1d8', type: 'piercing', ranged: true, range: '150/600', heavy: true, twoHanded: true }
+  dagger: { damage: '1d4', type: 'piercing', finesse: true, light: true, simple: true, thrown: '20/60' },
+  dart: { damage: '1d4', type: 'piercing', finesse: true, ranged: true, simple: true, range: '20/60' },
+  shortsword: { damage: '1d6', type: 'piercing', finesse: true, light: true, martial: true },
+  scimitar: { damage: '1d6', type: 'slashing', finesse: true, light: true, martial: true },
+  rapier: { damage: '1d8', type: 'piercing', finesse: true, martial: true },
+  whip: { damage: '1d4', type: 'slashing', finesse: true, reach: true, martial: true },
+  club: { damage: '1d4', type: 'bludgeoning', light: true, simple: true },
+  greatclub: { damage: '1d8', type: 'bludgeoning', twoHanded: true, simple: true },
+  mace: { damage: '1d6', type: 'bludgeoning', simple: true },
+  quarterstaff: { damage: '1d6', versatile: '1d8', type: 'bludgeoning', simple: true },
+  spear: { damage: '1d6', versatile: '1d8', type: 'piercing', simple: true, thrown: '20/60' },
+  javelin: { damage: '1d6', type: 'piercing', simple: true, thrown: '30/120' },
+  handaxe: { damage: '1d6', type: 'slashing', light: true, simple: true, thrown: '20/60' },
+  battleaxe: { damage: '1d8', versatile: '1d10', type: 'slashing', martial: true },
+  flail: { damage: '1d8', type: 'bludgeoning', martial: true },
+  glaive: { damage: '1d10', type: 'slashing', reach: true, heavy: true, twoHanded: true, martial: true },
+  greataxe: { damage: '1d12', type: 'slashing', heavy: true, twoHanded: true, martial: true },
+  greatsword: { damage: '2d6', type: 'slashing', heavy: true, twoHanded: true, martial: true },
+  halberd: { damage: '1d10', type: 'slashing', reach: true, heavy: true, twoHanded: true, martial: true },
+  lance: { damage: '1d12', type: 'piercing', reach: true, martial: true },
+  longsword: { damage: '1d8', versatile: '1d10', type: 'slashing', martial: true },
+  maul: { damage: '2d6', type: 'bludgeoning', heavy: true, twoHanded: true, martial: true },
+  morningstar: { damage: '1d8', type: 'piercing', martial: true },
+  pike: { damage: '1d10', type: 'piercing', reach: true, heavy: true, twoHanded: true, martial: true },
+  trident: { damage: '1d6', versatile: '1d8', type: 'piercing', simple: true, thrown: '20/60' },
+  war_pick: { damage: '1d8', type: 'piercing', martial: true },
+  warhammer: { damage: '1d8', versatile: '1d10', type: 'bludgeoning', martial: true },
+  light_crossbow: { damage: '1d8', type: 'piercing', ranged: true, range: '80/320', twoHanded: true, simple: true },
+  shortbow: { damage: '1d6', type: 'piercing', ranged: true, range: '80/320', twoHanded: true, simple: true },
+  sling: { damage: '1d4', type: 'bludgeoning', ranged: true, range: '30/120', simple: true },
+  blowgun: { damage: '1', type: 'piercing', ranged: true, range: '25/100', martial: true },
+  hand_crossbow: { damage: '1d6', type: 'piercing', ranged: true, range: '30/120', light: true, martial: true },
+  heavy_crossbow: { damage: '1d10', type: 'piercing', ranged: true, range: '100/400', heavy: true, twoHanded: true, martial: true },
+  longbow: { damage: '1d8', type: 'piercing', ranged: true, range: '150/600', heavy: true, twoHanded: true, martial: true }
 }
 
 const getWeaponDetails = (item) => {
@@ -2261,6 +2303,14 @@ const getWeaponDetails = (item) => {
   const key = (item.name || '').toLowerCase().replace(/['’]/g, '').replace(/[\s-]+/g, '_')
   const found = WEAPON_DEFINITIONS[key] || Object.entries(WEAPON_DEFINITIONS).find(([k]) => key.includes(k))?.[1]
 
+  const is2024 = (char.value?.edition || '2024') === '2024'
+  const isMelee = !found?.ranged
+  const isSimpleOrShortsword = Boolean(found?.simple) || key.includes('shortsword')
+  const isLightMartialMelee = Boolean(found?.light) && isMelee
+  const isMonkWeapon = monkLevel.value >= 1 && isMelee && !found?.heavy && !found?.twoHanded && (
+    isSimpleOrShortsword || (is2024 && isLightMartialMelee)
+  )
+
   const strMod = vtt.value.abilities?.str?.modifier || 0
   const dexMod = vtt.value.abilities?.dex?.modifier || 0
   const prof = vtt.value.proficiency_bonus || 2
@@ -2268,13 +2318,30 @@ const getWeaponDetails = (item) => {
   let statMod = strMod
   if (found?.ranged) {
     statMod = dexMod
-  } else if (found?.finesse) {
+  } else if (found?.finesse || isMonkWeapon) {
     statMod = Math.max(strMod, dexMod)
   }
 
   const toHit = prof + statMod
-  const damageDice = found?.damage || item.damage_dice || item.damageDice || item.dmg1 || '1d6'
+  let damageDice = found?.damage || item.damage_dice || item.damageDice || item.dmg1 || '1d6'
   const damageType = found?.type || item.damage_type || item.dmgType || 'slashing'
+
+  if (isMonkWeapon && monkMartialArtsDie.value) {
+    const parseSides = (d) => parseInt(String(d).replace(/^1d/, ''), 10) || 0
+    if (parseSides(monkMartialArtsDie.value) > parseSides(damageDice)) {
+      damageDice = monkMartialArtsDie.value
+    }
+  }
+
+  const props = [
+    found?.finesse ? 'Finesse' : null,
+    found?.light ? 'Light' : null,
+    found?.twoHanded ? 'Two-Handed' : null,
+    found?.versatile ? `Versatile (${found.versatile})` : null,
+    found?.reach ? 'Reach' : null,
+    found?.thrown ? `Thrown (${found.thrown})` : null,
+    isMonkWeapon ? 'Monk Weapon' : null
+  ].filter(Boolean)
 
   return {
     name: item.name,
@@ -2283,14 +2350,7 @@ const getWeaponDetails = (item) => {
     statMod,
     damageType,
     range: found?.range || found?.thrown || (found?.ranged ? 'Ranged' : '5 ft.'),
-    properties: [
-      found?.finesse ? 'Finesse' : null,
-      found?.light ? 'Light' : null,
-      found?.twoHanded ? 'Two-Handed' : null,
-      found?.versatile ? `Versatile (${found.versatile})` : null,
-      found?.reach ? 'Reach' : null,
-      found?.thrown ? `Thrown (${found.thrown})` : null
-    ].filter(Boolean)
+    properties: props
   }
 }
 
@@ -2303,15 +2363,46 @@ const equippedWeapons = computed(() => {
 
 const unarmedStrikeDetails = computed(() => {
   const strMod = vtt.value.abilities?.str?.modifier || 0
+  const dexMod = vtt.value.abilities?.dex?.modifier || 0
   const prof = vtt.value.proficiency_bonus || 2
+
+  let statMod = strMod
+  let damageDice = '1'
+  const properties = []
+
+  const allFeaturesList = [
+    ...(char.value?.class_feature || []),
+    ...(char.value?.sub_class_feature || []),
+    ...(char.value?.feat || []),
+    ...(char.value?.trait || [])
+  ]
+  const hasUnarmedFighting = allFeaturesList.some(f => (f.name || '').toLowerCase().includes('unarmed fighting'))
+  const hasTavernBrawler = allFeaturesList.some(f => (f.name || '').toLowerCase().includes('tavern brawler'))
+
+  if (hasUnarmedFighting) damageDice = '1d8'
+  else if (hasTavernBrawler) damageDice = '1d4'
+
+  if (monkLevel.value >= 1) {
+    statMod = Math.max(strMod, dexMod)
+    const maDie = monkMartialArtsDie.value
+    if (maDie) {
+      const parseSides = (d) => parseInt(String(d).replace(/^1d/, ''), 10) || 0
+      if (parseSides(maDie) >= parseSides(damageDice) || damageDice === '1') {
+        damageDice = maDie
+      }
+    }
+    properties.push('Martial Arts (DEX)')
+  }
+
+  const toHit = prof + statMod
   return {
     name: 'Unarmed Strike',
-    toHit: prof + strMod,
-    damageDice: '1',
-    statMod: strMod,
+    toHit,
+    damageDice,
+    statMod,
     damageType: 'bludgeoning',
     range: '5 ft.',
-    properties: []
+    properties
   }
 })
 
@@ -2355,9 +2446,32 @@ const activeCharSources = computed(() => {
   return sources
 })
 
+const embeddedFeatureNames = computed(() => {
+  const set = new Set()
+  const walk = (entries, parentName) => {
+    if (!Array.isArray(entries)) return
+    for (const it of entries) {
+      if (!it || typeof it !== 'object') continue
+      if (it.name && typeof it.name === 'string') {
+        const n = it.name.trim().toLowerCase()
+        if (n && n !== parentName) set.add(n)
+      }
+      if (Array.isArray(it.entries)) walk(it.entries, parentName)
+    }
+  }
+  const all = [...(char.value?.class_feature || []), ...(char.value?.sub_class_feature || [])]
+  for (const f of all) {
+    const pName = (f?.name || '').trim().toLowerCase()
+    if (Array.isArray(f?.entries)) walk(f.entries, pName)
+  }
+  return set
+})
+
 const filteredClassFeatures = computed(() => {
   const list = char.value.class_feature || []
   return list.filter(cf => {
+    const name = (cf.name || '').trim().toLowerCase()
+    if (name && embeddedFeatureNames.value.has(name)) return false
     if (!cf.source) return true
     const src = cf.source.toUpperCase()
     if (isOptionalFeature(cf) && !activeCharSources.value.has(src)) return false
@@ -2368,6 +2482,8 @@ const filteredClassFeatures = computed(() => {
 const filteredSubClassFeatures = computed(() => {
   const list = char.value.sub_class_feature || []
   return list.filter(scf => {
+    const name = (scf.name || '').trim().toLowerCase()
+    if (name && embeddedFeatureNames.value.has(name)) return false
     if (!scf.source) return true
     const src = scf.source.toUpperCase()
     if (isOptionalFeature(scf) && !activeCharSources.value.has(src)) return false
@@ -2525,22 +2641,21 @@ const rageBonusDamage = computed(() => {
 // Comprehensive Class Resource Trackers
 const classResourceTrackers = computed(() => {
   const list = []
-  const c = charClassName.value
-  const sc = charSubClassName.value
-  const lvl = Number(char.value?.level) || 1
   const is2024 = (char.value?.edition || '2024') === '2024'
+  const sc = charSubClassName.value
   const chaMod = getAbilityMod('cha')
   const wisMod = getAbilityMod('wis')
   const intMod = getAbilityMod('int')
 
   // 1. BARBARIAN: Rage
-  if (c === 'barbarian') {
+  const barbLvl = getCharClassLevel('barbarian')
+  if (barbLvl > 0) {
     let maxRage = 2
-    if (lvl >= 20) maxRage = 999
-    else if (lvl >= 17) maxRage = 6
-    else if (lvl >= 12) maxRage = 5
-    else if (lvl >= 6) maxRage = 4
-    else if (lvl >= 3) maxRage = 3
+    if (barbLvl >= 20) maxRage = 999
+    else if (barbLvl >= 17) maxRage = 6
+    else if (barbLvl >= 12) maxRage = 5
+    else if (barbLvl >= 6) maxRage = 4
+    else if (barbLvl >= 3) maxRage = 3
 
     list.push({
       id: 'barb_rage',
@@ -2557,17 +2672,18 @@ const classResourceTrackers = computed(() => {
   }
 
   // 2. FIGHTER: Second Wind, Action Surge, Indomitable, Battle Master Superiority
-  if (c === 'fighter') {
+  const fighterLvl = getCharClassLevel('fighter')
+  if (fighterLvl > 0) {
     let swMax = 1
     if (is2024) {
-      if (lvl >= 10) swMax = 4
-      else if (lvl >= 4) swMax = 3
+      if (fighterLvl >= 10) swMax = 4
+      else if (fighterLvl >= 4) swMax = 3
       else swMax = 2
     }
     list.push({
       id: 'fighter_second_wind',
       name: 'Second Wind',
-      subtitle: `Heal 1d10 + ${lvl} HP as Bonus Action`,
+      subtitle: `Heal 1d10 + ${fighterLvl} HP as Bonus Action`,
       max: swMax,
       displayMax: swMax,
       recharge: is2024 ? 'long_regain1' : 'short',
@@ -2575,11 +2691,11 @@ const classResourceTrackers = computed(() => {
       type: 'counter',
       actionType: 'bonus',
       healFormula: '1d10',
-      healBonus: lvl
+      healBonus: fighterLvl
     })
 
-    if (lvl >= 2) {
-      const asMax = lvl >= 17 ? 2 : 1
+    if (fighterLvl >= 2) {
+      const asMax = fighterLvl >= 17 ? 2 : 1
       list.push({
         id: 'fighter_action_surge',
         name: 'Action Surge',
@@ -2593,14 +2709,14 @@ const classResourceTrackers = computed(() => {
       })
     }
 
-    if (lvl >= 9) {
+    if (fighterLvl >= 9) {
       let indomMax = 1
-      if (lvl >= 17) indomMax = 3
-      else if (lvl >= 13) indomMax = 2
+      if (fighterLvl >= 17) indomMax = 3
+      else if (fighterLvl >= 13) indomMax = 2
       list.push({
         id: 'fighter_indomitable',
         name: 'Indomitable',
-        subtitle: is2024 ? `Reroll failed save with +${lvl} bonus` : 'Reroll a failed saving throw',
+        subtitle: is2024 ? `Reroll failed save with +${fighterLvl} bonus` : 'Reroll a failed saving throw',
         max: indomMax,
         displayMax: indomMax,
         recharge: 'long',
@@ -2611,14 +2727,14 @@ const classResourceTrackers = computed(() => {
     }
 
     if (sc.includes('battle master') || sc.includes('battlemaster')) {
-      if (lvl >= 3) {
+      if (fighterLvl >= 3) {
         let sdCount = 4
-        if (lvl >= 15) sdCount = 6
-        else if (lvl >= 7) sdCount = 5
+        if (fighterLvl >= 15) sdCount = 6
+        else if (fighterLvl >= 7) sdCount = 5
 
         let dieSize = 'd8'
-        if (lvl >= 18) dieSize = 'd12'
-        else if (lvl >= 10) dieSize = 'd10'
+        if (fighterLvl >= 18) dieSize = 'd12'
+        else if (fighterLvl >= 10) dieSize = 'd10'
 
         list.push({
           id: 'fighter_superiority_dice',
@@ -2637,32 +2753,48 @@ const classResourceTrackers = computed(() => {
     }
   }
 
-  // 3. MONK: Ki / Focus Points
-  if (c === 'monk' && lvl >= 2) {
+  // 3. MONK: Ki / Focus Points & Uncanny Metabolism
+  const monkLvl = getCharClassLevel('monk')
+  if (monkLvl >= 2) {
     const resourceName = is2024 ? 'Focus Points' : 'Ki Points'
     list.push({
       id: 'monk_ki',
       name: resourceName,
       subtitle: 'Flurry of Blows (1), Patient Defense (1), Step of the Wind (1), Stunning Strike (1)',
-      max: lvl,
-      displayMax: lvl,
+      max: monkLvl,
+      displayMax: monkLvl,
       recharge: 'short',
       rechargeLabel: 'Short & Long Rest',
       type: 'points',
       actionType: 'bonus'
     })
+
+    if (is2024) {
+      list.push({
+        id: 'monk_uncanny_metabolism',
+        name: 'Uncanny Metabolism',
+        subtitle: `Regain all Focus points + heal ${monkLvl} + ${monkMartialArtsDie.value || '1d6'} HP (1/Long Rest)`,
+        max: 1,
+        displayMax: 1,
+        recharge: 'long',
+        rechargeLabel: 'Long Rest',
+        type: 'counter',
+        actionType: 'bonus'
+      })
+    }
   }
 
   // 4. CLERIC: Channel Divinity
-  if (c === 'cleric' && lvl >= 2) {
+  const clericLvl = getCharClassLevel('cleric')
+  if (clericLvl >= 2) {
     let cdMax = 1
     if (is2024) {
-      if (lvl >= 18) cdMax = 4
-      else if (lvl >= 6) cdMax = 3
+      if (clericLvl >= 18) cdMax = 4
+      else if (clericLvl >= 6) cdMax = 3
       else cdMax = 2
     } else {
-      if (lvl >= 18) cdMax = 3
-      else if (lvl >= 6) cdMax = 2
+      if (clericLvl >= 18) cdMax = 3
+      else if (clericLvl >= 6) cdMax = 2
       else cdMax = 1
     }
     list.push({
@@ -2679,8 +2811,9 @@ const classResourceTrackers = computed(() => {
   }
 
   // 5. PALADIN: Lay on Hands & Channel Divinity
-  if (c === 'paladin') {
-    const lohPool = 5 * lvl
+  const paladinLvl = getCharClassLevel('paladin')
+  if (paladinLvl > 0) {
+    const lohPool = 5 * paladinLvl
     list.push({
       id: 'paladin_lay_on_hands',
       name: 'Lay on Hands',
@@ -2693,7 +2826,7 @@ const classResourceTrackers = computed(() => {
       actionType: 'action'
     })
 
-    if (lvl >= 3) {
+    if (paladinLvl >= 3) {
       const cdMax = is2024 ? 2 : 1
       list.push({
         id: 'paladin_channel_divinity',
@@ -2710,8 +2843,9 @@ const classResourceTrackers = computed(() => {
   }
 
   // 6. DRUID: Wild Shape
-  if (c === 'druid' && lvl >= 2) {
-    const wsMax = lvl >= 20 ? 999 : 2
+  const druidLvl = getCharClassLevel('druid')
+  if (druidLvl >= 2) {
+    const wsMax = druidLvl >= 20 ? 999 : 2
     list.push({
       id: 'druid_wild_shape',
       name: 'Wild Shape',
@@ -2726,14 +2860,15 @@ const classResourceTrackers = computed(() => {
   }
 
   // 7. BARD: Bardic Inspiration
-  if (c === 'bard') {
+  const bardLvl = getCharClassLevel('bard')
+  if (bardLvl > 0) {
     const biUses = Math.max(1, chaMod)
     let biDie = 'd6'
-    if (lvl >= 15) biDie = 'd12'
-    else if (lvl >= 10) biDie = 'd10'
-    else if (lvl >= 5) biDie = 'd8'
+    if (bardLvl >= 15) biDie = 'd12'
+    else if (bardLvl >= 10) biDie = 'd10'
+    else if (bardLvl >= 5) biDie = 'd8'
 
-    const biRecharge = lvl >= 5 ? 'short' : 'long'
+    const biRecharge = bardLvl >= 5 ? 'short' : 'long'
     list.push({
       id: 'bard_inspiration',
       name: 'Bardic Inspiration',
@@ -2742,7 +2877,7 @@ const classResourceTrackers = computed(() => {
       displayMax: biUses,
       die: biDie,
       recharge: biRecharge,
-      rechargeLabel: lvl >= 5 ? 'Short & Long Rest (Font of Inspiration)' : 'Long Rest',
+      rechargeLabel: bardLvl >= 5 ? 'Short & Long Rest (Font of Inspiration)' : 'Long Rest',
       type: 'counter',
       rollFormula: `1${biDie}`,
       actionType: 'bonus'
@@ -2750,53 +2885,122 @@ const classResourceTrackers = computed(() => {
   }
 
   // 8. SORCERER: Sorcery Points & Innate Sorcery
-  if (c === 'sorcerer') {
-    if (lvl >= 2) {
-      list.push({
-        id: 'sorcerer_sorcery_points',
-        name: 'Sorcery Points',
-        subtitle: 'Font of Magic (Slot conversion) & Metamagic options',
-        max: lvl,
-        displayMax: lvl,
-        recharge: 'long',
-        rechargeLabel: 'Long Rest',
-        type: 'points',
-        actionType: 'bonus'
-      })
-    }
-    if (is2024) {
-      list.push({
-        id: 'sorcerer_innate_sorcery',
-        name: 'Innate Sorcery',
-        subtitle: 'Bonus Action: 1 min buff (+1 Spell DC, Advantage on Sorcerer Spell Attacks)',
-        max: 2,
-        displayMax: 2,
-        recharge: 'long',
-        rechargeLabel: 'Long Rest',
-        type: 'counter',
-        hasActiveToggle: true,
-        actionType: 'bonus'
-      })
-    }
+  const sorcLvl = getCharClassLevel('sorcerer')
+  if (sorcLvl >= 2) {
+    list.push({
+      id: 'sorcerer_sorcery_points',
+      name: 'Sorcery Points',
+      subtitle: 'Font of Magic (Slot conversion) & Metamagic options',
+      max: sorcLvl,
+      displayMax: sorcLvl,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'points',
+      actionType: 'bonus'
+    })
+  }
+  if (is2024 && sorcLvl >= 1) {
+    list.push({
+      id: 'sorcerer_innate_sorcery',
+      name: 'Innate Sorcery',
+      subtitle: 'Bonus Action: 1 min buff (+1 Spell DC, Advantage on Sorcerer Spell Attacks)',
+      max: 2,
+      displayMax: 2,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'counter',
+      hasActiveToggle: true,
+      actionType: 'bonus'
+    })
   }
 
   // 9. WARLOCK: Mystic Arcanum
-  if (c === 'warlock') {
-    if (lvl >= 11) {
-      let arcanumCount = 1
-      if (lvl >= 17) arcanumCount = 4
-      else if (lvl >= 15) arcanumCount = 3
-      else if (lvl >= 13) arcanumCount = 2
+  const warlockLvl = getCharClassLevel('warlock')
+  if (warlockLvl >= 11) {
+    let arcanumCount = 1
+    if (warlockLvl >= 17) arcanumCount = 4
+    else if (warlockLvl >= 15) arcanumCount = 3
+    else if (warlockLvl >= 13) arcanumCount = 2
+    list.push({
+      id: 'warlock_mystic_arcanum',
+      name: 'Mystic Arcanum',
+      subtitle: `Free 6th${warlockLvl >= 13 ? '+7th' : ''}${warlockLvl >= 15 ? '+8th' : ''}${warlockLvl >= 17 ? '+9th' : ''} Level Spells (1 cast each / Long Rest)`,
+      max: arcanumCount,
+      displayMax: arcanumCount,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'counter',
+      actionType: 'action'
+    })
+  }
+
+  // 10. WIZARD: Arcane Recovery
+  const wizardLvl = getCharClassLevel('wizard')
+  if (wizardLvl >= 1) {
+    list.push({
+      id: 'wizard_arcane_recovery',
+      name: 'Arcane Recovery',
+      subtitle: `Recover up to ${Math.ceil(wizardLvl / 2)} total spell slot levels on Short Rest (1/Long Rest)`,
+      max: 1,
+      displayMax: 1,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'counter',
+      actionType: 'other'
+    })
+  }
+
+  // 11. RANGER: Hunter's Mark / Favored Foe
+  const rangerLvl = getCharClassLevel('ranger')
+  if (rangerLvl > 0) {
+    const hmMax = is2024 ? Math.max(2, wisMod) : (charProfBonus.value || 2)
+    list.push({
+      id: 'ranger_hunters_mark',
+      name: is2024 ? "Hunter's Mark" : "Favored Foe",
+      subtitle: is2024 ? `Free casts without expending spell slots (${hmMax}/Long Rest)` : `Mark target on hit without spell slot (${hmMax}/Long Rest)`,
+      max: hmMax,
+      displayMax: hmMax,
+      recharge: 'long',
+      rechargeLabel: 'Long Rest',
+      type: 'counter',
+      actionType: 'bonus'
+    })
+  }
+
+  // 12. ROGUE: Soulknife & Stroke of Luck
+  const rogueLvl = getCharClassLevel('rogue')
+  if (rogueLvl > 0) {
+    if (sc.includes('soulknife')) {
+      const psiMax = (charProfBonus.value || 2) * 2
+      let psiDie = 'd6'
+      if (rogueLvl >= 17) psiDie = 'd12'
+      else if (rogueLvl >= 11) psiDie = 'd10'
+      else if (rogueLvl >= 5) psiDie = 'd8'
       list.push({
-        id: 'warlock_mystic_arcanum',
-        name: 'Mystic Arcanum',
-        subtitle: `Free 6th${lvl >= 13 ? '+7th' : ''}${lvl >= 15 ? '+8th' : ''}${lvl >= 17 ? '+9th' : ''} Level Spells (1 cast each / Long Rest)`,
-        max: arcanumCount,
-        displayMax: arcanumCount,
-        recharge: 'long',
-        rechargeLabel: 'Long Rest',
+        id: 'rogue_psionic_energy',
+        name: 'Psionic Energy Dice',
+        subtitle: `Die: 1${psiDie} · Psionic Power Pool`,
+        max: psiMax,
+        displayMax: psiMax,
+        die: psiDie,
+        recharge: 'long_regain1',
+        rechargeLabel: 'Long Rest (Regains 1 on Short Rest)',
         type: 'counter',
-        actionType: 'action'
+        rollFormula: `1${psiDie}`,
+        actionType: 'bonus'
+      })
+    }
+    if (rogueLvl >= 20) {
+      list.push({
+        id: 'rogue_stroke_of_luck',
+        name: 'Stroke of Luck',
+        subtitle: 'Turn a miss into a hit, or a failed d20 test into a 20 (1/Rest)',
+        max: 1,
+        displayMax: 1,
+        recharge: 'short',
+        rechargeLabel: 'Short & Long Rest',
+        type: 'counter',
+        actionType: 'other'
       })
     }
   }
@@ -2887,6 +3091,40 @@ const activateMonkKiAction = (actionName, cost = 1) => {
   showToast(`${actionName} activated! (Spent ${cost} ${res?.name || 'Ki'})`)
 }
 
+const activateUncannyMetabolism = () => {
+  const res = classResourceTrackers.value.find(r => r.id === 'monk_uncanny_metabolism')
+  if (res && getResourceAvailable(res) <= 0) {
+    showToast('No Uncanny Metabolism uses remaining!')
+    return
+  }
+  if (res) spendResource('monk_uncanny_metabolism', 1)
+  spentClassResources.value['monk_ki'] = 0
+  persistSheetState()
+
+  const ml = monkLevel.value || 1
+  const maDie = monkMartialArtsDie.value || '1d6'
+  const dieSides = parseInt(maDie.replace(/^1d/, ''), 10) || 6
+  const rolled = Math.floor(Math.random() * dieSides) + 1
+  const totalHeal = ml + rolled
+
+  const currentHp = Number(char.value?.hp) || 0
+  const maxHp = Number(char.value?.max_hp) || currentHp
+  const newHp = Math.min(maxHp, currentHp + totalHeal)
+  if (char.value) char.value.hp = newHp
+  saveVitals({ hp: newHp })
+
+  showToast(`Uncanny Metabolism! Restored all Focus points & healed ${totalHeal} HP (${rolled} + ${ml})`)
+}
+
+const deflectAttacksReaction = () => {
+  const dexMod = getAbilityMod('dex')
+  const ml = monkLevel.value || 1
+  const d10 = Math.floor(Math.random() * 10) + 1
+  const totalReduction = d10 + dexMod + ml
+  showToast(`Deflect Attacks: Reduced damage by ${totalReduction} (${d10} + DEX ${dexMod} + Lvl ${ml})`)
+  rollDice(`Deflect Attacks Reduction (${d10} + ${dexMod + ml})`, dexMod + ml, '1d10')
+}
+
 const activateActionSurge = () => {
   const res = classResourceTrackers.value.find(r => r.id === 'fighter_action_surge')
   if (res && getResourceAvailable(res) <= 0) {
@@ -2953,10 +3191,17 @@ const sheetSpellSlots = computed(() => {
   const c = charClassName.value
   const lvl = Number(char.value.level) || 1
 
-  if (c === 'warlock') {
-    const pactSlots = lvl === 1 ? 1 : (lvl >= 17 ? 4 : (lvl >= 11 ? 3 : 2))
-    const pactLvl = Math.min(5, Math.ceil(lvl / 2))
-    return [{ level: pactLvl, total: pactSlots, isPact: true }]
+  const warlLvl = getCharClassLevel('warlock')
+  let pactEntry = null
+  if (warlLvl > 0) {
+    const pactSlots = warlLvl === 1 ? 1 : (warlLvl >= 17 ? 4 : (warlLvl >= 11 ? 3 : 2))
+    const pactLvl = Math.min(5, Math.ceil(warlLvl / 2))
+    pactEntry = { level: pactLvl, total: pactSlots, isPact: true }
+  }
+
+  // Pure warlock
+  if (warlLvl > 0 && !hasCharClass('wizard') && !hasCharClass('cleric') && !hasCharClass('druid') && !hasCharClass('sorcerer') && !hasCharClass('bard') && !hasCharClass('paladin') && !hasCharClass('ranger') && !hasCharClass('artificer')) {
+    return [pactEntry]
   }
 
   const fullCasterTable = [
@@ -2976,9 +3221,9 @@ const sheetSpellSlots = computed(() => {
   ]
 
   let arr = []
-  if (['wizard', 'cleric', 'druid', 'sorcerer', 'bard'].includes(c)) {
+  if (['wizard', 'cleric', 'druid', 'sorcerer', 'bard'].includes(c) || hasCharClass('wizard') || hasCharClass('cleric') || hasCharClass('druid') || hasCharClass('sorcerer') || hasCharClass('bard')) {
     arr = fullCasterTable[lvl - 1] || []
-  } else if (['paladin', 'ranger', 'artificer'].includes(c)) {
+  } else if (['paladin', 'ranger', 'artificer'].includes(c) || hasCharClass('paladin') || hasCharClass('ranger') || hasCharClass('artificer')) {
     if (char.value.edition === '2014' && (c === 'paladin' || c === 'ranger') && lvl === 1) {
       arr = []
     } else {
@@ -2986,7 +3231,19 @@ const sheetSpellSlots = computed(() => {
     }
   }
 
-  return arr.map((qty, idx) => ({ level: idx + 1, total: qty }))
+  const standardSlots = arr.map((qty, idx) => ({ level: idx + 1, total: qty }))
+  if (pactEntry) {
+    const existing = standardSlots.find(s => s.level === pactEntry.level)
+    if (existing) {
+      existing.total += pactEntry.total
+      existing.isPact = true
+    } else {
+      standardSlots.push(pactEntry)
+      standardSlots.sort((a, b) => a.level - b.level)
+    }
+  }
+
+  return standardSlots
 })
 
 const isSlotExpended = (lvl, slotIdx) => {
@@ -4649,12 +4906,12 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Fighter Action Surge -->
-          <div v-if="charClassName.includes('fighter') && Number(char.level || 1) >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+          <div v-if="hasCharClass('fighter') && getCharClassLevel('fighter') >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
             <div>
               <div class="font-bold text-gray-900 flex items-center justify-between">
                 <span>Action Surge</span>
                 <span class="text-[9px] font-mono text-gray-500">
-                  {{ getResourceAvailable({ id: 'fighter_action_surge', max: Number(char.level || 1) >= 17 ? 2 : 1 }) }} left
+                  {{ getResourceAvailable({ id: 'fighter_action_surge', max: getCharClassLevel('fighter') >= 17 ? 2 : 1 }) }} left
                 </span>
               </div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Take 1 additional Action on your turn (Short Rest recharge).</p>
@@ -4662,7 +4919,7 @@ watch(() => charSpells.value, (list) => {
             <button
               type="button"
               @click="activateActionSurge"
-              :disabled="getResourceAvailable({ id: 'fighter_action_surge', max: Number(char.level || 1) >= 17 ? 2 : 1 }) <= 0"
+              :disabled="getResourceAvailable({ id: 'fighter_action_surge', max: getCharClassLevel('fighter') >= 17 ? 2 : 1 }) <= 0"
               class="text-[10px] text-gray-700 hover:text-gray-900 font-semibold text-left underline cursor-pointer disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
             >
               Surge &rarr;
@@ -4670,42 +4927,51 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Cleric / Paladin Channel Divinity -->
-          <div v-if="(charClassName.includes('cleric') || charClassName.includes('paladin')) && Number(char.level || 1) >= (charClassName.includes('cleric') ? 2 : 3)" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+          <div v-if="(hasCharClass('cleric') && getCharClassLevel('cleric') >= 2) || (hasCharClass('paladin') && getCharClassLevel('paladin') >= 3)" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
             <div>
               <div class="font-bold text-gray-900 flex items-center justify-between">
                 <span>Channel Divinity</span>
                 <span class="text-[9px] font-mono text-gray-500">
-                  {{ getResourceAvailable({ id: charClassName.includes('cleric') ? 'cleric_channel_divinity' : 'paladin_channel_divinity', max: 2 }) }} left
+                  {{ getResourceAvailable({ id: hasCharClass('cleric') ? 'cleric_channel_divinity' : 'paladin_channel_divinity', max: 2 }) }} left
                 </span>
               </div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Turn Undead / Sacred Weapon / Harness Divine Power.</p>
             </div>
             <div class="flex items-center gap-1.5 flex-wrap text-[10px]">
               <button
-                v-if="charClassName.includes('cleric')"
+                v-if="hasCharClass('cleric')"
                 type="button"
                 @click="activateChannelDivinity('Turn Undead')"
                 class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
               >
-                Turn Undead (DC {{ charSpellSaveDc }})
+                Turn Undead
               </button>
               <button
+                v-if="hasCharClass('cleric')"
                 type="button"
-                @click="activateChannelDivinity('Channel Divinity')"
+                @click="activateChannelDivinity('Divine Spark / Domain')"
                 class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
               >
-                Invoke Feature
+                Divine Spark
+              </button>
+              <button
+                v-if="hasCharClass('paladin')"
+                type="button"
+                @click="activateChannelDivinity('Paladin Sacred Power')"
+                class="text-gray-700 hover:text-gray-900 underline cursor-pointer"
+              >
+                Sacred Power
               </button>
             </div>
           </div>
 
           <!-- Paladin Lay on Hands -->
-          <div v-if="charClassName.includes('paladin')" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+          <div v-if="hasCharClass('paladin')" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
             <div>
               <div class="font-bold text-gray-900 flex items-center justify-between">
                 <span>Lay on Hands</span>
                 <span class="text-[9px] font-mono text-gray-500">
-                  {{ getResourceAvailable({ id: 'paladin_lay_on_hands', max: 5 * Number(char.level || 1) }) }} HP left
+                  {{ getResourceAvailable({ id: 'paladin_lay_on_hands', max: 5 * getCharClassLevel('paladin') }) }} HP left
                 </span>
               </div>
               <p class="text-gray-600 text-[10px] mt-0.5 leading-tight">Heal damage from pool, or spend 5 HP to cure 1 poison or disease.</p>
@@ -4738,7 +5004,7 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Druid Wild Shape -->
-          <div v-if="charClassName.includes('druid') && Number(char.level || 1) >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
+          <div v-if="hasCharClass('druid') && getCharClassLevel('druid') >= 2" class="p-2 bg-white border border-gray-200 rounded hover:border-gray-300 transition flex flex-col justify-between gap-1">
             <div>
               <div class="font-bold text-gray-900 flex items-center justify-between">
                 <span>Wild Shape</span>
@@ -4934,7 +5200,7 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Barbarian Rage -->
-          <div v-if="charClassName.includes('barbarian')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-if="hasCharClass('barbarian')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="font-bold text-gray-900 text-xs">Rage</span>
@@ -4958,7 +5224,7 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Second Wind (if Fighter) -->
-          <div v-if="charClassName.includes('fighter')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-if="hasCharClass('fighter')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
               <div class="flex items-center gap-1.5">
                 <span class="font-bold text-gray-900 text-xs">Second Wind</span>
@@ -4966,7 +5232,7 @@ watch(() => charSpells.value, (list) => {
                   ({{ getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) }} left)
                 </span>
               </div>
-              <p class="text-[10px] text-gray-500">Regain 1d10 + {{ char.level || 1 }} HP as a Bonus Action</p>
+              <p class="text-[10px] text-gray-500">Regain 1d10 + {{ getCharClassLevel('fighter') }} HP as a Bonus Action</p>
             </div>
             <button
               type="button"
@@ -4975,55 +5241,110 @@ watch(() => charSpells.value, (list) => {
               class="px-2 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
               :class="getResourceAvailable({ id: 'fighter_second_wind', max: 2 }) > 0 ? 'bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
             >
-              Heal (1d10+{{ char.level || 1 }})
+              Heal (1d10+{{ getCharClassLevel('fighter') }})
             </button>
           </div>
 
-          <!-- Monk Ki Bonus Actions -->
-          <template v-if="charClassName.includes('monk') && Number(char.level || 1) >= 2">
+          <!-- Monk Bonus Actions -->
+          <template v-if="monkLevel >= 1">
+            <!-- Bonus Unarmed Strike (Level 1+) -->
             <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
               <div>
-                <span class="font-bold text-gray-900 text-xs">Flurry of Blows</span>
-                <p class="text-[10px] text-gray-500">Make 2 Unarmed Strikes as a Bonus Action (Costs 1 Ki)</p>
+                <span class="font-bold text-gray-900 text-xs">Bonus Unarmed Strike</span>
+                <p class="text-[10px] text-gray-500">Make 1 Unarmed Strike as a Bonus Action (Martial Arts)</p>
               </div>
               <button
                 type="button"
-                @click="activateMonkKiAction('Flurry of Blows', 1)"
+                @click="rollDice('Bonus Unarmed Strike', unarmedStrikeDetails.toHit)"
                 class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
               >
-                Flurry (1 Ki)
+                Strike {{ unarmedStrikeDetails.toHit >= 0 ? '+' : '' }}{{ unarmedStrikeDetails.toHit }} ({{ unarmedStrikeDetails.damageDice }})
               </button>
             </div>
-            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
-              <div>
-                <span class="font-bold text-gray-900 text-xs">Patient Defense</span>
-                <p class="text-[10px] text-gray-500">Take Dodge action as a Bonus Action (Costs 1 Ki)</p>
+
+            <!-- Ki / Focus Options (Level 2+) -->
+            <template v-if="monkLevel >= 2">
+              <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-gray-900 text-xs">Flurry of Blows</span>
+                  <p class="text-[10px] text-gray-500">Make 2 Unarmed Strikes as a Bonus Action (Costs 1 Focus/Ki)</p>
+                </div>
+                <button
+                  type="button"
+                  @click="activateMonkKiAction('Flurry of Blows', 1)"
+                  class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+                >
+                  Flurry (1 Ki)
+                </button>
               </div>
-              <button
-                type="button"
-                @click="activateMonkKiAction('Patient Defense', 1)"
-                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
-              >
-                Dodge (1 Ki)
-              </button>
-            </div>
-            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
-              <div>
-                <span class="font-bold text-gray-900 text-xs">Step of the Wind</span>
-                <p class="text-[10px] text-gray-500">Disengage & Dash, jump distance doubled (Costs 1 Ki)</p>
+              <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-gray-900 text-xs">Patient Defense</span>
+                  <p class="text-[10px] text-gray-500">{{ (char.edition || '2024') === '2024' ? 'Disengage (Free) or spend 1 Focus to Disengage AND Dodge' : 'Take Dodge action as a Bonus Action (Costs 1 Ki)' }}</p>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button
+                    v-if="(char.edition || '2024') === '2024'"
+                    type="button"
+                    @click="showToast('Patient Defense: Disengage activated (Free)!')"
+                    class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer"
+                  >
+                    Disengage
+                  </button>
+                  <button
+                    type="button"
+                    @click="activateMonkKiAction('Patient Defense', 1)"
+                    class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer"
+                  >
+                    Dodge (1 Ki)
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                @click="activateMonkKiAction('Step of the Wind', 1)"
-                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
-              >
-                Dash/Disengage (1 Ki)
-              </button>
-            </div>
+              <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-gray-900 text-xs">Step of the Wind</span>
+                  <p class="text-[10px] text-gray-500">{{ (char.edition || '2024') === '2024' ? 'Dash (Free) or spend 1 Focus to Dash AND Disengage, double jump' : 'Disengage & Dash, jump distance doubled (Costs 1 Ki)' }}</p>
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button
+                    v-if="(char.edition || '2024') === '2024'"
+                    type="button"
+                    @click="showToast('Step of the Wind: Dash activated (Free)!')"
+                    class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer"
+                  >
+                    Dash
+                  </button>
+                  <button
+                    type="button"
+                    @click="activateMonkKiAction('Step of the Wind', 1)"
+                    class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer"
+                  >
+                    Dash+Disengage (1 Ki)
+                  </button>
+                </div>
+              </div>
+
+              <!-- Uncanny Metabolism (2024 Level 2+) -->
+              <div v-if="(char.edition || '2024') === '2024'" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+                <div>
+                  <span class="font-bold text-gray-900 text-xs">Uncanny Metabolism</span>
+                  <p class="text-[10px] text-gray-500">Regain all Focus points + heal {{ monkLevel }} + {{ monkMartialArtsDie }} HP (1/Long Rest)</p>
+                </div>
+                <button
+                  type="button"
+                  @click="activateUncannyMetabolism"
+                  :disabled="getResourceAvailable(classResourceTrackers.find(r => r.id === 'monk_uncanny_metabolism')) <= 0"
+                  class="px-2 py-1 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+                  :class="getResourceAvailable(classResourceTrackers.find(r => r.id === 'monk_uncanny_metabolism')) > 0 ? 'bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'"
+                >
+                  Rest & Heal
+                </button>
+              </div>
+            </template>
           </template>
 
           <!-- Rogue Cunning Action -->
-          <div v-if="charClassName.includes('rogue') && Number(char.level || 1) >= 2" class="p-2 bg-gray-50 border border-gray-200 rounded flex flex-col justify-between gap-1.5">
+          <div v-if="hasCharClass('rogue') && getCharClassLevel('rogue') >= 2" class="p-2 bg-gray-50 border border-gray-200 rounded flex flex-col justify-between gap-1.5">
             <div>
               <span class="font-bold text-gray-900 text-xs">Cunning Action</span>
               <p class="text-[10px] text-gray-500">Take Dash, Disengage, or Hide as a Bonus Action.</p>
@@ -5036,7 +5357,7 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Bard Bardic Inspiration -->
-          <div v-if="charClassName.includes('bard')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-if="hasCharClass('bard')" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
               <div class="flex items-center gap-1.5">
                 <span class="font-bold text-gray-900 text-xs">Bardic Inspiration</span>
@@ -5139,7 +5460,7 @@ watch(() => charSpells.value, (list) => {
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <!-- Fighter Indomitable -->
-          <div v-if="charClassName.includes('fighter') && Number(char.level || 1) >= 9" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+          <div v-if="hasCharClass('fighter') && getCharClassLevel('fighter') >= 9" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
             <div>
               <div class="flex items-center gap-1.5">
                 <span class="font-bold text-gray-900 text-xs">Indomitable</span>
@@ -5161,25 +5482,58 @@ watch(() => charSpells.value, (list) => {
           </div>
 
           <!-- Rogue Uncanny Dodge -->
-          <div v-if="charClassName.includes('rogue') && Number(char.level || 1) >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded">
+          <div v-if="hasCharClass('rogue') && getCharClassLevel('rogue') >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded">
             <span class="font-bold text-gray-900 text-xs">Uncanny Dodge</span>
             <p class="text-[10px] text-gray-500 mt-0.5">When hit by an attacker you can see, use your reaction to halve the attack's damage.</p>
           </div>
 
-          <!-- Monk Stunning Strike -->
-          <div v-if="charClassName.includes('monk') && Number(char.level || 1) >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
-            <div>
-              <span class="font-bold text-gray-900 text-xs">Stunning Strike</span>
-              <p class="text-[10px] text-gray-500">Target must make CON save or be Stunned until end of next turn (Costs 1 Ki)</p>
+          <!-- Monk Reactions -->
+          <template v-if="monkLevel >= 3">
+            <!-- Deflect Attacks / Deflect Missiles -->
+            <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">{{ (char.edition || '2024') === '2024' ? 'Deflect Attacks' : 'Deflect Missiles' }}</span>
+                <p class="text-[10px] text-gray-500">Reduce damage from incoming attack by 1d10 + {{ getAbilityMod('dex') }} + {{ monkLevel }} (Reaction)</p>
+              </div>
+              <button
+                type="button"
+                @click="deflectAttacksReaction"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Deflect (1d10+{{ getAbilityMod('dex') + monkLevel }})
+              </button>
             </div>
-            <button
-              type="button"
-              @click="activateMonkKiAction('Stunning Strike', 1)"
-              class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
-            >
-              Stun (DC {{ 8 + charProfBonus + getAbilityMod('wis') }})
-            </button>
-          </div>
+
+            <!-- Slow Fall (Level 4+) -->
+            <div v-if="monkLevel >= 4" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">Slow Fall</span>
+                <p class="text-[10px] text-gray-500">Reduce falling damage by {{ 5 * monkLevel }} HP (Reaction)</p>
+              </div>
+              <button
+                type="button"
+                @click="showToast(`Slow Fall activated! Reduced fall damage by ${5 * monkLevel} HP.`)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Slow Fall (-{{ 5 * monkLevel }})
+              </button>
+            </div>
+
+            <!-- Stunning Strike (Level 5+) -->
+            <div v-if="monkLevel >= 5" class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
+              <div>
+                <span class="font-bold text-gray-900 text-xs">Stunning Strike</span>
+                <p class="text-[10px] text-gray-500">Target must make CON save or be Stunned until end of next turn (Costs 1 Ki)</p>
+              </div>
+              <button
+                type="button"
+                @click="activateMonkKiAction('Stunning Strike', 1)"
+                class="px-2 py-1 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-semibold text-[10px] transition cursor-pointer shrink-0"
+              >
+                Stun (DC {{ 8 + charProfBonus + getAbilityMod('wis') }})
+              </button>
+            </div>
+          </template>
 
           <!-- Opportunity Attack -->
           <div class="p-2 bg-gray-50 border border-gray-200 rounded flex items-center justify-between gap-2">
