@@ -46,7 +46,8 @@ import {
   IconCopy,
   IconBrandDiscord,
   IconFileTypePdf,
-  IconLock
+  IconLock,
+  IconTrash
 } from '@tabler/icons-vue'
 import { useAuth } from '../composables/useAuth'
 import { compressImage } from '../utils/imageCompressor'
@@ -845,6 +846,9 @@ const expendedSlots = ref({})
 const expendedFeatFreeCasts = ref({})
 const spentClassResources = ref({})
 const activeClassStates = ref({})
+const customActions = ref([])
+const spentCustomActionUses = ref({})
+const customSkills = ref([])
 
 const restoreAllSlots = () => {
   expendedSlots.value = {}
@@ -867,12 +871,18 @@ const loadPersistedSheetState = () => {
     spentClassResources.value = res.spent_resources ? { ...res.spent_resources } : {}
     activeClassStates.value = res.active_states ? { ...res.active_states } : {}
     spentHitDice.value = Number(res.spent_hit_dice) || 0
+    customActions.value = Array.isArray(res.custom_actions) ? [...res.custom_actions] : []
+    customSkills.value = Array.isArray(res.custom_skills) ? [...res.custom_skills] : []
+    spentCustomActionUses.value = res.custom_action_uses ? { ...res.custom_action_uses } : {}
   } else {
     expendedSlots.value = {}
     expendedFeatFreeCasts.value = {}
     spentClassResources.value = {}
     activeClassStates.value = {}
     spentHitDice.value = 0
+    customActions.value = []
+    customSkills.value = []
+    spentCustomActionUses.value = {}
   }
 
   // Clear legacy localStorage cache
@@ -897,7 +907,10 @@ const persistSheetState = (immediate = false) => {
     expended_feat_free_casts: { ...expendedFeatFreeCasts.value },
     spent_resources: { ...spentClassResources.value },
     active_states: { ...activeClassStates.value },
-    spent_hit_dice: spentHitDice.value
+    spent_hit_dice: spentHitDice.value,
+    custom_actions: [...customActions.value],
+    custom_skills: [...customSkills.value],
+    custom_action_uses: { ...spentCustomActionUses.value }
   }
 
   if (char.value) {
@@ -919,7 +932,7 @@ const persistSheetState = (immediate = false) => {
   }, 400)
 }
 
-watch([expendedSlots, expendedFeatFreeCasts, spentClassResources, activeClassStates, spentHitDice], () => {
+watch([expendedSlots, expendedFeatFreeCasts, spentClassResources, activeClassStates, spentHitDice, customActions, customSkills, spentCustomActionUses], () => {
   if (isInitializingSheetResources) return
   persistSheetState()
 }, { deep: true })
@@ -992,6 +1005,16 @@ const completeShortRest = () => {
       if (getResourceSpent(res.id) > 0) {
         spentClassResources.value[res.id] = 0
         restoredNames.push(res.name)
+      }
+    }
+  }
+
+  // 3. Custom actions recharge on short rest
+  for (const act of customActions.value) {
+    if (act.resource && act.resource.recharge === 'short') {
+      if ((spentCustomActionUses.value[act.id] || 0) > 0) {
+        spentCustomActionUses.value[act.id] = 0
+        restoredNames.push(act.name)
       }
     }
   }
@@ -1069,6 +1092,7 @@ const executeLongRest = async () => {
 
   restoreAllSlots()
   spentClassResources.value = {}
+  spentCustomActionUses.value = {}
   activeClassStates.value = {}
   persistSheetState(true)
 
@@ -2212,6 +2236,51 @@ const attackTableEntries = computed(() => {
     }
   }
 
+  // 7. Custom Actions with attack or damage
+  for (const act of customActions.value) {
+    if (act.type === 'attack' || act.hasAttack || act.hasDamage || act.damageDice) {
+      const prof = vtt.value.proficiency_bonus || 2
+      const statMod = act.attackAbility && act.attackAbility !== 'none'
+        ? (vtt.value.abilities?.[act.attackAbility]?.modifier ?? 0)
+        : 0
+      const toHit = act.hasAttack ? (prof + statMod + (Number(act.attackBonusFlat) || 0)) : null
+      const dmgMod = act.damageAbility && act.damageAbility !== 'none'
+        ? (vtt.value.abilities?.[act.damageAbility]?.modifier ?? 0)
+        : 0
+      const totalDmgMod = dmgMod + (Number(act.damageBonusFlat) || 0)
+      const dmgFormula = act.damageDice || ''
+      const dcStatMod = act.dcAbility && act.dcAbility !== 'none'
+        ? (vtt.value.abilities?.[act.dcAbility]?.modifier ?? 0)
+        : 0
+      const dcVal = act.hasDc ? ((Number(act.dcBase) || 8) + prof + dcStatMod) : null
+
+      const usesText = act.resource
+        ? ` (${Math.max(0, act.resource.max - (spentCustomActionUses.value[act.id] || 0))}/${act.resource.max} uses)`
+        : ''
+
+      entries.push({
+        id: 'cust_' + act.id,
+        type: 'custom',
+        name: act.name,
+        subtitle: `Custom ${act.type.toUpperCase()}${usesText}`,
+        range: act.range || '5 ft.',
+        toHit,
+        toHitLabel: toHit != null ? `${toHit >= 0 ? '+' : ''}${toHit}` : null,
+        isDc: Boolean(act.hasDc),
+        dcText: act.hasDc ? `DC ${dcVal} ${String(act.dcAbility || '').toUpperCase()}` : '',
+        damageDice: act.damageDice || '',
+        damageMod: totalDmgMod,
+        damageFormula: dmgFormula,
+        damageType: act.damageType || '',
+        damageLabel: dmgFormula
+          ? (totalDmgMod !== 0 ? `${dmgFormula}${totalDmgMod >= 0 ? '+' : ''}${totalDmgMod} ${act.damageType || ''}` : `${dmgFormula} ${act.damageType || ''}`)
+          : (act.damageType || '—'),
+        notes: act.notes || 'Custom Action',
+        customActionRef: act
+      })
+    }
+  }
+
   return entries
 })
 
@@ -2254,6 +2323,340 @@ const monkMartialArtsDie = computed(() => {
     if (ml >= 11) return '1d8'
     if (ml >= 5) return '1d6'
     return '1d4'
+  }
+})
+
+// --- Custom Actions ---
+const showCustomActionModal = ref(false)
+const editingCustomActionId = ref(null)
+
+const newCustomActionForm = ref({
+  name: '',
+  type: 'action',
+  range: '5 ft.',
+  hasAttack: false,
+  attackAbility: 'str',
+  attackBonusFlat: 0,
+  hasDc: false,
+  dcAbility: 'str',
+  dcBase: 8,
+  hasDamage: false,
+  damageDice: '1d6',
+  damageAbility: 'str',
+  damageBonusFlat: 0,
+  damageType: 'slashing',
+  hasResource: false,
+  resourceMax: 1,
+  resourceRecharge: 'short',
+  notes: ''
+})
+
+const openAddCustomAction = (type = 'action') => {
+  editingCustomActionId.value = null
+  newCustomActionForm.value = {
+    name: '',
+    type,
+    range: type === 'attack' ? '5 ft.' : (type === 'bonus' ? 'Self' : '5 ft.'),
+    hasAttack: type === 'attack',
+    attackAbility: 'str',
+    attackBonusFlat: 0,
+    hasDc: false,
+    dcAbility: 'str',
+    dcBase: 8,
+    hasDamage: type === 'attack',
+    damageDice: type === 'attack' ? '1d8' : '',
+    damageAbility: 'str',
+    damageBonusFlat: 0,
+    damageType: type === 'attack' ? 'slashing' : '',
+    hasResource: false,
+    resourceMax: 1,
+    resourceRecharge: 'short',
+    notes: ''
+  }
+  showCustomActionModal.value = true
+}
+
+const saveCustomAction = () => {
+  if (!newCustomActionForm.value.name.trim()) return
+  const f = newCustomActionForm.value
+  const act = {
+    id: editingCustomActionId.value || ('cust_act_' + Date.now()),
+    name: f.name.trim(),
+    type: f.type,
+    range: f.range || '5 ft.',
+    hasAttack: Boolean(f.hasAttack),
+    attackAbility: f.attackAbility || 'str',
+    attackBonusFlat: Number(f.attackBonusFlat) || 0,
+    hasDc: Boolean(f.hasDc),
+    dcAbility: f.dcAbility || 'str',
+    dcBase: Number(f.dcBase) || 8,
+    hasDamage: Boolean(f.hasDamage),
+    damageDice: f.damageDice || '',
+    damageAbility: f.damageAbility || 'str',
+    damageBonusFlat: Number(f.damageBonusFlat) || 0,
+    damageType: f.damageType || '',
+    resource: f.hasResource ? {
+      max: Math.max(1, Number(f.resourceMax) || 1),
+      recharge: f.resourceRecharge || 'short'
+    } : null,
+    notes: f.notes || ''
+  }
+
+  if (editingCustomActionId.value) {
+    const idx = customActions.value.findIndex(a => a.id === editingCustomActionId.value)
+    if (idx !== -1) customActions.value[idx] = act
+  } else {
+    customActions.value.push(act)
+  }
+
+  showCustomActionModal.value = false
+  persistSheetState()
+}
+
+const deleteCustomAction = (id) => {
+  const idx = customActions.value.findIndex(a => a.id === id)
+  if (idx !== -1) {
+    customActions.value.splice(idx, 1)
+    delete spentCustomActionUses.value[id]
+    persistSheetState()
+  }
+}
+
+const getCustomActionsByType = (type) => {
+  return customActions.value.filter(a => a.type === type)
+}
+
+const getCustomActionSpent = (id) => spentCustomActionUses.value[id] || 0
+
+const getCustomActionAvailable = (act) => {
+  if (!act?.resource) return 0
+  return Math.max(0, act.resource.max - getCustomActionSpent(act.id))
+}
+
+const spendCustomAction = (act) => {
+  if (!act?.resource) return
+  if (getCustomActionAvailable(act) <= 0) {
+    showToast(`No uses left for ${act.name}!`)
+    return
+  }
+  spentCustomActionUses.value[act.id] = (spentCustomActionUses.value[act.id] || 0) + 1
+  persistSheetState()
+}
+
+const restoreCustomActionUse = (act) => {
+  if (!act?.resource) return
+  const cur = spentCustomActionUses.value[act.id] || 0
+  if (cur > 0) {
+    spentCustomActionUses.value[act.id] = cur - 1
+    persistSheetState()
+  }
+}
+
+const getCustomActionAttackBonus = (act) => {
+  const prof = vtt.value.proficiency_bonus || 2
+  const statMod = act.attackAbility && act.attackAbility !== 'none'
+    ? (vtt.value.abilities?.[act.attackAbility]?.modifier ?? 0)
+    : 0
+  return prof + statMod + (Number(act.attackBonusFlat) || 0)
+}
+
+const getCustomActionDamageLabel = (act) => {
+  const statMod = act.damageAbility && act.damageAbility !== 'none'
+    ? (vtt.value.abilities?.[act.damageAbility]?.modifier ?? 0)
+    : 0
+  const totalMod = statMod + (Number(act.damageBonusFlat) || 0)
+  if (!act.damageDice) return act.damageType || '—'
+  return totalMod !== 0
+    ? `${act.damageDice}${totalMod >= 0 ? '+' : ''}${totalMod} ${act.damageType || ''}`
+    : `${act.damageDice} ${act.damageType || ''}`
+}
+
+const rollCustomActionAttack = (act) => {
+  const bonus = getCustomActionAttackBonus(act)
+  rollDice(`${act.name} (Attack)`, bonus)
+}
+
+const rollCustomActionDamage = (act) => {
+  const statMod = act.damageAbility && act.damageAbility !== 'none'
+    ? (vtt.value.abilities?.[act.damageAbility]?.modifier ?? 0)
+    : 0
+  const totalMod = statMod + (Number(act.damageBonusFlat) || 0)
+  rollFormula(`${act.name} Damage`, act.damageDice, totalMod)
+}
+
+// --- Custom Skills ---
+const showCustomSkillModal = ref(false)
+const newCustomSkillForm = ref({
+  name: '',
+  ability: 'str',
+  proficient: true,
+  expertise: false
+})
+
+const saveCustomSkill = () => {
+  if (!newCustomSkillForm.value.name.trim()) return
+  customSkills.value.push({
+    id: 'cust_sk_' + Date.now(),
+    name: newCustomSkillForm.value.name.trim(),
+    ability: newCustomSkillForm.value.ability,
+    proficient: Boolean(newCustomSkillForm.value.proficient),
+    expertise: Boolean(newCustomSkillForm.value.expertise)
+  })
+  newCustomSkillForm.value = { name: '', ability: 'str', proficient: true, expertise: false }
+  showCustomSkillModal.value = false
+  persistSheetState()
+}
+
+const deleteCustomSkill = (id) => {
+  const idx = customSkills.value.findIndex(s => s.id === id)
+  if (idx !== -1) {
+    customSkills.value.splice(idx, 1)
+    persistSheetState()
+  }
+}
+
+const customSkillsList = computed(() => {
+  const pb = profBonus.value
+  return customSkills.value.map(s => {
+    const isExp = Boolean(s.expertise)
+    const isProf = Boolean(s.proficient)
+    const bonus = isExp ? 2 * pb : (isProf ? pb : 0)
+    const mod = vtt.value.abilities?.[s.ability]?.modifier ?? 0
+    const total = mod + bonus
+    return {
+      id: s.id,
+      name: s.name,
+      ability: s.ability,
+      proficient: isProf,
+      expertise: isExp,
+      bonus,
+      total,
+      passive: 10 + total,
+      modifier_string: total >= 0 ? `+${total}` : `${total}`
+    }
+  })
+})
+
+// --- Custom Items ---
+const showCustomItemModal = ref(false)
+const newCustomItemForm = ref({
+  name: '',
+  item_type: 'gear',
+  weight: 1,
+  amount: 1,
+  status: 'inventory',
+  damage_dice: '1d6',
+  damage_type: 'slashing',
+  range: '5 ft.',
+  base_ac: 12,
+  dexMod: true
+})
+
+const openAddCustomItem = () => {
+  newCustomItemForm.value = {
+    name: '',
+    item_type: 'gear',
+    weight: 1,
+    amount: 1,
+    status: 'inventory',
+    damage_dice: '1d6',
+    damage_type: 'slashing',
+    range: '5 ft.',
+    base_ac: 12,
+    dexMod: true
+  }
+  showCustomItemModal.value = true
+}
+
+const saveCustomItem = () => {
+  if (!newCustomItemForm.value.name.trim()) return
+  const f = newCustomItemForm.value
+  const isArmor = f.item_type === 'armor'
+  const isWeapon = f.item_type === 'weapon'
+
+  liveEquipment.value.push({
+    name: f.name.trim(),
+    weight: String(f.weight || 0),
+    amount: Number(f.amount) || 1,
+    status: f.status || 'inventory',
+    is_armor: isArmor,
+    equip_type: f.item_type,
+    damage_dice: isWeapon ? f.damage_dice : null,
+    damage_type: isWeapon ? f.damage_type : null,
+    range: isWeapon ? f.range : null,
+    ac: isArmor ? (Number(f.base_ac) || 0) : 0,
+    dexMod: isArmor ? Boolean(f.dexMod) : false
+  })
+
+  saveEquipment()
+  showCustomItemModal.value = false
+  showToast('Custom item added')
+}
+
+// --- Class Table Progression ---
+const classTableData = ref(null)
+const isLoadingClassTable = ref(false)
+const selectedClassTableClass = ref('')
+const inspectingFeature = ref(null)
+
+const availableClassNames = computed(() => {
+  const list = []
+  if (Array.isArray(charClassesList.value) && charClassesList.value.length > 0) {
+    charClassesList.value.forEach(c => {
+      const name = c?.name || c?.class?.name || (typeof c === 'string' ? c : '')
+      if (name && !list.includes(name)) list.push(name)
+    })
+  }
+  if (list.length === 0 && charClassName.value) {
+    list.push(charClassName.value)
+  }
+  return list
+})
+
+const currentClassTableLevel = computed(() => {
+  const cls = selectedClassTableClass.value || availableClassNames.value[0] || charClassName.value
+  return getCharClassLevel(cls)
+})
+
+const fetchClassTable = async () => {
+  const cls = selectedClassTableClass.value || availableClassNames.value[0] || charClassName.value
+  if (!cls) return
+  isLoadingClassTable.value = true
+  try {
+    const edition = char.value?.edition || '2024'
+    const res = await axios.get(`${API_URL}/compendium/class-table`, {
+      params: { name: cls, edition }
+    })
+    if (res.data?.data) {
+      classTableData.value = res.data.data
+    }
+  } catch (err) {
+    console.error('Failed to fetch class table:', err)
+  } finally {
+    isLoadingClassTable.value = false
+  }
+}
+
+const toggleFeatureDetail = (feat) => {
+  if (inspectingFeature.value?.name === feat.name && inspectingFeature.value?.level === feat.level) {
+    inspectingFeature.value = null
+  } else {
+    inspectingFeature.value = feat
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'class_table') {
+    if (!selectedClassTableClass.value) {
+      selectedClassTableClass.value = availableClassNames.value[0] || charClassName.value
+    }
+    fetchClassTable()
+  }
+})
+
+watch(selectedClassTableClass, (newVal) => {
+  if (activeTab.value === 'class_table' && newVal) {
+    fetchClassTable()
   }
 })
 
@@ -4383,6 +4786,14 @@ watch(() => charSpells.value, (list) => {
       </button>
       <button
         type="button"
+        @click="activeTab = 'class_table'"
+        :class="activeTab === 'class_table' ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-800'"
+        class="pb-1 transition px-2 cursor-pointer whitespace-nowrap uppercase tracking-wider"
+      >
+        CLASS TABLE
+      </button>
+      <button
+        type="button"
         @click="activeTab = 'equipment'"
         :class="activeTab === 'equipment' ? 'text-gray-900 border-b-2 border-gray-900' : 'text-gray-500 hover:text-gray-800'"
         class="pb-1 transition px-2 cursor-pointer whitespace-nowrap flex items-center gap-1 uppercase tracking-wider"
@@ -4620,7 +5031,17 @@ watch(() => charSpells.value, (list) => {
           <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
             Attacks & Attack Spells
           </h3>
-          <span class="text-[10px] text-gray-500 font-mono">{{ attackTableEntries.length }} Available</span>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-500 font-mono">{{ attackTableEntries.length }} Available</span>
+            <button
+              type="button"
+              @click="openAddCustomAction('attack')"
+              class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+            >
+              <IconPlus class="w-3 h-3" />
+              <span>Custom Attack</span>
+            </button>
+          </div>
         </div>
 
         <div v-if="attackTableEntries.length > 0" class="overflow-x-auto border border-gray-200 rounded shadow-xs bg-white">
@@ -4701,7 +5122,30 @@ watch(() => charSpells.value, (list) => {
 
                 <!-- NOTES Column -->
                 <td class="py-2.5 px-3 text-gray-500 text-[11px]">
-                  <span class="line-clamp-1" :title="entry.notes">{{ entry.notes }}</span>
+                  <div class="flex items-center justify-between gap-1">
+                    <span class="line-clamp-1" :title="entry.notes">{{ entry.notes }}</span>
+                    <div v-if="entry.type === 'custom'" class="flex items-center gap-1 shrink-0">
+                      <div v-if="entry.customActionRef?.resource" class="flex items-center gap-1 font-mono text-[10px]">
+                        <button
+                          type="button"
+                          @click.stop="spendCustomAction(entry.customActionRef)"
+                          :disabled="getCustomActionAvailable(entry.customActionRef) <= 0"
+                          class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black text-white font-bold disabled:opacity-30 cursor-pointer text-[9px]"
+                          title="Spend 1 use"
+                        >
+                          Use
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        @click.stop="deleteCustomAction(entry.customActionRef.id)"
+                        class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                        title="Delete custom attack"
+                      >
+                        <IconTrash class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -4718,7 +5162,17 @@ watch(() => charSpells.value, (list) => {
           <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
             Actions in Combat
           </h3>
-          <span class="text-[10px] text-gray-500">Standard 5e / 2024 combat actions</span>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] text-gray-500 hidden sm:inline">Standard & Custom Actions</span>
+            <button
+              type="button"
+              @click="openAddCustomAction('action')"
+              class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+            >
+              <IconPlus class="w-3 h-3" />
+              <span>Custom Action</span>
+            </button>
+          </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-[11px]">
@@ -5173,6 +5627,95 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Custom Actions (Action type) -->
+        <div v-if="getCustomActionsByType('action').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Custom Actions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in getCustomActionsByType('action')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded uppercase font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.type }}</span>
+                    <span v-if="act.range" class="text-[9px] text-gray-500 font-mono">{{ act.range }}</span>
+                    <span v-if="act.hasDc" class="text-[9px] font-mono text-purple-700 bg-purple-50 px-1 py-0.2 rounded border border-purple-200">
+                      DC {{ act.dcBase + (vtt.proficiency_bonus || 2) + (vtt.abilities?.[act.dcAbility]?.modifier ?? 0) }} {{ act.dcAbility.toUpperCase() }}
+                    </span>
+                  </div>
+                  <p v-if="act.notes" class="text-[10px] text-gray-600 mt-0.5 leading-tight">{{ act.notes }}</p>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    v-if="act.hasAttack"
+                    type="button"
+                    @click="rollCustomActionAttack(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </button>
+                  <button
+                    v-if="act.hasDamage && act.damageDice"
+                    type="button"
+                    @click="rollCustomActionDamage(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </button>
+                  <button
+                    type="button"
+                    @click="deleteCustomAction(act.id)"
+                    class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                    title="Delete custom action"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Resource Tracker -->
+              <div v-if="act.resource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div class="flex items-center gap-1">
+                    <span
+                      v-for="u in act.resource.max"
+                      :key="u"
+                      class="w-2.5 h-2.5 rounded-full border transition"
+                      :class="u <= (act.resource.max - getCustomActionSpent(act.id)) ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'"
+                    ></span>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getCustomActionAvailable(act) }} / {{ act.resource.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreCustomActionUse(act)"
+                    :disabled="getCustomActionSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendCustomAction(act)"
+                    :disabled="getCustomActionAvailable(act) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Bonus Actions Section -->
@@ -5181,6 +5724,14 @@ watch(() => charSpells.value, (list) => {
           <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
             Bonus Actions
           </h3>
+          <button
+            type="button"
+            @click="openAddCustomAction('bonus')"
+            class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+          >
+            <IconPlus class="w-3 h-3" />
+            <span>Custom Bonus Action</span>
+          </button>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -5448,6 +5999,95 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Custom Bonus Actions -->
+        <div v-if="getCustomActionsByType('bonus').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Custom Bonus Actions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in getCustomActionsByType('bonus')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded uppercase font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.type }}</span>
+                    <span v-if="act.range" class="text-[9px] text-gray-500 font-mono">{{ act.range }}</span>
+                    <span v-if="act.hasDc" class="text-[9px] font-mono text-purple-700 bg-purple-50 px-1 py-0.2 rounded border border-purple-200">
+                      DC {{ act.dcBase + (vtt.proficiency_bonus || 2) + (vtt.abilities?.[act.dcAbility]?.modifier ?? 0) }} {{ act.dcAbility.toUpperCase() }}
+                    </span>
+                  </div>
+                  <p v-if="act.notes" class="text-[10px] text-gray-600 mt-0.5 leading-tight">{{ act.notes }}</p>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    v-if="act.hasAttack"
+                    type="button"
+                    @click="rollCustomActionAttack(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </button>
+                  <button
+                    v-if="act.hasDamage && act.damageDice"
+                    type="button"
+                    @click="rollCustomActionDamage(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </button>
+                  <button
+                    type="button"
+                    @click="deleteCustomAction(act.id)"
+                    class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                    title="Delete custom bonus action"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Resource Tracker -->
+              <div v-if="act.resource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div class="flex items-center gap-1">
+                    <span
+                      v-for="u in act.resource.max"
+                      :key="u"
+                      class="w-2.5 h-2.5 rounded-full border transition"
+                      :class="u <= (act.resource.max - getCustomActionSpent(act.id)) ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'"
+                    ></span>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getCustomActionAvailable(act) }} / {{ act.resource.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreCustomActionUse(act)"
+                    :disabled="getCustomActionSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendCustomAction(act)"
+                    :disabled="getCustomActionAvailable(act) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Reactions Section -->
@@ -5456,6 +6096,14 @@ watch(() => charSpells.value, (list) => {
           <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
             Reactions
           </h3>
+          <button
+            type="button"
+            @click="openAddCustomAction('reaction')"
+            class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+          >
+            <IconPlus class="w-3 h-3" />
+            <span>Custom Reaction</span>
+          </button>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -5622,6 +6270,95 @@ watch(() => charSpells.value, (list) => {
             </div>
           </div>
         </div>
+
+        <!-- Custom Reactions -->
+        <div v-if="getCustomActionsByType('reaction').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Custom Reactions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in getCustomActionsByType('reaction')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded uppercase font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.type }}</span>
+                    <span v-if="act.range" class="text-[9px] text-gray-500 font-mono">{{ act.range }}</span>
+                    <span v-if="act.hasDc" class="text-[9px] font-mono text-purple-700 bg-purple-50 px-1 py-0.2 rounded border border-purple-200">
+                      DC {{ act.dcBase + (vtt.proficiency_bonus || 2) + (vtt.abilities?.[act.dcAbility]?.modifier ?? 0) }} {{ act.dcAbility.toUpperCase() }}
+                    </span>
+                  </div>
+                  <p v-if="act.notes" class="text-[10px] text-gray-600 mt-0.5 leading-tight">{{ act.notes }}</p>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    v-if="act.hasAttack"
+                    type="button"
+                    @click="rollCustomActionAttack(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </button>
+                  <button
+                    v-if="act.hasDamage && act.damageDice"
+                    type="button"
+                    @click="rollCustomActionDamage(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </button>
+                  <button
+                    type="button"
+                    @click="deleteCustomAction(act.id)"
+                    class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                    title="Delete custom reaction"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Resource Tracker -->
+              <div v-if="act.resource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div class="flex items-center gap-1">
+                    <span
+                      v-for="u in act.resource.max"
+                      :key="u"
+                      class="w-2.5 h-2.5 rounded-full border transition"
+                      :class="u <= (act.resource.max - getCustomActionSpent(act.id)) ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'"
+                    ></span>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getCustomActionAvailable(act) }} / {{ act.resource.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreCustomActionUse(act)"
+                    :disabled="getCustomActionSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendCustomAction(act)"
+                    :disabled="getCustomActionAvailable(act) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Other Actions Section -->
@@ -5630,6 +6367,14 @@ watch(() => charSpells.value, (list) => {
           <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
             Other & Interactions
           </h3>
+          <button
+            type="button"
+            @click="openAddCustomAction('other')"
+            class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+          >
+            <IconPlus class="w-3 h-3" />
+            <span>Custom Other</span>
+          </button>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -5640,6 +6385,95 @@ watch(() => charSpells.value, (list) => {
           <div class="p-2 bg-gray-50 border border-gray-200 rounded">
             <span class="font-bold text-gray-900 text-xs">Short Rest & Hit Dice</span>
             <p class="text-[10px] text-gray-500 mt-0.5">Spend 1 or more Hit Dice to regain hit points during a 1-hour rest.</p>
+          </div>
+        </div>
+
+        <!-- Custom Other Actions -->
+        <div v-if="getCustomActionsByType('other').length > 0" class="space-y-1.5 pt-2">
+          <div class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Custom Other Actions</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div
+              v-for="act in getCustomActionsByType('other')"
+              :key="act.id"
+              class="p-2.5 bg-gray-50 border border-gray-200 rounded space-y-1.5"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <span class="font-bold text-gray-900 text-xs">{{ act.name }}</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded uppercase font-semibold bg-gray-200 text-gray-700 font-mono">{{ act.type }}</span>
+                    <span v-if="act.range" class="text-[9px] text-gray-500 font-mono">{{ act.range }}</span>
+                    <span v-if="act.hasDc" class="text-[9px] font-mono text-purple-700 bg-purple-50 px-1 py-0.2 rounded border border-purple-200">
+                      DC {{ act.dcBase + (vtt.proficiency_bonus || 2) + (vtt.abilities?.[act.dcAbility]?.modifier ?? 0) }} {{ act.dcAbility.toUpperCase() }}
+                    </span>
+                  </div>
+                  <p v-if="act.notes" class="text-[10px] text-gray-600 mt-0.5 leading-tight">{{ act.notes }}</p>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    v-if="act.hasAttack"
+                    type="button"
+                    @click="rollCustomActionAttack(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Hit ({{ getCustomActionAttackBonus(act) >= 0 ? '+' : '' }}{{ getCustomActionAttackBonus(act) }})
+                  </button>
+                  <button
+                    v-if="act.hasDamage && act.damageDice"
+                    type="button"
+                    @click="rollCustomActionDamage(act)"
+                    class="px-2 py-0.5 bg-gray-100 border border-gray-300 hover:bg-gray-200 text-gray-800 rounded font-bold text-[10px] transition cursor-pointer font-mono"
+                  >
+                    Dmg ({{ getCustomActionDamageLabel(act) }})
+                  </button>
+                  <button
+                    type="button"
+                    @click="deleteCustomAction(act.id)"
+                    class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                    title="Delete custom other action"
+                  >
+                    <IconTrash class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Resource Tracker -->
+              <div v-if="act.resource" class="flex items-center justify-between pt-1 border-t border-gray-200 text-[10px]">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 font-medium">Uses:</span>
+                  <div class="flex items-center gap-1">
+                    <span
+                      v-for="u in act.resource.max"
+                      :key="u"
+                      class="w-2.5 h-2.5 rounded-full border transition"
+                      :class="u <= (act.resource.max - getCustomActionSpent(act.id)) ? 'bg-gray-900 border-gray-900' : 'border-gray-300 bg-white'"
+                    ></span>
+                  </div>
+                  <span class="font-mono text-gray-700 font-bold ml-1">
+                    {{ getCustomActionAvailable(act) }} / {{ act.resource.max }}
+                  </span>
+                  <span class="text-[9px] text-gray-400 capitalize">({{ act.resource.recharge }} rest)</span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    @click="restoreCustomActionUse(act)"
+                    :disabled="getCustomActionSpent(act.id) <= 0"
+                    class="px-1.5 py-0.5 rounded border border-gray-300 bg-white hover:bg-gray-100 disabled:opacity-30 text-gray-700 text-[9px] font-bold cursor-pointer"
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    @click="spendCustomAction(act)"
+                    :disabled="getCustomActionAvailable(act) <= 0"
+                    class="px-1.5 py-0.5 rounded bg-gray-900 hover:bg-black disabled:opacity-30 text-white text-[9px] font-bold cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -6259,6 +7093,60 @@ watch(() => charSpells.value, (list) => {
           </div>
         </div>
       </div>
+
+      <!-- Custom Skills Section -->
+      <div class="pt-3 border-t border-gray-200 space-y-2">
+        <div class="flex items-center justify-between pb-1">
+          <h3 class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
+            Custom Skills ({{ customSkills.length }})
+          </h3>
+          <button
+            type="button"
+            @click="showCustomSkillModal = true"
+            class="px-2 py-0.5 rounded bg-gray-900 hover:bg-black text-white text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shadow-2xs"
+          >
+            <IconPlus class="w-3 h-3" />
+            <span>Add Custom Skill</span>
+          </button>
+        </div>
+
+        <div v-if="customSkillsList.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div
+            v-for="csk in customSkillsList"
+            :key="csk.id"
+            class="flex items-center justify-between p-2 rounded bg-white hover:bg-gray-50 border border-gray-200 transition"
+          >
+            <div class="flex items-center gap-2">
+              <span class="w-4 h-4 flex items-center justify-center shrink-0">
+                <IconStarFilled v-if="csk.expertise" class="w-3.5 h-3.5 text-gray-900" title="Expertise" />
+                <span v-else-if="csk.proficient" class="w-2.5 h-2.5 rounded-full bg-gray-800" title="Proficient"></span>
+                <span v-else class="w-2.5 h-2.5 rounded-full border border-gray-300" title="Not Proficient"></span>
+              </span>
+              <span class="capitalize font-medium text-gray-800">{{ csk.name }}</span>
+              <span class="text-[10px] text-gray-400 uppercase">({{ csk.ability.slice(0, 3) }})</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500 font-mono text-[11px]">Passive {{ csk.passive }}</span>
+              <button
+                type="button"
+                @click="rollDice(`${csk.name.toUpperCase()} Check`, csk.total)"
+                class="px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 border border-gray-200 text-gray-800 font-mono font-bold transition cursor-pointer text-xs"
+              >
+                {{ csk.modifier_string }}
+              </button>
+              <button
+                type="button"
+                @click="deleteCustomSkill(csk.id)"
+                class="p-1 text-gray-400 hover:text-red-600 transition cursor-pointer"
+                title="Delete custom skill"
+              >
+                <IconTrash class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- TAB: Features & Traits (Full Explanations) -->
@@ -6482,6 +7370,114 @@ watch(() => charSpells.value, (list) => {
       </div>
     </div>
 
+    <!-- TAB: Class Features Table -->
+    <div v-else-if="activeTab === 'class_table'" class="space-y-4 text-xs">
+      <!-- Multiclass Selector / Class Header -->
+      <div class="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-gray-200">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-[10px] font-bold text-gray-500 uppercase">Class:</span>
+          <button
+            v-for="cName in availableClassNames"
+            :key="cName"
+            type="button"
+            @click="selectedClassTableClass = cName"
+            :class="selectedClassTableClass === cName ? 'bg-gray-900 text-white font-bold' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            class="px-2.5 py-1 rounded text-xs transition cursor-pointer capitalize"
+          >
+            {{ cName }} (Lvl {{ getCharClassLevel(cName) }})
+          </button>
+        </div>
+        <div v-if="classTableData" class="flex items-center gap-3 text-[11px] text-gray-600">
+          <span>Hit Die: <strong class="text-gray-900 font-mono">1{{ classTableData.hitDice }}</strong></span>
+          <span v-if="classTableData.subclassTitle">Subclass: <strong class="text-gray-900">{{ classTableData.subclassTitle }} (Lvl {{ classTableData.subclassLevel }})</strong></span>
+        </div>
+      </div>
+
+      <!-- Feature Detail Box (if clicked) -->
+      <div v-if="inspectingFeature" class="p-3.5 bg-amber-50/70 border border-amber-300 rounded-md space-y-2">
+        <div class="flex items-center justify-between pb-1 border-b border-amber-200">
+          <span class="font-bold text-gray-900 text-xs">{{ inspectingFeature.name }} (Level {{ inspectingFeature.level }})</span>
+          <button type="button" @click="inspectingFeature = null" class="text-gray-500 hover:text-gray-800 font-bold leading-none cursor-pointer">×</button>
+        </div>
+        <div class="prose-xs text-gray-800 leading-relaxed" v-html="renderAnnotatedText(format5eEntries(inspectingFeature.entries))"></div>
+      </div>
+
+      <!-- Loading State -->
+      <div v-if="isLoadingClassTable" class="p-8 text-center text-gray-400 italic">
+        Loading class progression table...
+      </div>
+
+      <!-- Table View -->
+      <div v-else-if="classTableData" class="overflow-x-auto border border-gray-200 rounded shadow-xs bg-white">
+        <table class="w-full text-left text-xs divide-y divide-gray-200">
+          <thead class="bg-gray-50 text-[10px] font-bold text-gray-600 uppercase tracking-wider">
+            <tr>
+              <th class="py-2.5 px-3 whitespace-nowrap text-center">Level</th>
+              <th class="py-2.5 px-3 whitespace-nowrap text-center">PB</th>
+              <th class="py-2.5 px-3 min-w-[200px]">Class Features</th>
+              <th
+                v-for="(hdr, hIdx) in classTableData.headers"
+                :key="hIdx"
+                class="py-2.5 px-3 whitespace-nowrap text-center font-mono"
+              >
+                {{ hdr }}
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100 bg-white">
+            <tr
+              v-for="row in classTableData.rows"
+              :key="row.level"
+              :class="[
+                row.level === currentClassTableLevel
+                  ? 'bg-amber-50 font-semibold border-l-4 border-l-amber-500'
+                  : 'hover:bg-gray-50/80'
+              ]"
+              class="transition"
+            >
+              <!-- Level -->
+              <td class="py-2 px-3 text-center whitespace-nowrap font-mono">
+                <span :class="row.level === currentClassTableLevel ? 'text-amber-900 font-bold' : 'text-gray-700'">
+                  {{ row.levelLabel }}
+                </span>
+              </td>
+
+              <!-- Proficiency Bonus -->
+              <td class="py-2 px-3 text-center whitespace-nowrap font-mono text-gray-600">
+                {{ row.proficiencyBonus }}
+              </td>
+
+              <!-- Features -->
+              <td class="py-2 px-3">
+                <div v-if="row.features && row.features.length" class="flex flex-wrap gap-1">
+                  <button
+                    v-for="feat in row.features"
+                    :key="feat.id || feat.name"
+                    type="button"
+                    @click="toggleFeatureDetail(feat)"
+                    class="px-2 py-0.5 rounded text-[11px] border border-gray-200 bg-white hover:bg-gray-100 text-gray-800 transition cursor-pointer text-left flex items-center gap-1 shadow-2xs"
+                    :class="inspectingFeature?.name === feat.name ? 'border-amber-500 bg-amber-50' : ''"
+                  >
+                    <span>{{ feat.name }}</span>
+                  </button>
+                </div>
+                <span v-else class="text-gray-400 italic text-[11px]">—</span>
+              </td>
+
+              <!-- Custom Class Columns -->
+              <td
+                v-for="(val, vIdx) in row.customValues"
+                :key="vIdx"
+                class="py-2 px-3 text-center whitespace-nowrap font-mono text-gray-700"
+              >
+                {{ val || '—' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- TAB 3: Equipment & Wealth -->
     <div v-else-if="activeTab === 'equipment'" class="space-y-4 text-xs">
       <!-- Currency Pouch (Interactive) -->
@@ -6652,13 +7648,23 @@ watch(() => charSpells.value, (list) => {
             <span class="text-[10px] text-gray-500 font-normal">({{ liveEquipment.length }} items)</span>
             <span v-if="equipmentSavedToast" class="text-[10px] text-green-600 font-semibold">Saved</span>
           </div>
-          <button
-            type="button"
-            @click="openCompendiumModal"
-            class="bg-gray-800 hover:bg-gray-900 text-white text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer"
-          >
-            Add Item
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              @click="openAddCustomItem"
+              class="bg-white hover:bg-gray-100 text-gray-800 border border-gray-300 text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer flex items-center gap-1"
+            >
+              <IconPlus class="w-3 h-3" />
+              <span>Custom Item</span>
+            </button>
+            <button
+              type="button"
+              @click="openCompendiumModal"
+              class="bg-gray-800 hover:bg-gray-900 text-white text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer"
+            >
+              Add Item
+            </button>
+          </div>
         </div>
 
         <!-- Container & Storage View Pills -->
@@ -7538,16 +8544,8 @@ watch(() => charSpells.value, (list) => {
               </button>
             </div>
           </div>
-
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Custom Campaign Name</label>
-            <input
-              type="text"
-              v-model="campaignInput"
-              @keydown.enter="saveCampaign"
-              placeholder="e.g. Curse of Strahd"
-              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
-            />
+          <div v-else class="p-3 bg-gray-50 border border-gray-200 rounded text-center text-gray-500 text-xs">
+            No active campaigns found. Create or join a campaign first.
           </div>
 
           <div class="pt-1">
@@ -7565,16 +8563,9 @@ watch(() => charSpells.value, (list) => {
           <button
             type="button"
             @click="showCampaignModal = false"
-            class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            @click="saveCampaign"
             class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer"
           >
-            Save
+            Close
           </button>
         </div>
       </div>
@@ -8526,6 +9517,436 @@ watch(() => charSpells.value, (list) => {
             Close
           </button>
         </div>
+      </div>
+    </div>
+
+    <!-- Custom Action Modal -->
+    <div v-if="showCustomActionModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-lg w-full p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <h3 class="font-bold text-gray-900 text-sm">
+            {{ editingCustomActionId ? 'Edit Custom Action' : 'Create Custom Action' }}
+          </h3>
+          <button type="button" @click="showCustomActionModal = false" class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer">×</button>
+        </div>
+
+        <form @submit.prevent="saveCustomAction" class="space-y-3 text-xs">
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Name *</label>
+            <input
+              type="text"
+              v-model="newCustomActionForm.name"
+              required
+              placeholder="e.g. Ki-Fueled Strike, Breath Weapon, Flaming Sword"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Activation Type</label>
+              <select
+                v-model="newCustomActionForm.type"
+                class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+              >
+                <option value="attack">Attack</option>
+                <option value="action">Action</option>
+                <option value="bonus">Bonus Action</option>
+                <option value="reaction">Reaction</option>
+                <option value="other">Other / Special</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Range / Reach</label>
+              <input
+                type="text"
+                v-model="newCustomActionForm.range"
+                placeholder="e.g. 5 ft., 30 ft., Self, Touch"
+                class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+              />
+            </div>
+          </div>
+
+          <!-- Attack / DC Box -->
+          <div class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+            <div class="font-semibold text-gray-800">Attack Roll & Save DC</div>
+            <div class="flex items-center gap-4 flex-wrap">
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" v-model="newCustomActionForm.hasAttack" class="rounded text-gray-900" />
+                <span class="text-gray-700">Has Attack Roll</span>
+              </label>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" v-model="newCustomActionForm.hasDc" class="rounded text-gray-900" />
+                <span class="text-gray-700">Has Saving Throw DC</span>
+              </label>
+            </div>
+
+            <div v-if="newCustomActionForm.hasAttack" class="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Attack Stat Mod</label>
+                <select
+                  v-model="newCustomActionForm.attackAbility"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 uppercase"
+                >
+                  <option value="str">STR</option>
+                  <option value="dex">DEX</option>
+                  <option value="con">CON</option>
+                  <option value="int">INT</option>
+                  <option value="wis">WIS</option>
+                  <option value="cha">CHA</option>
+                  <option value="none">Flat Bonus Only</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Bonus Attack Modifier</label>
+                <input
+                  type="number"
+                  v-model.number="newCustomActionForm.attackBonusFlat"
+                  placeholder="0"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+            </div>
+
+            <div v-if="newCustomActionForm.hasDc" class="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Save Ability</label>
+                <select
+                  v-model="newCustomActionForm.dcAbility"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 uppercase"
+                >
+                  <option value="str">STR</option>
+                  <option value="dex">DEX</option>
+                  <option value="con">CON</option>
+                  <option value="int">INT</option>
+                  <option value="wis">WIS</option>
+                  <option value="cha">CHA</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Base DC (8 + PB + Ability)</label>
+                <input
+                  type="number"
+                  v-model.number="newCustomActionForm.dcBase"
+                  placeholder="8"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Damage Box -->
+          <div class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-gray-800">Damage</span>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" v-model="newCustomActionForm.hasDamage" class="rounded text-gray-900" />
+                <span class="text-gray-700">Deals Damage</span>
+              </label>
+            </div>
+            <div v-if="newCustomActionForm.hasDamage" class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Dice Formula</label>
+                <input
+                  type="text"
+                  v-model="newCustomActionForm.damageDice"
+                  placeholder="e.g. 1d8, 2d6"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Ability Mod</label>
+                <select
+                  v-model="newCustomActionForm.damageAbility"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 uppercase"
+                >
+                  <option value="str">STR</option>
+                  <option value="dex">DEX</option>
+                  <option value="con">CON</option>
+                  <option value="int">INT</option>
+                  <option value="wis">WIS</option>
+                  <option value="cha">CHA</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Damage Type</label>
+                <input
+                  type="text"
+                  v-model="newCustomActionForm.damageType"
+                  placeholder="e.g. fire, slashing"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Limited Resource Box -->
+          <div class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-gray-800">Limited Uses & Tracker</span>
+              <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                <input type="checkbox" v-model="newCustomActionForm.hasResource" class="rounded text-gray-900" />
+                <span class="text-gray-700">Track Uses</span>
+              </label>
+            </div>
+            <div v-if="newCustomActionForm.hasResource" class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Max Uses</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  v-model.number="newCustomActionForm.resourceMax"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Recharge On</label>
+                <select
+                  v-model="newCustomActionForm.resourceRecharge"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                >
+                  <option value="short">Short Rest</option>
+                  <option value="long">Long Rest</option>
+                  <option value="day">Daily / Dawn</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Notes / Description -->
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Notes / Description</label>
+            <textarea
+              v-model="newCustomActionForm.notes"
+              rows="2"
+              placeholder="Effect details, trigger condition, etc."
+              class="w-full bg-white border border-gray-300 rounded p-2 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            ></textarea>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-200">
+            <button
+              type="button"
+              @click="showCustomActionModal = false"
+              class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer shadow-xs"
+            >
+              Save Action
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Custom Skill Modal -->
+    <div v-if="showCustomSkillModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-sm w-full p-5 space-y-3.5">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <h3 class="font-bold text-gray-900 text-sm">Add Custom Skill</h3>
+          <button type="button" @click="showCustomSkillModal = false" class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer">×</button>
+        </div>
+
+        <form @submit.prevent="saveCustomSkill" class="space-y-3 text-xs">
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Skill Name *</label>
+            <input
+              type="text"
+              v-model="newCustomSkillForm.name"
+              required
+              placeholder="e.g. Lore: Dragons, Alchemy, Streetwise"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            />
+          </div>
+
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Governing Ability</label>
+            <select
+              v-model="newCustomSkillForm.ability"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900 capitalize"
+            >
+              <option value="str">Strength (STR)</option>
+              <option value="dex">Dexterity (DEX)</option>
+              <option value="con">Constitution (CON)</option>
+              <option value="int">Intelligence (INT)</option>
+              <option value="wis">Wisdom (WIS)</option>
+              <option value="cha">Charisma (CHA)</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-4 pt-1">
+            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" v-model="newCustomSkillForm.proficient" class="rounded text-gray-900" />
+              <span class="text-gray-700">Proficient (+PB)</span>
+            </label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer">
+              <input type="checkbox" v-model="newCustomSkillForm.expertise" class="rounded text-gray-900" />
+              <span class="text-gray-700">Expertise (2x PB)</span>
+            </label>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-200">
+            <button
+              type="button"
+              @click="showCustomSkillModal = false"
+              class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer shadow-xs"
+            >
+              Add Skill
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Custom Item Modal -->
+    <div v-if="showCustomItemModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+      <div class="bg-white border border-gray-300 rounded-lg shadow-2xl max-w-md w-full p-5 space-y-3.5">
+        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
+          <h3 class="font-bold text-gray-900 text-sm">Create Custom Item</h3>
+          <button type="button" @click="showCustomItemModal = false" class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer">×</button>
+        </div>
+
+        <form @submit.prevent="saveCustomItem" class="space-y-3 text-xs">
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Item Name *</label>
+            <input
+              type="text"
+              v-model="newCustomItemForm.name"
+              required
+              placeholder="e.g. Ring of Warmth, Vorpal Sword, Elixir"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            />
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Type</label>
+              <select
+                v-model="newCustomItemForm.item_type"
+                class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900 capitalize"
+              >
+                <option value="gear">Adventuring Gear</option>
+                <option value="weapon">Weapon</option>
+                <option value="armor">Armor</option>
+                <option value="potion">Potion</option>
+                <option value="scroll">Scroll</option>
+                <option value="wondrous item">Wondrous Item</option>
+              </select>
+            </div>
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Weight (lb)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                v-model.number="newCustomItemForm.weight"
+                class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+              />
+            </div>
+            <div>
+              <label class="block font-semibold text-gray-700 mb-1">Quantity</label>
+              <input
+                type="number"
+                min="1"
+                v-model.number="newCustomItemForm.amount"
+                class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+              />
+            </div>
+          </div>
+
+          <div v-if="newCustomItemForm.item_type === 'weapon'" class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+            <div class="font-semibold text-gray-800">Weapon Details</div>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Damage Dice</label>
+                <input
+                  type="text"
+                  v-model="newCustomItemForm.damage_dice"
+                  placeholder="e.g. 1d8"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Damage Type</label>
+                <input
+                  type="text"
+                  v-model="newCustomItemForm.damage_type"
+                  placeholder="e.g. slashing"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Range</label>
+                <input
+                  type="text"
+                  v-model="newCustomItemForm.range"
+                  placeholder="e.g. 5 ft."
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div v-if="newCustomItemForm.item_type === 'armor'" class="p-3 bg-gray-50 border border-gray-200 rounded space-y-2">
+            <div class="font-semibold text-gray-800">Armor Details</div>
+            <div class="grid grid-cols-2 gap-2 items-center">
+              <div>
+                <label class="block text-[11px] text-gray-600 mb-0.5">Base AC</label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="newCustomItemForm.base_ac"
+                  class="w-full bg-white border border-gray-300 rounded px-2 py-1 text-xs text-gray-900"
+                />
+              </div>
+              <div class="pt-3">
+                <label class="inline-flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" v-model="newCustomItemForm.dexMod" class="rounded text-gray-900" />
+                  <span class="text-gray-700">Add DEX Modifier</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-gray-700 mb-1">Status</label>
+            <select
+              v-model="newCustomItemForm.status"
+              class="w-full bg-white border border-gray-300 rounded px-2.5 py-1.5 text-xs text-gray-900 focus:outline-none focus:border-gray-900"
+            >
+              <option value="inventory">In Inventory</option>
+              <option value="equipped">Equipped</option>
+            </select>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2 border-t border-gray-200">
+            <button
+              type="button"
+              @click="showCustomItemModal = false"
+              class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-3 py-1.5 rounded bg-gray-900 hover:bg-black text-white text-xs font-semibold cursor-pointer shadow-xs"
+            >
+              Add Item
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 
