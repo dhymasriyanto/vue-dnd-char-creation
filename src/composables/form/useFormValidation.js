@@ -368,16 +368,16 @@ export function useFormValidation({
       }
     }
 
-    if (stepId === 'race') {
+    if (stepId === 'race' || stepId === 'species') {
       if (!characterRace.value?.name) {
-        errors.characterRace = 'Please select a Race'
+        errors.characterRace = selectedEdition.value === '2024' ? 'Please select a Species' : 'Please select a Race'
         isValid = false
       } else {
         delete errors.characterRace
       }
 
       if (isSubraceRequired.value && !characterSubRace.value?.name) {
-        errors.characterSubRace = 'Please select a Subrace / Lineage'
+        errors.characterSubRace = selectedEdition.value === '2024' ? 'Please select a Lineage' : 'Please select a Subrace / Lineage'
         isValid = false
       } else {
         delete errors.characterSubRace

@@ -10,6 +10,7 @@ import { IconArrowLeft, IconX, IconPlus } from '@tabler/icons-vue'
 import CompendiumHomebrewModal from './compendium/CompendiumHomebrewModal.vue'
 import CompendiumDetailView from './compendium/CompendiumDetailView.vue'
 import { getItemBadge } from '../utils/compendiumFormatters'
+import { renderAnnotatedText, format5eEntries as formatEntries } from '../utils/textRenderer'
 
 const API_URL = useConfig().API_URL
 const characterStore = useCharacterStore()

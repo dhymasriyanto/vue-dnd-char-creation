@@ -367,6 +367,7 @@ const toggleAutoAction = (id) => {
       :expanded-spells="expandedSpells"
       :char-spell-attack-bonus="charSpellAttackBonus"
       :char-caster-mod="charCasterMod"
+      :char-prof-bonus="charProfBonus"
       :all-spell-levels="allSpellLevels"
       :has-char-class="hasCharClass"
       :get-char-class-level="getCharClassLevel"

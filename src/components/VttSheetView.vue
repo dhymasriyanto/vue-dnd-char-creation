@@ -749,6 +749,7 @@ const {
   isReadOnly,
   API_URL
 })
+const quickRollDie = rollAnyDie
 const activeTab = ref('actions') // 'actions' | 'spells' | 'skills' | 'features' | 'equipment' | 'background' | 'history'
 const actionSubFilter = ref('all') // 'all' | 'attack' | 'action' | 'bonus' | 'reaction' | 'other'
 

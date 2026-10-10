@@ -15,6 +15,7 @@ defineProps({
   expandedSpells: { type: Object, default: () => ({}) },
   charSpellAttackBonus: { type: [Number, String], default: 0 },
   charCasterMod: { type: [Number, String], default: 0 },
+  charProfBonus: { type: [Number, String], default: 2 },
   allSpellLevels: { type: Array, default: () => [] },
   hasCharClass: { type: Function, required: true },
   getCharClassLevel: { type: Function, required: true },
