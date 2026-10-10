@@ -1,9 +1,26 @@
 <script setup>
+import { useFormSkills } from '../composables/form/useFormSkills'
+import { useFormHydration } from '../composables/form/useFormHydration'
+import { useFormValidation } from '../composables/form/useFormValidation'
+import { useFormSubmit } from '../composables/form/useFormSubmit'
 import axios from 'axios'
 import RaceSubRaceDetail from './RaceSubRaceDetail.vue'
 import ClassSubClassDetail from './ClassSubClassDetail.vue'
 import ClassSpellsPicker from './ClassSpellsPicker.vue'
 import FeatSpellsPicker from './FeatSpellsPicker.vue'
+import FormTraitTableModal from './form/FormTraitTableModal.vue'
+import FormItemCompendiumModal from './CompendiumItemPickerModal.vue'
+import FormCharacteristicsStep from './form/steps/FormCharacteristicsStep.vue'
+import FormBackgroundStep from './form/steps/FormBackgroundStep.vue'
+import FormRaceStep from './form/steps/FormRaceStep.vue'
+import FormClassStep from './form/steps/FormClassStep.vue'
+import FormAbilitiesStep from './form/steps/FormAbilitiesStep.vue'
+import FormEquipmentStep from './form/steps/FormEquipmentStep.vue'
+import FormHeader from './form/FormHeader.vue'
+import FormStepNavigation from './form/FormStepNavigation.vue'
+import FormStickyFooter from './form/FormStickyFooter.vue'
+import { useFormEquipment } from '../composables/form/useFormEquipment'
+import { useFormMulticlass, getUnlockedAsiTiersForClass } from '../composables/form/useFormMulticlass'
 import { computed, nextTick, onBeforeUpdate, onMounted, onUpdated, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCharacterStore } from '../stores/character'
@@ -21,6 +38,7 @@ import {
   IconPhoto
 } from '@tabler/icons-vue'
 import { compressImage } from '../utils/imageCompressor'
+import { parseBackgroundDetails as parseBgDetails } from '../utils/backgroundParser'
 import {
   extractBackgroundCharacteristicsTables,
   rollFromTable,
@@ -32,6 +50,33 @@ import {
   getMulticlassProficiencies,
   checkMulticlassPrerequisites
 } from '../utils/multiclassRules'
+import {
+  SOURCE_OPTIONS_2024,
+  SOURCE_OPTIONS_2014,
+  CLASS_SOURCES,
+  ABILITY_KEYS,
+  SHORT_TO_KEY,
+  KEY_TO_SHORT,
+  KEY_TO_LABEL,
+  ALL_SKILLS,
+  STANDARD_LANGUAGES,
+  CLASS_SKILL_FALLBACKS,
+  CLASS_PRIMARY_ABILITIES,
+  STANDARD_ARRAY,
+  POINT_BUY_COST,
+  SPELL_GRANTING_FEATS_CONFIG,
+  STANDARD_MUSICAL_INSTRUMENTS,
+  STANDARD_ARTISAN_TOOLS,
+  STANDARD_GAMING_SETS,
+  STANDARD_OTHER_TOOLS,
+  ALL_TOOLS
+} from '../constants/formConstants'
+import {
+  CLASS_STARTING_GOLD,
+  CLASS_DEFAULT_EQUIPMENT,
+  ITEM_WEIGHT_MAP,
+  EQUIPMENT_PACK_CONTENTS
+} from '../constants/equipmentConstants'
 
 const API_URL = useConfig().API_URL
 
@@ -141,8 +186,6 @@ const characteristics = reactive({
   }
 })
 
-const activeNotesSubTab = ref('ALL') // 'ALL' | 'ORGS' | 'ALLIES' | 'ENEMIES' | 'BACKSTORY' | 'OTHER'
-
 const bgCharacteristicTables = computed(() => {
   return extractBackgroundCharacteristicsTables(selectedBackgroundObj.value)
 })
@@ -201,44 +244,20 @@ const rollPersonalityTrait = () => {
   const rolled = rollFromTable(bgCharacteristicTables.value.personalityTraits)
   if (rolled) characteristics.personalityTraits.push(rolled)
 }
-const addPersonalityTrait = () => {
-  characteristics.personalityTraits.push('')
-}
-const removePersonalityTrait = (idx) => {
-  characteristics.personalityTraits.splice(idx, 1)
-}
 
 const rollIdeal = () => {
   const rolled = rollFromTable(bgCharacteristicTables.value.ideals)
   if (rolled) characteristics.ideals.push(rolled)
-}
-const addIdeal = () => {
-  characteristics.ideals.push('')
-}
-const removeIdeal = (idx) => {
-  characteristics.ideals.splice(idx, 1)
 }
 
 const rollBond = () => {
   const rolled = rollFromTable(bgCharacteristicTables.value.bonds)
   if (rolled) characteristics.bonds.push(rolled)
 }
-const addBond = () => {
-  characteristics.bonds.push('')
-}
-const removeBond = (idx) => {
-  characteristics.bonds.splice(idx, 1)
-}
 
 const rollFlaw = () => {
   const rolled = rollFromTable(bgCharacteristicTables.value.flaws)
   if (rolled) characteristics.flaws.push(rolled)
-}
-const addFlaw = () => {
-  characteristics.flaws.push('')
-}
-const removeFlaw = (idx) => {
-  characteristics.flaws.splice(idx, 1)
 }
 
 // Auto-fill size from race if empty
@@ -250,105 +269,6 @@ watch(() => characterRace.value, (newRace) => {
     else if (s) characteristics.size = s
   }
 })
-
-// Source Books Configuration
-const SOURCE_OPTIONS_2024 = [
-  { code: 'XPHB', label: "Player's Handbook 2024 (Core/SRD)" },
-  { code: 'XDMG', label: "Dungeon Master's Guide 2024" },
-  { code: 'XMM', label: "Monster Manual 2024" },
-  { code: 'TCE', label: "Tasha's Cauldron (2024 Adapted)" },
-  { code: 'XGE', label: "Xanathar's Guide (2024 Adapted)" },
-  { code: 'EFA', label: "Eberron: Forge of the Artificer" },
-  { code: 'FRHoF', label: "Heroes of Faerûn" },
-  { code: 'AU', label: "Unearthed Arcana" },
-  { code: 'RHW', label: "Red Hand of Doom" },
-  { code: 'SCAG', label: "Sword Coast" },
-  { code: 'EGW', label: "Explorer's Guide to Wildemount" },
-  { code: 'FTD', label: "Fizban's Treasury" },
-  { code: 'BGG', label: "Bigby Presents: Giants" },
-  { code: 'VRGR', label: "Van Richten's Ravenloft" },
-  { code: 'DSotDQ', label: "Dragonlance" },
-  { code: 'BGDIA', label: "Descent into Avernus" },
-  { code: 'AI', label: "Acquisitions Incorporated" },
-  { code: 'GGR', label: "Guildmasters' Guide to Ravnica" },
-  { code: 'SCC', label: "Strixhaven" },
-  { code: 'AAG', label: "Astral Adventurer's Guide" },
-  { code: 'BMT', label: "The Book of Many Things" },
-  { code: 'GoS', label: "Ghosts of Saltmarsh" },
-  { code: 'SatO', label: "Planescape: Sigil & Outlands" },
-  { code: 'ABH', label: "Adventures & Backgrounds" },
-  { code: 'PSA', label: "Plane Shift: Amonkhet" },
-  { code: 'PSK', label: "Plane Shift: Kaladesh" },
-  { code: 'PSI', label: "Plane Shift: Innistrad" },
-  { code: 'PSZ', label: "Plane Shift: Zendikar" },
-  { code: 'PSX', label: "Plane Shift: Ixalan" },
-  { code: 'PSD', label: "Plane Shift: Dominaria" },
-  { code: 'EEPC', label: "Elemental Evil Player's Companion" },
-  { code: 'ERLW', label: "Eberron: Rising from the Last War" },
-  { code: 'MOT', label: "Mythic Odysseys of Theros" },
-  { code: 'WBtW', label: "Wild Beyond the Witchlight" },
-  { code: 'ToA', label: "Tomb of Annihilation" },
-  { code: 'IDRotF', label: "Rime of the Frostmaiden" },
-  { code: 'LLK', label: "Lost Laboratory of Kwalish" },
-  { code: 'LFL', label: "Legends from Lorwyn" },
-  { code: 'AWM', label: "Adventure with Monsters" },
-  { code: 'LR', label: "Locathah Rising" },
-  { code: 'OGA', label: "One Grung Above" },
-  { code: 'TTP', label: "The Tortle Package" },
-  { code: 'PHB', label: "Player's Handbook 2014 (Adapted)" },
-  { code: 'DMG', label: "Dungeon Master's Guide 2014 (Adapted)" },
-  { code: 'MM', label: "Monster Manual 2014 (Adapted)" },
-  { code: 'MPMM', label: "Monsters Multiverse (Adapted)" },
-  { code: 'Homebrew', label: "Homebrew (Custom)" }
-]
-
-const SOURCE_OPTIONS_2014 = [
-  { code: 'PHB', label: "Player's Handbook 2014 (Core/SRD)" },
-  { code: 'DMG', label: "Dungeon Master's Guide" },
-  { code: 'MM', label: "Monster Manual" },
-  { code: 'TCE', label: "Tasha's Cauldron" },
-  { code: 'XGE', label: "Xanathar's Guide" },
-  { code: 'MPMM', label: "Monsters Multiverse" },
-  { code: 'VGM', label: "Volo's Guide" },
-  { code: 'MTF', label: "Mordenkainen's Tome" },
-  { code: 'FTD', label: "Fizban's Treasury" },
-  { code: 'BGG', label: "Bigby Presents: Giants" },
-  { code: 'BMT', label: "The Book of Many Things" },
-  { code: 'EFA', label: "Eberron: Forge of the Artificer" },
-  { code: 'ERLW', label: "Eberron: Rising from the Last War" },
-  { code: 'SCAG', label: "Sword Coast" },
-  { code: 'EGW', label: "Explorer's Guide to Wildemount" },
-  { code: 'VRGR', label: "Van Richten's Ravenloft" },
-  { code: 'GGR', label: "Guildmasters' Guide to Ravnica" },
-  { code: 'MOT', label: "Mythic Odysseys of Theros" },
-  { code: 'DSotDQ', label: "Dragonlance" },
-  { code: 'SCC', label: "Strixhaven" },
-  { code: 'SatO', label: "Planescape: Sigil & Outlands" },
-  { code: 'AAG', label: "Astral Adventurer's Guide" },
-  { code: 'AI', label: "Acquisitions Incorporated" },
-  { code: 'EEPC', label: "Elemental Evil Player's Companion" },
-  { code: 'BGDIA', label: "Descent into Avernus" },
-  { code: 'GoS', label: "Ghosts of Saltmarsh" },
-  { code: 'WBtW', label: "Wild Beyond the Witchlight" },
-  { code: 'IDRotF', label: "Rime of the Frostmaiden" },
-  { code: 'ToA', label: "Tomb of Annihilation" },
-  { code: 'LLK', label: "Lost Laboratory of Kwalish" },
-  { code: 'RHW', label: "Red Hand of Doom" },
-  { code: 'FRHoF', label: "Heroes of Faerûn" },
-  { code: 'PSA', label: "Plane Shift: Amonkhet" },
-  { code: 'PSK', label: "Plane Shift: Kaladesh" },
-  { code: 'PSZ', label: "Plane Shift: Zendikar" },
-  { code: 'PSX', label: "Plane Shift: Ixalan" },
-  { code: 'PSI', label: "Plane Shift: Innistrad" },
-  { code: 'PSD', label: "Plane Shift: Dominaria" },
-  { code: 'AU', label: "Unearthed Arcana" },
-  { code: 'UATheMysticClass', label: "Mystic (UA)" },
-  { code: 'AWM', label: "Adventure with Monsters" },
-  { code: 'LR', label: "Locathah Rising" },
-  { code: 'OGA', label: "One Grung Above" },
-  { code: 'TTP', label: "The Tortle Package" },
-  { code: 'Homebrew', label: "Homebrew (Custom)" }
-]
 
 const { selectedSources } = storeToRefs(characterStore)
 
@@ -424,24 +344,6 @@ const filteredFeats = computed(() => {
   })
 })
 
-const CLASS_SOURCES = {
-  artificer: ['TCE', 'ERLW', 'EFA'],
-  barbarian: ['PHB', 'XPHB'],
-  bard: ['PHB', 'XPHB'],
-  cleric: ['PHB', 'XPHB'],
-  druid: ['PHB', 'XPHB'],
-  fighter: ['PHB', 'XPHB'],
-  monk: ['PHB', 'XPHB'],
-  paladin: ['PHB', 'XPHB'],
-  ranger: ['PHB', 'XPHB'],
-  rogue: ['PHB', 'XPHB'],
-  sorcerer: ['PHB', 'XPHB'],
-  warlock: ['PHB', 'XPHB'],
-  wizard: ['PHB', 'XPHB'],
-  sidekick: ['TCE'],
-  mystic: ['UA', 'UATHEMYSTICCLASS']
-}
-
 const filteredClasses = computed(() => {
   const res = {}
   for (const [key, val] of Object.entries(allClass.value || {})) {
@@ -457,117 +359,6 @@ const filteredClasses = computed(() => {
 
 // In-line error tracking (no separate error banner)
 const errors = reactive({})
-
-// --- Ability Scores & ASI System ---
-const ABILITY_KEYS = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
-const SHORT_TO_KEY = {
-  str: 'strength',
-  dex: 'dexterity',
-  con: 'constitution',
-  int: 'intelligence',
-  wis: 'wisdom',
-  cha: 'charisma'
-}
-const KEY_TO_SHORT = {
-  strength: 'STR',
-  dexterity: 'DEX',
-  constitution: 'CON',
-  intelligence: 'INT',
-  wisdom: 'WIS',
-  charisma: 'CHA'
-}
-const KEY_TO_LABEL = {
-  strength: 'Strength',
-  dexterity: 'Dexterity',
-  constitution: 'Constitution',
-  intelligence: 'Intelligence',
-  wisdom: 'Wisdom',
-  charisma: 'Charisma'
-}
-
-const ALL_SKILLS = [
-  { key: 'athletics', label: 'Athletics', ability: 'STR' },
-  { key: 'acrobatics', label: 'Acrobatics', ability: 'DEX' },
-  { key: 'sleight_of_hand', label: 'Sleight of Hand', ability: 'DEX' },
-  { key: 'stealth', label: 'Stealth', ability: 'DEX' },
-  { key: 'arcana', label: 'Arcana', ability: 'INT' },
-  { key: 'history', label: 'History', ability: 'INT' },
-  { key: 'investigation', label: 'Investigation', ability: 'INT' },
-  { key: 'nature', label: 'Nature', ability: 'INT' },
-  { key: 'religion', label: 'Religion', ability: 'INT' },
-  { key: 'animal_handling', label: 'Animal Handling', ability: 'WIS' },
-  { key: 'insight', label: 'Insight', ability: 'WIS' },
-  { key: 'medicine', label: 'Medicine', ability: 'WIS' },
-  { key: 'perception', label: 'Perception', ability: 'WIS' },
-  { key: 'survival', label: 'Survival', ability: 'WIS' },
-  { key: 'deception', label: 'Deception', ability: 'CHA' },
-  { key: 'intimidation', label: 'Intimidation', ability: 'CHA' },
-  { key: 'performance', label: 'Performance', ability: 'CHA' },
-  { key: 'persuasion', label: 'Persuasion', ability: 'CHA' }
-]
-
-const STANDARD_LANGUAGES = [
-  'Common',
-  'Dwarvish',
-  'Elvish',
-  'Giant',
-  'Gnomish',
-  'Goblin',
-  'Halfling',
-  'Orc',
-  'Abyssal',
-  'Celestial',
-  'Draconic',
-  'Deep Speech',
-  'Infernal',
-  'Primordial',
-  'Sylvan',
-  'Undercommon'
-]
-
-const CLASS_SKILL_FALLBACKS = {
-  barbarian: { count: 2, from: ['animal_handling', 'athletics', 'intimidation', 'nature', 'perception', 'survival'] },
-  bard: { count: 3, from: ALL_SKILLS.map(s => s.key) },
-  cleric: { count: 2, from: ['history', 'insight', 'medicine', 'persuasion', 'religion'] },
-  druid: { count: 2, from: ['arcana', 'animal_handling', 'insight', 'medicine', 'nature', 'perception', 'religion', 'survival'] },
-  fighter: { count: 2, from: ['acrobatics', 'animal_handling', 'athletics', 'history', 'insight', 'intimidation', 'perception', 'survival'] },
-  monk: { count: 2, from: ['acrobatics', 'athletics', 'history', 'insight', 'religion', 'stealth'] },
-  paladin: { count: 2, from: ['athletics', 'insight', 'intimidation', 'medicine', 'persuasion', 'religion'] },
-  ranger: { count: 3, from: ['animal_handling', 'athletics', 'insight', 'investigation', 'nature', 'perception', 'stealth', 'survival'] },
-  rogue: { count: 4, from: ['acrobatics', 'athletics', 'deception', 'insight', 'intimidation', 'investigation', 'perception', 'performance', 'persuasion', 'sleight_of_hand', 'stealth'] },
-  sorcerer: { count: 2, from: ['arcana', 'deception', 'insight', 'intimidation', 'persuasion', 'religion'] },
-  warlock: { count: 2, from: ['arcana', 'deception', 'history', 'intimidation', 'investigation', 'nature', 'religion'] },
-  wizard: { count: 2, from: ['arcana', 'history', 'insight', 'investigation', 'medicine', 'religion'] },
-  artificer: { count: 2, from: ['arcana', 'history', 'investigation', 'medicine', 'nature', 'perception', 'sleight_of_hand'] }
-}
-
-const CLASS_PRIMARY_ABILITIES = {
-  barbarian: ['Strength', 'Constitution'],
-  bard: ['Charisma', 'Dexterity'],
-  cleric: ['Wisdom', 'Constitution'],
-  druid: ['Wisdom', 'Constitution'],
-  fighter: ['Strength or Dexterity', 'Constitution'],
-  monk: ['Dexterity', 'Wisdom'],
-  paladin: ['Strength', 'Charisma'],
-  ranger: ['Dexterity', 'Wisdom'],
-  rogue: ['Dexterity', 'Intelligence or Charisma'],
-  sorcerer: ['Charisma', 'Constitution'],
-  warlock: ['Charisma', 'Constitution'],
-  wizard: ['Intelligence', 'Constitution or Dexterity'],
-  artificer: ['Intelligence', 'Constitution']
-}
-
-const STANDARD_ARRAY = [15, 14, 13, 12, 10, 8]
-const POINT_BUY_COST = {
-  8: 0,
-  9: 1,
-  10: 2,
-  11: 3,
-  12: 4,
-  13: 5,
-  14: 7,
-  15: 9
-}
 
 const scoreMethod = ref('standard')
 
@@ -803,24 +594,6 @@ watch(raceChoiceConfig, (cfg) => {
 }, { immediate: true })
 
 // --- Feats & ASI at Level 4, 6, 8, etc. ---
-const getUnlockedAsiTiersForClass = (className, level) => {
-  const lvl = Number(level) || 1
-  const cName = (className || '').toLowerCase()
-  const isFighter = cName.includes('fighter')
-  const isRogue = cName.includes('rogue')
-
-  const tiers = []
-  if (lvl >= 4) tiers.push(4)
-  if (lvl >= 6 && isFighter) tiers.push(6)
-  if (lvl >= 8) tiers.push(8)
-  if (lvl >= 10 && isRogue) tiers.push(10)
-  if (lvl >= 12) tiers.push(12)
-  if (lvl >= 14 && isFighter) tiers.push(14)
-  if (lvl >= 16) tiers.push(16)
-  if (lvl >= 19) tiers.push(19)
-  return tiers
-}
-
 const unlockedAsiTiers = computed(() => {
   return getUnlockedAsiTiersForClass(classSelected.value || characterClass.value?.class?.name, classLevel.value)
 })
@@ -843,385 +616,55 @@ watch(unlockedAsiTiers, (tiers) => {
   }
 }, { immediate: true })
 
+const selectedSubClassKey = ref('')
+const selectedSubClassItem = ref(null)
+
 // Multiclass State & Constraints
-const multiclasses = ref([])
-
-const totalCharacterLevel = computed(() => {
-  const primaryLvl = Number(classLevel.value) || 1
-  const mcLvlSum = multiclasses.value.reduce((sum, mc) => sum + (Number(mc.classLevel) || 1), 0)
-  return Math.min(20, primaryLvl + mcLvlSum)
+const {
+  multiclasses,
+  totalCharacterLevel,
+  maxPrimaryClassLevel,
+  getMaxLevelForMc,
+  availableClassesForMulticlass,
+  addMulticlass,
+  removeMulticlass,
+  onMcClassChange,
+  onMcSubclassSelect,
+  getSubclassUnlockLevel,
+  getMcAvailableSubClasses,
+  getMcProficiencies,
+  getMcSkillConfig,
+  getMcAvailableSkills,
+  isSkillPriorGranted,
+  toggleMcSkill,
+  currentAbilityScoresMap,
+  getMcPrereqStatus,
+  isMcPrereqMet,
+  isSpellcasterClass,
+  isMcSpellcaster,
+  allUnlockedAsiList
+} = useFormMulticlass({
+  classLevel,
+  classSelected,
+  filteredClasses,
+  selectedEdition,
+  selectedSources,
+  API_URL,
+  errors,
+  recheckAbilitiesErrors: () => recheckAbilitiesErrors(),
+  getPriorAndClassSkills: () => [...(priorGrantedSkills?.value || []), ...(chosenClassSkills?.value || [])],
+  characterClass,
+  selectedSubClassItem,
+  characterStore,
+  unlockedAsiTiers,
+  asiTierChoices,
+  strength,
+  dexterity,
+  constitution,
+  intelligence,
+  wisdom,
+  charisma
 })
-
-const maxPrimaryClassLevel = computed(() => {
-  const mcLvlSum = multiclasses.value.reduce((sum, mc) => sum + (Number(mc.classLevel) || 1), 0)
-  return Math.max(1, 20 - mcLvlSum)
-})
-
-const getMaxLevelForMc = (mcIndex) => {
-  const primaryLvl = Number(classLevel.value) || 1
-  const otherMcSum = multiclasses.value.reduce((sum, mc, idx) => {
-    if (idx === mcIndex) return sum
-    return sum + (Number(mc.classLevel) || 1)
-  }, 0)
-  return Math.max(1, 20 - primaryLvl - otherMcSum)
-}
-
-const availableClassesForMulticlass = computed(() => {
-  const selected = new Set()
-  if (classSelected.value) selected.add(classSelected.value.toLowerCase())
-  for (const mc of multiclasses.value) {
-    if (mc.classSelected) selected.add(mc.classSelected.toLowerCase())
-  }
-  const result = {}
-  for (const [k, v] of Object.entries(filteredClasses.value)) {
-    if (!selected.has(k.toLowerCase())) {
-      result[k] = v
-    }
-  }
-  return result
-})
-
-const addMulticlass = () => {
-  if (totalCharacterLevel.value >= 20) return
-  const newMc = {
-    id: 'mc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-    classSelected: '',
-    classLevel: 1,
-    characterClass: { class: null, classFeature: [] },
-    subClassLists: [],
-    selectedSubClassKey: '',
-    selectedSubClassItem: null,
-    asiTierChoices: {},
-    chosenSpells: [],
-    chosenSkills: [],
-    classSubTab: 'features',
-    isCollapsed: false
-  }
-  multiclasses.value.push(newMc)
-  nextTick(() => {
-    const el = document.getElementById(newMc.id)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  })
-}
-
-const removeMulticlass = (index) => {
-  multiclasses.value.splice(index, 1)
-  for (const k of Object.keys(errors)) {
-    if (k.includes('_mc_')) {
-      delete errors[k]
-    }
-  }
-  recheckAbilitiesErrors()
-}
-
-const onMcClassChange = async (mc) => {
-  mc.characterClass = { class: null, classFeature: [] }
-  mc.subClassLists = []
-  mc.selectedSubClassKey = ''
-  mc.selectedSubClassItem = null
-  mc.chosenSpells = []
-  mc.chosenSkills = []
-  mc.asiTierChoices = {}
-  const mcIdx = multiclasses.value.indexOf(mc)
-  if (mcIdx !== -1) {
-    delete errors['class_mc_' + mcIdx]
-    delete errors['subclass_mc_' + mcIdx]
-    delete errors['classSpells_mc_' + mcIdx]
-    delete errors['skills_mc_' + mcIdx]
-  }
-
-  if (!mc.classSelected) {
-    recheckAbilitiesErrors()
-    return
-  }
-  try {
-    const res = await axios.get(`${API_URL}/class/${mc.classSelected}?edition=${selectedEdition.value}`)
-    const data = res.data?.data
-    if (data?.class?.length) {
-      mc.characterClass.class = data.class[0]
-      mc.characterClass.classFeature = data.classFeature || []
-      let directSubclasses = data.subclass || data.subClass || []
-      mc.subClassLists = directSubclasses
-      const c = data.class[0]
-      if (c?.name && c?.source) {
-        try {
-          const scRes = await axios.get(`${API_URL}/sub-class/${c.name.toLowerCase()}/${c.source.toLowerCase()}?edition=${selectedEdition.value}`)
-          const scList = scRes.data?.data?.subClass || scRes.data?.data?.subclass || []
-          if (scList.length > 0) {
-            mc.subClassLists = scList
-          }
-        } catch (e) {
-          console.warn('Multiclass subclass warning', e)
-        }
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load multiclass data', err)
-  } finally {
-    recheckAbilitiesErrors()
-  }
-}
-
-const onMcSubclassSelect = async (mc, key, mcIndex = -1) => {
-  mc.selectedSubClassKey = key
-  const mcIdx = mcIndex >= 0 ? mcIndex : multiclasses.value.findIndex(m => m.id === mc.id || m === mc)
-  if (mcIdx !== -1 && key) {
-    delete errors['subclass_mc_' + mcIdx]
-  }
-  if (!key) {
-    mc.selectedSubClassItem = null
-    return
-  }
-
-  const [name, source] = key.split('|')
-  const cleanName = (name || '').trim().toLowerCase()
-  const cleanSource = (source || '').trim().toLowerCase()
-
-  const lists = Array.isArray(mc.subClassLists) ? mc.subClassLists : (typeof mc.subClassLists === 'object' ? Object.values(mc.subClassLists) : [])
-  const found = lists.find(s => {
-    const sName = (s.name || '').trim().toLowerCase()
-    const sSource = (s.source || '').trim().toLowerCase()
-    if (cleanSource && cleanSource !== 'undefined') {
-      return sName === cleanName && sSource === cleanSource
-    }
-    return sName === cleanName
-  }) || lists.find(s => (s.name || '').trim().toLowerCase() === cleanName)
-
-  mc.selectedSubClassItem = found ? { ...found, subClassFeature: [] } : { name, source, subClassFeature: [] }
-
-  if (found) {
-    const className = (found.className || mc.classSelected || mc.characterClass?.class?.name || '').toLowerCase()
-    const classSource = (found.classSource || mc.characterClass?.class?.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toLowerCase()
-    const scName = encodeURIComponent(found.name)
-    const scSource = encodeURIComponent(found.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB'))
-    const shortName = encodeURIComponent(found.shortName || found.name)
-    const page = encodeURIComponent(found.page || '0')
-
-    try {
-      const res = await axios.get(`${API_URL}/sub-class/${className}/${classSource}/${scName}/${scSource}/${shortName}/${page}?edition=${selectedEdition.value}`)
-      if (res.data?.data) {
-        mc.selectedSubClassItem = {
-          ...found,
-          ...(res.data.data.subClass?.[0] || {}),
-          subClassFeature: res.data.data.subClassFeature || []
-        }
-      }
-    } catch (e) {
-      console.warn('Failed to load multiclass subclass features', e)
-    }
-  }
-}
-
-const getSubclassUnlockLevel = (className, edition) => {
-  if (edition === '2024') return 3
-  const cName = (className || '').toLowerCase()
-  if (['cleric', 'sorcerer', 'warlock'].some(c => cName.includes(c))) return 1
-  if (['druid', 'wizard'].some(c => cName.includes(c))) return 2
-  return 3
-}
-
-const getMcAvailableSubClasses = (mc) => {
-  const lists = mc?.subClassLists || []
-  const arr = Array.isArray(lists) ? lists : (typeof lists === 'object' ? Object.values(lists) : [])
-  const sources = (selectedSources.value && selectedSources.value.length > 0)
-    ? selectedSources.value.map(s => String(s).toUpperCase())
-    : (selectedEdition.value === '2024' ? ['XPHB'] : ['PHB'])
-  const filtered = arr.filter(sc => {
-    const s = (sc.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    return sources.includes(s)
-  })
-  return filtered.length > 0 ? filtered : arr
-}
-
-const getMcProficiencies = (mc) => {
-  const className = mc.classSelected || mc.characterClass?.class?.name || ''
-  return getMulticlassProficiencies(className, selectedEdition.value, mc.characterClass?.class)
-}
-
-const getMcSkillConfig = (mc) => {
-  const prof = getMcProficiencies(mc)
-  const skillsList = prof.skills || []
-  if (skillsList.length === 0) return { count: 0, from: [] }
-  const first = skillsList[0]
-  let from = (first.from && first.from.length > 0)
-    ? first.from
-    : ALL_SKILLS.map(s => s.key)
-  return { count: Number(first.count) || 1, from }
-}
-
-const getMcAvailableSkills = (mc) => {
-  const cfg = getMcSkillConfig(mc)
-  const prior = [...priorGrantedSkills.value, ...chosenClassSkills.value]
-  const otherMcSkills = multiclasses.value
-    .filter(m => m !== mc)
-    .flatMap(m => m.chosenSkills || [])
-  const excluded = new Set([...prior, ...otherMcSkills])
-  return cfg.from.filter(k => !excluded.has(k))
-}
-
-const isSkillPriorGranted = (skillKey, currentMc) => {
-  const prior = [...priorGrantedSkills.value, ...chosenClassSkills.value]
-  if (prior.includes(skillKey)) return true
-  const otherMc = multiclasses.value.find(m => m !== currentMc && (m.chosenSkills || []).includes(skillKey))
-  return Boolean(otherMc)
-}
-
-const toggleMcSkill = (mc, skillKey, mcIdx) => {
-  if (!mc.chosenSkills) mc.chosenSkills = []
-  const cfg = getMcSkillConfig(mc)
-  const idx = mc.chosenSkills.indexOf(skillKey)
-  if (idx >= 0) {
-    mc.chosenSkills.splice(idx, 1)
-  } else {
-    if (mc.chosenSkills.length < cfg.count) {
-      mc.chosenSkills.push(skillKey)
-    }
-  }
-  const available = getMcAvailableSkills(mc)
-  const needed = Math.min(cfg.count, available.length)
-  if (mc.chosenSkills.length >= needed) {
-    delete errors['skills_mc_' + mcIdx]
-  }
-}
-
-const currentAbilityScoresMap = computed(() => ({
-  strength: strength.value,
-  dexterity: dexterity.value,
-  constitution: constitution.value,
-  intelligence: intelligence.value,
-  wisdom: wisdom.value,
-  charisma: charisma.value
-}))
-
-const getMcPrereqStatus = (mc) => {
-  if (!mc.classSelected) {
-    return { met: true, reason: '', details: 'None', scoresAssigned: false }
-  }
-  return checkMulticlassPrerequisites(
-    mc.classSelected,
-    currentAbilityScoresMap.value,
-    mc.characterClass?.class
-  )
-}
-
-const isMcPrereqMet = (mc) => {
-  if (!mc || !mc.classSelected) return false
-  const mcStatus = getMcPrereqStatus(mc)
-  return Boolean(mcStatus.met)
-}
-
-const checkIsSpellcaster = (className, classLevelVal, subClassName, edition) => {
-  if (!className) return false
-  const cName = className.toLowerCase()
-  const fullCasters = ['wizard', 'cleric', 'druid', 'sorcerer', 'bard', 'warlock', 'artificer']
-  if (fullCasters.includes(cName)) return true
-  if (cName === 'paladin' || cName === 'ranger') {
-    if (edition === '2024') return true
-    return Number(classLevelVal) >= 2
-  }
-  const scName = (subClassName || '').toLowerCase()
-  if (cName === 'fighter' && scName.includes('eldritch knight') && Number(classLevelVal) >= 3) return true
-  if (cName === 'rogue' && scName.includes('arcane trickster') && Number(classLevelVal) >= 3) return true
-  return false
-}
-
-const isSpellcasterClass = computed(() => {
-  return checkIsSpellcaster(
-    characterClass.value?.class?.name || classSelected.value,
-    classLevel.value,
-    selectedSubClassItem.value?.name || characterStore.characterSubClass?.name,
-    selectedEdition.value
-  )
-})
-
-const isMcSpellcaster = (mc) => {
-  return checkIsSpellcaster(
-    mc.characterClass?.class?.name || mc.classSelected,
-    mc.classLevel,
-    mc.selectedSubClassItem?.name,
-    selectedEdition.value
-  )
-}
-
-const allUnlockedAsiList = computed(() => {
-  const list = []
-  const pName = (classSelected.value || characterClass.value?.class?.name || 'Primary Class')
-  for (const tier of unlockedAsiTiers.value) {
-    if (!asiTierChoices[tier]) {
-      asiTierChoices[tier] = {
-        type: '',
-        asiMode: '+2',
-        plus2Stat: '',
-        plus1StatA: '',
-        plus1StatB: '',
-        featName: '',
-        featAbility: ''
-      }
-    }
-    list.push({
-      classKey: 'primary',
-      className: pName.charAt(0).toUpperCase() + pName.slice(1),
-      tier,
-      errorKey: `asiTier_${tier}`,
-      choice: asiTierChoices[tier]
-    })
-  }
-  for (let idx = 0; idx < multiclasses.value.length; idx++) {
-    const mc = multiclasses.value[idx]
-    if (!isMcPrereqMet(mc)) continue
-    const mcName = mc.classSelected || mc.characterClass?.class?.name || `Class #${idx + 2}`
-    const mcTiers = getUnlockedAsiTiersForClass(mc.classSelected, mc.classLevel)
-    for (const tier of mcTiers) {
-      if (!mc.asiTierChoices[tier]) {
-        mc.asiTierChoices[tier] = {
-          type: '',
-          asiMode: '+2',
-          plus2Stat: '',
-          plus1StatA: '',
-          plus1StatB: '',
-          featName: '',
-          featAbility: ''
-        }
-      }
-      list.push({
-        classKey: `mc_${idx}`,
-        className: mcName.charAt(0).toUpperCase() + mcName.slice(1),
-        tier,
-        errorKey: `asiTier_mc_${idx}_${tier}`,
-        choice: mc.asiTierChoices[tier]
-      })
-    }
-  }
-  return list
-})
-
-watch(maxPrimaryClassLevel, (newMax) => {
-  if (Number(classLevel.value) > newMax) {
-    classLevel.value = newMax
-  }
-})
-
-watch(multiclasses, (mcs) => {
-  mcs.forEach((mc, idx) => {
-    const maxLvl = getMaxLevelForMc(idx)
-    if (Number(mc.classLevel) > maxLvl) {
-      mc.classLevel = maxLvl
-    }
-    if (mc.classSelected) {
-      delete errors['class_mc_' + idx]
-      const mcSubUnlock = getSubclassUnlockLevel(mc.classSelected, selectedEdition.value)
-      if (Number(mc.classLevel) < mcSubUnlock) {
-        mc.selectedSubClassKey = ''
-        mc.selectedSubClassItem = null
-        delete errors['subclass_mc_' + idx]
-      } else if (mc.selectedSubClassKey) {
-        delete errors['subclass_mc_' + idx]
-      }
-    }
-  })
-}, { deep: true })
 
 const asiBonuses = computed(() => {
   const bonuses = { strength: 0, dexterity: 0, constitution: 0, intelligence: 0, wisdom: 0, charisma: 0 }
@@ -1325,87 +768,9 @@ const availableSubClasses = computed(() => {
   })
 })
 
-const selectedSubClassKey = ref('')
-const selectedSubClassItem = ref(null)
-
 const classSubTab = ref('features') // 'features' | 'spells' | 'featSpells'
 const chosenSpells = ref([])
 const featChosenSpells = ref([])
-
-const SPELL_GRANTING_FEATS_CONFIG = [
-  {
-    match: /magic initiate/i,
-    name: 'Magic Initiate',
-    cantrips: 2,
-    spells: 1,
-    maxLevel: 1,
-    desc: 'Choose 2 cantrips and one 1st-level spell'
-  },
-  {
-    match: /fey touched/i,
-    name: 'Fey Touched',
-    fixed: ['Misty Step'],
-    cantrips: 0,
-    spells: 1,
-    maxLevel: 1,
-    schools: ['D', 'E'],
-    desc: 'Grants Misty Step and one 1st-level Divination or Enchantment spell'
-  },
-  {
-    match: /shadow touched/i,
-    name: 'Shadow Touched',
-    fixed: ['Invisibility'],
-    cantrips: 0,
-    spells: 1,
-    maxLevel: 1,
-    schools: ['I', 'N'],
-    desc: 'Grants Invisibility and one 1st-level Illusion or Necromancy spell'
-  },
-  {
-    match: /ritual caster/i,
-    name: 'Ritual Caster',
-    cantrips: 0,
-    spells: 2,
-    maxLevel: 1,
-    isRitual: true,
-    desc: 'Choose two 1st-level ritual spells'
-  },
-  {
-    match: /spell sniper/i,
-    name: 'Spell Sniper',
-    cantrips: 1,
-    spells: 0,
-    maxLevel: 0,
-    desc: 'Choose one attack cantrip'
-  },
-  {
-    match: /artificer initiate/i,
-    name: 'Artificer Initiate',
-    cantrips: 1,
-    spells: 1,
-    maxLevel: 1,
-    className: 'Artificer',
-    desc: 'Choose one cantrip and one 1st-level spell from the Artificer spell list'
-  },
-  {
-    match: /telekinetic/i,
-    name: 'Telekinetic',
-    fixed: ['Mage Hand'],
-    cantrips: 0,
-    spells: 0,
-    maxLevel: 0,
-    desc: 'Grants the Mage Hand cantrip'
-  },
-  {
-    match: /telepathic/i,
-    name: 'Telepathic',
-    fixed: ['Detect Thoughts'],
-    cantrips: 0,
-    spells: 0,
-    maxLevel: 2,
-    desc: 'Grants Detect Thoughts'
-  }
-]
 
 const getEstimatedClassCantrips = (className, subclassName, level) => {
   const c = (className || '').toLowerCase()
@@ -1567,175 +932,6 @@ const allLanguagesList = computed(() => {
   return [...new Set(list)]
 })
 
-// --- Standard Tools, Instruments & Gaming Sets ---
-const STANDARD_MUSICAL_INSTRUMENTS = [
-  'Bagpipes',
-  'Drum',
-  'Dulcimer',
-  'Flute',
-  'Horn',
-  'Lute',
-  'Lyre',
-  'Pan flute',
-  'Shawm',
-  'Viol'
-]
-
-const STANDARD_ARTISAN_TOOLS = [
-  "Alchemist's supplies",
-  "Brewer's supplies",
-  "Calligrapher's supplies",
-  "Carpenter's tools",
-  "Cartographer's tools",
-  "Cobbler's tools",
-  "Cook's utensils",
-  "Glassblower's tools",
-  "Jeweler's tools",
-  "Leatherworker's tools",
-  "Mason's tools",
-  "Painter's supplies",
-  "Potter's tools",
-  "Smith's tools",
-  "Tinker's tools",
-  "Weaver's tools",
-  "Woodcarver's tools"
-]
-
-const STANDARD_GAMING_SETS = [
-  'Dice set',
-  'Dragonchess set',
-  'Playing card set',
-  'Three-Dragon Ante set'
-]
-
-const STANDARD_OTHER_TOOLS = [
-  'Disguise kit',
-  'Forgery kit',
-  'Herbalism kit',
-  "Navigator's tools",
-  "Poisoner's kit",
-  "Thieves' tools"
-]
-
-const ALL_TOOLS = [
-  ...STANDARD_ARTISAN_TOOLS,
-  ...STANDARD_MUSICAL_INSTRUMENTS,
-  ...STANDARD_GAMING_SETS,
-  ...STANDARD_OTHER_TOOLS
-]
-
-const CLASS_STARTING_GOLD = {
-  barbarian: 50,
-  bard: 125,
-  cleric: 125,
-  druid: 50,
-  fighter: 125,
-  monk: 12,
-  paladin: 125,
-  ranger: 125,
-  rogue: 100,
-  sorcerer: 75,
-  warlock: 100,
-  wizard: 100,
-  artificer: 125
-}
-
-const CLASS_DEFAULT_EQUIPMENT = {
-  barbarian: [
-    { name: 'Greataxe', weight: '7', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Handaxe', weight: '2', amount: 2, status: 'equipped', is_armor: false },
-    { name: "Explorer's Pack", weight: '59', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Javelin', weight: '2', amount: 4, status: 'inventory', is_armor: false }
-  ],
-  bard: [
-    { name: 'Rapier', weight: '2', amount: 1, status: 'equipped', is_armor: false },
-    { name: "Diplomat's Pack", weight: '36', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Leather Armor', weight: '10', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Dagger', weight: '1', amount: 1, status: 'equipped', is_armor: false }
-  ],
-  cleric: [
-    { name: 'Mace', weight: '4', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Scale Mail', weight: '45', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Light Crossbow', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crossbow Bolts (20)', weight: '1.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Priest's Pack", weight: '25', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Shield', weight: '6', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Holy Symbol', weight: '1', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  druid: [
-    { name: 'Wooden Shield', weight: '6', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Scimitar', weight: '3', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Leather Armor', weight: '10', amount: 1, status: 'equipped', is_armor: true },
-    { name: "Explorer's Pack", weight: '59', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Druidic Focus', weight: '1', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  fighter: [
-    { name: 'Chain Mail', weight: '55', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Longsword', weight: '3', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Shield', weight: '6', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Light Crossbow', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crossbow Bolts (20)', weight: '1.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Dungeoneer's Pack", weight: '61.5', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  monk: [
-    { name: 'Shortsword', weight: '2', amount: 1, status: 'equipped', is_armor: false },
-    { name: "Dungeoneer's Pack", weight: '61.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Dart', weight: '0.25', amount: 10, status: 'inventory', is_armor: false }
-  ],
-  paladin: [
-    { name: 'Longsword', weight: '3', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Shield', weight: '6', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Javelin', weight: '2', amount: 5, status: 'inventory', is_armor: false },
-    { name: "Priest's Pack", weight: '25', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Chain Mail', weight: '55', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Holy Symbol', weight: '1', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  ranger: [
-    { name: 'Scale Mail', weight: '45', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Shortsword', weight: '2', amount: 2, status: 'equipped', is_armor: false },
-    { name: "Dungeoneer's Pack", weight: '61.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Longbow', weight: '2', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Arrows (20)', weight: '2.5', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  rogue: [
-    { name: 'Rapier', weight: '2', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Shortbow', weight: '2', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Arrows (20)', weight: '2.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Burglar's Pack", weight: '47.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Leather Armor', weight: '10', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Dagger', weight: '1', amount: 2, status: 'equipped', is_armor: false },
-    { name: "Thieves' Tools", weight: '1', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  sorcerer: [
-    { name: 'Light Crossbow', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crossbow Bolts (20)', weight: '1.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Arcane Focus', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Dungeoneer's Pack", weight: '61.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Dagger', weight: '1', amount: 2, status: 'equipped', is_armor: false }
-  ],
-  warlock: [
-    { name: 'Light Crossbow', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crossbow Bolts (20)', weight: '1.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Arcane Focus', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Scholar's Pack", weight: '11', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Leather Armor', weight: '10', amount: 1, status: 'equipped', is_armor: true },
-    { name: 'Dagger', weight: '1', amount: 2, status: 'equipped', is_armor: false }
-  ],
-  wizard: [
-    { name: 'Quarterstaff', weight: '4', amount: 1, status: 'equipped', is_armor: false },
-    { name: 'Arcane Focus', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Scholar's Pack", weight: '11', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Spellbook', weight: '3', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  artificer: [
-    { name: 'Light Crossbow', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crossbow Bolts (20)', weight: '1.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Studded Leather Armor', weight: '13', amount: 1, status: 'equipped', is_armor: true },
-    { name: "Thieves' Tools", weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: "Dungeoneer's Pack", weight: '61.5', amount: 1, status: 'inventory', is_armor: false }
-  ]
-}
-
 const chosenClassTools = ref([])
 const chosenBgTools = ref([])
 
@@ -1855,998 +1051,87 @@ const bgToolConfig = computed(() => {
 
 
 // --- Equipment & Starting Wealth System ---
-const equipmentChoiceMode = ref('package')
-const customStartingGold = ref(50)
-const chosenBgEquipmentChoices = reactive({})
-const chosenClassEquipmentChoices = reactive({})
-
-const ITEM_WEIGHT_MAP = {
-  greataxe: 7, greatsword: 6, flail: 2, scimitar: 3, shortsword: 2,
-  longsword: 3, longbow: 2, 'light crossbow': 5, 'heavy crossbow': 18,
-  'hand crossbow': 3, dagger: 1, handaxe: 2, javelin: 2, mace: 4,
-  warhammer: 2, quarterstaff: 4, spear: 3, dart: 0.25, rapier: 2,
-  halberd: 6, glaive: 6, pike: 18, trident: 4, morningstar: 4,
-  'war pick': 2, whip: 3, club: 2, greatclub: 10, 'light hammer': 2,
-  sickle: 2, sling: 0, shortbow: 2,
-  'chain mail': 55, 'leather armor': 10, 'studded leather armor': 13,
-  'scale mail': 45, 'plate armor': 65, breastplate: 20, 'half plate': 40,
-  'hide armor': 12, 'padded armor': 8, 'ring mail': 40, 'splint armor': 60,
-  shield: 6, 'wooden shield': 6, robe: 4,
-  'clothes, common': 3, 'clothes, costume': 4, 'clothes, fine': 6, "clothes, traveler's": 4,
-  "explorer's pack": 59, "dungeoneer's pack": 61.5, "priest's pack": 25,
-  "scholar's pack": 11, "burglar's pack": 47.5, "diplomat's pack": 36, "entertainer's pack": 38,
-  pouch: 1, backpack: 5, quiver: 1, spellbook: 3, 'component pouch': 2,
-  'holy symbol': 1, 'arcane focus': 1, 'druidic focus': 1, "thieves' tools": 1,
-  'herbalism kit': 3, 'arrows (20)': 1, 'crossbow bolts (20)': 1.5,
-  bedroll: 7, 'mess kit': 1, tinderbox: 1, torch: 1, torches: 1,
-  'rations (1 day)': 2, rations: 2, waterskin: 5, 'hempen rope (50 feet)': 10,
-  'hempen rope': 10, crowbar: 5, hammer: 3, pitons: 0.25, piton: 0.25,
-  'ball bearings (bag of 1,000)': 2, 'string (10 feet)': 0, bell: 0,
-  candle: 0, candles: 0, 'hooded lantern': 2, 'oil (flask)': 1,
-  blanket: 3, 'alms box': 1, censer: 1, vestments: 4, 'book of lore': 5,
-  'ink (1 ounce bottle)': 0, 'ink pen': 0, 'parchment (sheet)': 0,
-  'little bag of sand': 1, 'small knife': 0.5, chest: 25,
-  'map/scroll case': 1, lamp: 1, 'paper (sheet)': 0, 'perfume (vial)': 0,
-  'sealing wax': 0, soap: 0, 'disguise kit': 3, 'wooden stakes': 1,
-  'holy water (flask)': 1, manacles: 6, 'steel mirror': 0.5
-}
-
-const EQUIPMENT_PACK_CONTENTS = {
-  "explorer's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Bedroll', weight: '7', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Mess Kit', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Tinderbox', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Torches', weight: '1', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Rations (1 day)', weight: '2', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Waterskin', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hempen Rope (50 feet)', weight: '10', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "dungeoneer's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crowbar', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hammer', weight: '3', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Pitons', weight: '0.25', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Torches', weight: '1', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Tinderbox', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Rations (1 day)', weight: '2', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Waterskin', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hempen Rope (50 feet)', weight: '10', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "burglar's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Ball Bearings (bag of 1,000)', weight: '2', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'String (10 feet)', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Bell', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Candles', weight: '0', amount: 5, status: 'inventory', is_armor: false },
-    { name: 'Crowbar', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hammer', weight: '3', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Pitons', weight: '0.25', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Hooded Lantern', weight: '2', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Oil (flask)', weight: '1', amount: 2, status: 'inventory', is_armor: false },
-    { name: 'Rations (1 day)', weight: '2', amount: 5, status: 'inventory', is_armor: false },
-    { name: 'Tinderbox', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Waterskin', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hempen Rope (50 feet)', weight: '10', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "priest's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Blanket', weight: '3', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Candles', weight: '0', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Tinderbox', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Alms Box', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Censer', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Vestments', weight: '4', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Rations (1 day)', weight: '2', amount: 2, status: 'inventory', is_armor: false },
-    { name: 'Waterskin', weight: '5', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "scholar's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Book of Lore', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Ink (1 ounce bottle)', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Ink Pen', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Parchment (sheet)', weight: '0', amount: 10, status: 'inventory', is_armor: false },
-    { name: 'Little Bag of Sand', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Small Knife', weight: '0.5', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "diplomat's pack": [
-    { name: 'Chest', weight: '25', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Map/Scroll Case', weight: '1', amount: 2, status: 'inventory', is_armor: false },
-    { name: 'Clothes, Fine', weight: '6', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Ink (1 ounce bottle)', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Ink Pen', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Lamp', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Oil (flask)', weight: '1', amount: 2, status: 'inventory', is_armor: false },
-    { name: 'Paper (sheet)', weight: '0', amount: 5, status: 'inventory', is_armor: false },
-    { name: 'Perfume (vial)', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Sealing Wax', weight: '0', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Soap', weight: '0', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "entertainer's pack": [
-    { name: 'Backpack', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Bedroll', weight: '7', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Clothes, Costume', weight: '4', amount: 2, status: 'inventory', is_armor: false },
-    { name: 'Candles', weight: '0', amount: 5, status: 'inventory', is_armor: false },
-    { name: 'Rations (1 day)', weight: '2', amount: 5, status: 'inventory', is_armor: false },
-    { name: 'Waterskin', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Disguise Kit', weight: '3', amount: 1, status: 'inventory', is_armor: false }
-  ],
-  "monster hunter's pack": [
-    { name: 'Chest', weight: '25', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Crowbar', weight: '5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Hammer', weight: '3', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Wooden Stakes', weight: '1', amount: 3, status: 'inventory', is_armor: false },
-    { name: 'Holy Symbol', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Holy Water (flask)', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Manacles', weight: '6', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Steel Mirror', weight: '0.5', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Oil (flask)', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Tinderbox', weight: '1', amount: 1, status: 'inventory', is_armor: false },
-    { name: 'Torches', weight: '1', amount: 3, status: 'inventory', is_armor: false }
-  ]
-}
-
-const unpackEquipmentItem = (item) => {
-  if (!item || !item.name) return []
-  const lowerName = item.name.toLowerCase().trim()
-  for (const [packName, contents] of Object.entries(EQUIPMENT_PACK_CONTENTS)) {
-    if (lowerName === packName || lowerName.includes(packName)) {
-      return contents.map(c => ({ ...c }))
-    }
-  }
-  return [item]
-}
-
-const consolidateItems = (itemList) => {
-  const result = []
-  const map = new Map()
-  for (const it of itemList) {
-    const key = `${it.name.toLowerCase().trim()}_${it.status}_${it.is_armor}`
-    if (map.has(key)) {
-      const existing = map.get(key)
-      existing.amount = (Number(existing.amount) || 1) + (Number(it.amount) || 1)
-    } else {
-      const copy = { ...it, amount: Number(it.amount) || 1 }
-      map.set(key, copy)
-      result.push(copy)
-    }
-  }
-  return result
-}
-
-const lookupItemWeight = (name) => {
-  if (!name) return '1'
-  const clean = name.toLowerCase().replace(/\s*\(\d+\)/, '').trim()
-  if (ITEM_WEIGHT_MAP[clean] !== undefined) return String(ITEM_WEIGHT_MAP[clean])
-  for (const [k, v] of Object.entries(ITEM_WEIGHT_MAP)) {
-    if (clean.includes(k)) return String(v)
-  }
-  return '1'
-}
-
-const isLikelyArmor = (name) => {
-  if (!name) return false
-  const lower = name.toLowerCase()
-  return lower.includes('armor') || lower.includes('mail') || lower.includes('shield') || lower.includes('breastplate')
-}
-
-const isLikelyWeapon = (name) => {
-  if (!name) return false
-  const lower = name.toLowerCase()
-  return [
-    'sword', 'axe', 'bow', 'dagger', 'mace', 'crossbow', 'spear', 'javelin',
-    'staff', 'hammer', 'flail', 'scimitar', 'rapier', 'dart', 'halberd',
-    'glaive', 'pike', 'trident', 'whip', 'club', 'weapon'
-  ].some(w => lower.includes(w))
-}
-
-const resolveEquipmentType = (type, qty = 1) => {
-  const prefix = qty > 1 ? `${qty}x ` : ''
-  switch (type) {
-    case 'weaponMartial':
-      return qty > 1 ? '2 Martial Weapons (Longswords)' : 'Martial Weapon (Longsword)'
-    case 'weaponMartialMelee':
-      return qty > 1 ? '2 Martial Melee Weapons (Greataxes)' : 'Martial Melee Weapon (Greataxe)'
-    case 'weaponSimple':
-      return qty > 1 ? '2 Simple Weapons (Handaxes)' : 'Simple Weapon (Shortbow)'
-    case 'weaponSimpleMelee':
-      return qty > 1 ? '2 Simple Melee Weapons (Clubs)' : 'Simple Melee Weapon (Club)'
-    case 'focusSpellcastingArcane':
-      return 'Arcane Focus (Wand)'
-    case 'focusSpellcastingHoly':
-      return 'Holy Symbol'
-    case 'focusSpellcastingDruid':
-    case 'focusSpellcastingDruidic':
-      return 'Druidic Focus'
-    case 'instrumentMusical':
-      return 'Musical Instrument (Lute)'
-    case 'toolArtisan':
-      return "Artisan's Tools"
-    default:
-      return `${prefix}${type}`
-  }
-}
-
-const parseClassEquipmentList = (rawList) => {
-  const items = []
-  let gold = 0
-  for (const entry of (rawList || [])) {
-    if (typeof entry === 'string') {
-      const clean = clean5eToolsMarkup(entry).split('|')[0].trim()
-      const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-      if (gpMatch) {
-        gold += parseInt(gpMatch[1], 10)
-        continue
-      }
-      if (clean) {
-        const name = clean.replace(/\b\w/g, l => l.toUpperCase())
-        const isArmor = isLikelyArmor(name)
-        const isWeapon = isLikelyWeapon(name)
-        items.push({
-          name,
-          weight: lookupItemWeight(name),
-          amount: 1,
-          status: (isArmor || isWeapon) ? 'equipped' : 'inventory',
-          is_armor: isArmor
-        })
-      }
-    } else if (typeof entry === 'object' && entry) {
-      if (entry.value != null || entry.containsValue != null) {
-        gold += Math.floor((entry.value || entry.containsValue) / 100)
-      } else {
-        let name = ''
-        let qty = Number(entry.quantity) || 1
-        if (entry.equipmentType) {
-          name = resolveEquipmentType(entry.equipmentType, qty)
-        } else if (entry.item) {
-          const clean = clean5eToolsMarkup(entry.displayName || entry.item).split('|')[0].trim()
-          const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-          if (gpMatch) {
-            gold += parseInt(gpMatch[1], 10) * qty
-            continue
-          }
-          name = clean.replace(/\b\w/g, l => l.toUpperCase())
-        } else if (entry.special) {
-          const clean = clean5eToolsMarkup(entry.special).replace(/\b\w/g, l => l.toUpperCase()).trim()
-          const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-          if (gpMatch) {
-            gold += parseInt(gpMatch[1], 10) * qty
-            continue
-          }
-          name = clean
-        }
-        if (name) {
-          const isArmor = isLikelyArmor(name)
-          const isWeapon = isLikelyWeapon(name)
-          items.push({
-            name,
-            weight: lookupItemWeight(name),
-            amount: qty,
-            status: (isArmor || isWeapon) ? 'equipped' : 'inventory',
-            is_armor: isArmor
-          })
-        }
-      }
-    }
-  }
-  return { items, gold }
-}
-
-const classEquipmentChoices = computed(() => {
-  let startingEq = characterClass.value?.class?.startingEquipment
-  if (!startingEq) return []
-  if (typeof startingEq === 'string') {
-    try { startingEq = JSON.parse(startingEq) } catch (e) { return [] }
-  }
-  const defaultData = startingEq.defaultData
-  if (!Array.isArray(defaultData)) return []
-
-  const choices = []
-  defaultData.forEach((rowObj, rowIdx) => {
-    if (!rowObj || typeof rowObj !== 'object') return
-    const keys = Object.keys(rowObj).filter(k => k !== '_')
-    if (keys.length === 0) return
-
-    keys.sort((x, y) => x.localeCompare(y))
-
-    const options = keys.map((key) => {
-      const parsed = parseClassEquipmentList(rowObj[key])
-      const itemDesc = parsed.items.map(it => (it.amount > 1 ? `${it.amount}x ` : '') + it.name).join(', ')
-      let description = ''
-      if (itemDesc && parsed.gold > 0) {
-        description = `${itemDesc} + ${parsed.gold} GP`
-      } else if (itemDesc) {
-        description = itemDesc
-      } else if (parsed.gold > 0) {
-        description = `${parsed.gold} GP (Starting Gold)`
-      } else {
-        description = 'Standard Kit'
-      }
-
-      return {
-        key: key.toLowerCase(),
-        rawKey: key,
-        title: description,
-        description,
-        items: parsed.items,
-        gold: parsed.gold
-      }
-    })
-
-    const choiceNumber = choices.length + 1
-    let label = `Equipment Choice #${choiceNumber}`
-    if (startingEq.default && Array.isArray(startingEq.default) && startingEq.default[rowIdx]) {
-      const cleanDesc = clean5eToolsMarkup(startingEq.default[rowIdx])
-      if (cleanDesc && cleanDesc.length < 80) {
-        label = cleanDesc
-      }
-    } else if (defaultData.length === 1) {
-      label = 'Class Equipment Package'
-    }
-
-    choices.push({
-      id: `class_eq_choice_${rowIdx}`,
-      rowIdx,
-      label,
-      options,
-      defaultKey: options[0]?.key || 'a'
-    })
-  })
-
-  return choices
-})
-
-const fixedClassItems = computed(() => {
-  let startingEq = characterClass.value?.class?.startingEquipment
-  if (!startingEq) return []
-  if (typeof startingEq === 'string') {
-    try { startingEq = JSON.parse(startingEq) } catch (e) { return [] }
-  }
-  if (!Array.isArray(startingEq.defaultData)) return []
-  const fixed = []
-  startingEq.defaultData.forEach((rowObj) => {
-    if (rowObj && rowObj._) {
-      const parsed = parseClassEquipmentList(rowObj._)
-      if (parsed.items.length) {
-        fixed.push(...parsed.items)
-      }
-    }
-  })
-  return fixed
-})
-
-watch(classEquipmentChoices, (choices) => {
-  for (const ch of choices) {
-    if (!chosenClassEquipmentChoices[ch.id]) {
-      chosenClassEquipmentChoices[ch.id] = ch.defaultKey || 'a'
-    }
-  }
-}, { immediate: true })
-
-const bgEquipmentChoices = computed(() => {
-  const bg = selectedBackgroundObj.value
-  if (!bg) return []
-  const choices = []
-
-  if (Array.isArray(bg.startingEquipment)) {
-    bg.startingEquipment.forEach((eqObj, idx) => {
-      if (!eqObj) return
-      const hasA = Boolean(eqObj.a || eqObj.A)
-      const hasB = Boolean(eqObj.b || eqObj.B)
-      if (hasA && hasB) {
-        const parseList = (listRaw) => {
-          const items = []
-          let gold = 0
-          for (const it of (listRaw || [])) {
-            if (typeof it === 'string') {
-              const clean = clean5eToolsMarkup(it).split('|')[0].trim()
-              if (clean) items.push(clean)
-            } else if (typeof it === 'object' && it) {
-              if (it.item) {
-                const clean = clean5eToolsMarkup(it.displayName || it.item).split('|')[0].trim()
-                if (clean) items.push(clean)
-              } else if (it.special) {
-                const qty = it.quantity ? `${it.quantity} ` : ''
-                items.push(`${qty}${it.special}`.trim())
-              }
-              if (it.value != null) gold = Math.floor(it.value / 100)
-              else if (it.containsValue != null) gold = Math.floor(it.containsValue / 100)
-            }
-          }
-          return { items, gold }
-        }
-
-        const optA = parseList(eqObj.a || eqObj.A)
-        const optB = parseList(eqObj.b || eqObj.B)
-
-        const formatOptLabel = (opt) => {
-          const parts = []
-          if (opt.items.length) parts.push(opt.items.join(', '))
-          if (opt.gold) parts.push(`${opt.gold} GP`)
-          return parts.join(' + ') || 'Default'
-        }
-
-        choices.push({
-          id: `eq_choice_${idx}`,
-          label: `Background Equipment Choice #${idx + 1}`,
-          optionA: { key: 'a', label: formatOptLabel(optA), items: optA.items, gold: optA.gold },
-          optionB: { key: 'b', label: formatOptLabel(optB), items: optB.items, gold: optB.gold }
-        })
-      }
-    })
-  }
-
-  const details = parseBackgroundDetails(bg)
-  const eqText = details?.equipmentText || ''
-  const orMatch = eqText.match(/a\s+([a-zA-Z\s]+?)\s+or\s+([a-zA-Z\s]+?)(?:,|\s+stuffed|\s+and|\.|$)/i)
-  if (choices.length === 0 && orMatch) {
-    const item1 = orMatch[1].trim()
-    const item2 = orMatch[2].trim()
-    if (item1.length > 2 && item2.length > 2 && !item1.toLowerCase().includes('clothes')) {
-      choices.push({
-        id: 'eq_choice_text_or',
-        label: 'Gear Choice',
-        optionA: { key: 'a', label: item1, items: [item1], gold: 0 },
-        optionB: { key: 'b', label: item2, items: [item2], gold: 0 }
-      })
-    }
-  }
-
-  return choices
-})
-
-watch(bgEquipmentChoices, (choices) => {
-  for (const ch of choices) {
-    if (!chosenBgEquipmentChoices[ch.id]) {
-      chosenBgEquipmentChoices[ch.id] = 'a'
-    }
-  }
-}, { immediate: true })
-
-const defaultStartingGold = computed(() => {
-  const cName = (characterClass.value?.class?.name || classSelected.value || '').toLowerCase()
-  if (selectedEdition.value === '2024') return 50
-  return CLASS_STARTING_GOLD[cName] || 100
-})
-
-const resetStartingGold = () => {
-  customStartingGold.value = defaultStartingGold.value
-  delete errors.equipmentGold
-}
-
-watch([() => characterClass.value?.class?.name, selectedEdition], () => {
-  if (isEditMode.value) return
-  customStartingGold.value = defaultStartingGold.value
-}, { immediate: true })
-
-watch(equipmentChoiceMode, (newVal) => {
-  if (isEditMode.value) return
-  if (newVal === 'gold') {
-    resetStartingGold()
-  } else if (newVal === 'package') {
-    if (userEquipmentList.value.length === 0) {
-      syncDefaultEquipment(true)
-    }
-  }
-})
-
-const computedPackageEquipment = computed(() => {
-  const cName = (characterClass.value?.class?.name || classSelected.value || '').toLowerCase()
-  const rawList = []
-
-  if (classEquipmentChoices.value.length > 0 || fixedClassItems.value.length > 0) {
-    for (const ch of classEquipmentChoices.value) {
-      const chosenKey = chosenClassEquipmentChoices[ch.id] || ch.defaultKey
-      const opt = ch.options.find(o => o.key === chosenKey) || ch.options[0]
-      if (opt?.items?.length) {
-        rawList.push(...opt.items.map(it => ({ ...it })))
-      }
-    }
-    if (fixedClassItems.value.length > 0) {
-      rawList.push(...fixedClassItems.value.map(it => ({ ...it })))
-    }
-  } else {
-    const baseItems = CLASS_DEFAULT_EQUIPMENT[cName] || [
-      { name: 'Dagger', weight: '1', amount: 1, status: 'equipped', is_armor: false },
-      { name: "Explorer's Pack", weight: '59', amount: 1, status: 'inventory', is_armor: false }
-    ]
-    rawList.push(...baseItems.map(it => ({ ...it })))
-  }
-
-  for (const t of chosenClassTools.value.filter(Boolean)) {
-    rawList.push({ name: t, weight: '2', amount: 1, status: 'inventory', is_armor: false })
-  }
-  for (const t of chosenBgTools.value.filter(Boolean)) {
-    rawList.push({ name: t, weight: '2', amount: 1, status: 'inventory', is_armor: false })
-  }
-
-  const bg = selectedBackgroundObj.value
-  if (bg) {
-    const bgDetails = parseBackgroundDetails(bg)
-    if (bgDetails?.bgStartingItems?.length) {
-      for (const itName of bgDetails.bgStartingItems) {
-        rawList.push({ name: itName, weight: lookupItemWeight(itName), amount: 1, status: 'inventory', is_armor: false })
-      }
-    }
-  }
-
-  rawList.push({ name: 'Clothes, Common', weight: '3', amount: 1, status: 'inventory', is_armor: false })
-  rawList.push({ name: 'Pouch', weight: '1', amount: 1, status: 'inventory', is_armor: false })
-
-  const unpackedList = []
-  for (const item of rawList) {
-    unpackedList.push(...unpackEquipmentItem(item))
-  }
-
-  return consolidateItems(unpackedList)
-})
-
-// User Custom Equipment State & Compendium Picker
-const userEquipmentList = ref([])
-
-const syncDefaultEquipment = (force = false) => {
-  if (force || userEquipmentList.value.length === 0) {
-    userEquipmentList.value = computedPackageEquipment.value.map(it => ({ ...it }))
-  }
-}
-
-watch(computedPackageEquipment, () => {
-  if (!isEditMode.value && userEquipmentList.value.length === 0) {
-    syncDefaultEquipment(true)
-  }
-}, { immediate: true })
-
-const toggleWizardItemStatus = (idx) => {
-  const item = userEquipmentList.value[idx]
-  if (item) {
-    item.status = item.status === 'equipped' ? 'inventory' : 'equipped'
-  }
-}
-
-const changeWizardItemAmount = (idx, delta) => {
-  const item = userEquipmentList.value[idx]
-  if (item) {
-    const cur = Number(item.amount) || 1
-    item.amount = Math.max(1, cur + delta)
-  }
-}
-
-const removeWizardItem = (idx) => {
-  userEquipmentList.value.splice(idx, 1)
-}
-
-const isWizardCompendiumOpen = ref(false)
-const wizardCompendiumSearch = ref('')
-const wizardCompendiumCategory = ref('all')
-const wizardCompendiumLoading = ref(false)
-const wizardCompendiumLoadingMore = ref(false)
-const wizardCompendiumResults = ref([])
-const wizardCompendiumOffset = ref(0)
-const wizardCompendiumHasMore = ref(false)
-const WIZARD_PAGE_LIMIT = 40
-
-const searchWizardCompendium = async (isLoadMore = false) => {
-  if (isLoadMore) {
-    if (wizardCompendiumLoading.value || wizardCompendiumLoadingMore.value || !wizardCompendiumHasMore.value) return
-    wizardCompendiumLoadingMore.value = true
-  } else {
-    wizardCompendiumLoading.value = true
-    wizardCompendiumOffset.value = 0
-    wizardCompendiumResults.value = []
-  }
-
-  try {
-    const params = new URLSearchParams()
-    params.set('edition', selectedEdition.value)
-    if (wizardCompendiumSearch.value.trim()) params.set('search', wizardCompendiumSearch.value.trim())
-    if (wizardCompendiumCategory.value !== 'all') params.set('type', wizardCompendiumCategory.value)
-    params.set('limit', String(WIZARD_PAGE_LIMIT))
-    params.set('offset', String(wizardCompendiumOffset.value))
-
-    const res = await axios.get(`${API_URL}/compendium/items?${params.toString()}`)
-    const newItems = Array.isArray(res.data?.data) ? res.data.data : []
-    wizardCompendiumHasMore.value = newItems.length === WIZARD_PAGE_LIMIT
-
-    if (isLoadMore) {
-      wizardCompendiumResults.value.push(...newItems)
-    } else {
-      wizardCompendiumResults.value = newItems
-    }
-    wizardCompendiumOffset.value += newItems.length
-  } catch (err) {
-    console.error('Failed to search wizard items', err)
-    if (!isLoadMore) {
-      wizardCompendiumResults.value = []
-      wizardCompendiumHasMore.value = false
-    }
-  } finally {
-    wizardCompendiumLoading.value = false
-    wizardCompendiumLoadingMore.value = false
-  }
-}
-
-const onWizardCompendiumScroll = (e) => {
-  const el = e.target
-  if (!el || wizardCompendiumLoading.value || wizardCompendiumLoadingMore.value || !wizardCompendiumHasMore.value) return
-  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
-    searchWizardCompendium(true)
-  }
-}
-
-const openWizardCompendium = () => {
-  isWizardCompendiumOpen.value = true
-  if (wizardCompendiumResults.value.length === 0) {
-    searchWizardCompendium()
-  }
-}
-
-const addWizardItemFromCompendium = (it) => {
-  const isArmor = it.type === 'armor' || (it.name || '').toLowerCase().includes('armor') || (it.name || '').toLowerCase().includes('shield')
-  const baseItem = {
-    name: it.name,
-    weight: String(it.weight || 0),
-    amount: 1,
-    status: 'inventory',
-    is_armor: Boolean(isArmor),
-    ac: it.ac || 0,
-    dexMod: !!it.dexMod
-  }
-  const unpacked = unpackEquipmentItem(baseItem)
-  for (const item of unpacked) {
-    const existing = userEquipmentList.value.find(
-      x => x.name.toLowerCase().trim() === item.name.toLowerCase().trim() && x.status === item.status
-    )
-    if (existing) {
-      existing.amount = (Number(existing.amount) || 1) + (Number(item.amount) || 1)
-    } else {
-      userEquipmentList.value.push(item)
-    }
-  }
-}
-
-const computedTotalWeight = computed(() => {
-  return userEquipmentList.value.reduce((acc, it) => {
-    const wt = parseFloat(it.weight) || 0
-    const amt = Number(it.amount) || 1
-    return acc + (wt * amt)
-  }, 0)
-})
-
-const formStrScore = computed(() => Number(strength.value) || 10)
-const computedCarryCapacity = computed(() => formStrScore.value * 15)
-const formEncumberedThreshold = computed(() => formStrScore.value * 5)
-const formHeavilyEncumberedThreshold = computed(() => formStrScore.value * 10)
-
-const formWeightPercent = computed(() => {
-  const cap = computedCarryCapacity.value || 1
-  return Math.min(100, Math.max(0, (computedTotalWeight.value / cap) * 100))
-})
-
-const formWeightStatus = computed(() => {
-  const wt = computedTotalWeight.value
-  const max = computedCarryCapacity.value
-  const heavy = formHeavilyEncumberedThreshold.value
-  const enc = formEncumberedThreshold.value
-
-  if (wt > max) return 'over'
-  if (wt > heavy) return 'heavy'
-  if (wt > enc) return 'encumbered'
-  return 'safe'
-})
-
-const formWeightStatusLabel = computed(() => {
-  switch (formWeightStatus.value) {
-    case 'over':
-      return 'Over Capacity'
-    case 'heavy':
-      return 'Heavily Encumbered'
-    case 'encumbered':
-      return 'Encumbered'
-    case 'safe':
-    default:
-      return 'Normal'
-  }
-})
-
-const formWeightBarColor = computed(() => {
-  switch (formWeightStatus.value) {
-    case 'over':
-      return 'bg-red-800'
-    case 'heavy':
-      return 'bg-amber-800'
-    case 'encumbered':
-      return 'bg-gray-700'
-    case 'safe':
-    default:
-      return 'bg-gray-600'
-  }
-})
-
-const formWeightStatusTextColor = computed(() => {
-  switch (formWeightStatus.value) {
-    case 'over':
-      return 'text-red-700'
-    case 'heavy':
-      return 'text-amber-700'
-    case 'encumbered':
-      return 'text-gray-800'
-    case 'safe':
-    default:
-      return 'text-gray-600'
-  }
-})
-
 const savedTreasure = reactive({ pp: 0, gp: 50, ep: 0, sp: 0, cp: 0 })
 
-const backgroundStartingGold = computed(() => {
-  const bg = selectedBackgroundObj.value
-  if (!bg) return selectedEdition.value === '2024' ? 16 : 15
-  const bgDetails = parseBackgroundDetails(bg)
-  return bgDetails?.bgPackageGold !== undefined ? bgDetails.bgPackageGold : (selectedEdition.value === '2024' ? 16 : 15)
-})
-
-const classStartingGold = computed(() => {
-  let gold = 0
-  for (const ch of classEquipmentChoices.value) {
-    const chosenKey = chosenClassEquipmentChoices[ch.id] || ch.defaultKey
-    const opt = ch.options.find(o => o.key === chosenKey) || ch.options[0]
-    if (opt?.gold) {
-      gold += opt.gold
-    }
-  }
-
-  let startingEq = characterClass.value?.class?.startingEquipment
-  if (startingEq) {
-    if (typeof startingEq === 'string') {
-      try { startingEq = JSON.parse(startingEq) } catch (e) { startingEq = null }
-    }
-    if (Array.isArray(startingEq?.defaultData)) {
-      startingEq.defaultData.forEach((rowObj) => {
-        if (rowObj && rowObj._) {
-          const parsed = parseClassEquipmentList(rowObj._)
-          if (parsed.gold) {
-            gold += parsed.gold
-          }
-        }
-      })
-    }
-  }
-
-  return gold
-})
-
-const computedTreasures = computed(() => {
-  if (isEditMode.value) {
-    return {
-      gp: Number(customStartingGold.value != null ? customStartingGold.value : savedTreasure.gp),
-      pp: savedTreasure.pp || 0,
-      ep: savedTreasure.ep || 0,
-      sp: savedTreasure.sp || 0,
-      cp: savedTreasure.cp || 0
-    }
-  }
-  if (equipmentChoiceMode.value === 'gold') {
-    return {
-      gp: Math.max(0, Math.floor(Number(customStartingGold.value) || 0)),
-      pp: 0,
-      ep: 0,
-      sp: 0,
-      cp: 0
-    }
-  }
-
-  return {
-    gp: backgroundStartingGold.value + classStartingGold.value,
-    pp: 0,
-    ep: 0,
-    sp: 0,
-    cp: 0
-  }
+const {
+  equipmentChoiceMode,
+  customStartingGold,
+  chosenBgEquipmentChoices,
+  chosenClassEquipmentChoices,
+  unpackEquipmentItem,
+  consolidateItems,
+  lookupItemWeight,
+  isLikelyArmor,
+  isLikelyWeapon,
+  resolveEquipmentType,
+  parseClassEquipmentList,
+  classEquipmentChoices,
+  fixedClassItems,
+  bgEquipmentChoices,
+  defaultStartingGold,
+  resetStartingGold,
+  computedPackageEquipment,
+  userEquipmentList,
+  syncDefaultEquipment,
+  toggleWizardItemStatus,
+  changeWizardItemAmount,
+  removeWizardItem,
+  isWizardCompendiumOpen,
+  openWizardCompendium,
+  addWizardItemFromCompendium,
+  computedTotalWeight,
+  formStrScore,
+  computedCarryCapacity,
+  formEncumberedThreshold,
+  formHeavilyEncumberedThreshold,
+  formWeightPercent,
+  formWeightStatus,
+  formWeightStatusLabel,
+  formWeightBarColor,
+  formWeightStatusTextColor,
+  backgroundStartingGold,
+  classStartingGold,
+  computedTreasures
+} = useFormEquipment({
+  characterClass,
+  classSelected,
+  selectedBackgroundObj,
+  selectedEdition,
+  isEditMode,
+  strength,
+  errors,
+  chosenClassTools,
+  chosenBgTools,
+  parseBackgroundDetails: parseBgDetails,
+  savedTreasure
 })
 
 // --- Skill Proficiencies & Expertise System ---
-const chosenBgSkills = ref([])
-
-const bgSkillConfig = computed(() => {
-  const bg = selectedBackgroundObj.value
-  if (!bg) return { count: 0, label: '', options: [] }
-  const bgName = (bg.name || '').toLowerCase()
-
-  const fixed = []
-  if (Array.isArray(bg.skillProficiencies)) {
-    for (const sp of bg.skillProficiencies) {
-      for (const [k, v] of Object.entries(sp)) {
-        if (v === true && k !== 'any' && k !== 'choose') {
-          fixed.push(k.toLowerCase().replace(/[\s-]/g, '_'))
-        }
-      }
-    }
-  }
-
-  let count = 0
-  let options = ALL_SKILLS.map(s => s.key)
-
-  if (Array.isArray(bg.skillProficiencies)) {
-    for (const sp of bg.skillProficiencies) {
-      if (sp.any) {
-        count = Number(sp.any) || 2
-      } else if (sp.choose) {
-        count = Number(sp.choose.count) || 1
-        if (Array.isArray(sp.choose.from)) {
-          options = sp.choose.from.map(k => k.toLowerCase().replace(/[\s-]/g, '_'))
-        }
-      }
-    }
-  }
-
-  if (count === 0 && (bgName === 'custom background' || bgName.includes('custom'))) {
-    count = 2
-  }
-
-  options = options.filter(k => !fixed.includes(k))
-
-  return {
-    count,
-    label: count > 0 ? `Skill Proficiencies (Background Choice - Pick ${count})` : '',
-    options
-  }
+// Skills & Expertises Management
+const {
+  chosenBgSkills,
+  bgSkillConfig,
+  raceSkillProficiencies,
+  bgSkillProficiencies,
+  priorGrantedSkills,
+  classSkillConfig,
+  chosenClassSkills,
+  availableClassSkills,
+  toggleClassSkill,
+  allProficientSkills,
+  expertiseConfig,
+  chosenExpertiseSkills,
+  toggleExpertiseSkill,
+  getSkillLabel
+} = useFormSkills({
+  selectedBackgroundObj,
+  characterRace,
+  characterClass,
+  characterSubClass,
+  characterStore,
+  ALL_SKILLS,
+  errors
 })
-
-const raceSkillProficiencies = computed(() => {
-  const skills = []
-  const parseSp = (spList) => {
-    if (!Array.isArray(spList)) return
-    for (const sp of spList) {
-      for (const [k, v] of Object.entries(sp)) {
-        if (v === true && k !== 'any' && k !== 'choose') {
-          const key = k.toLowerCase().replace(/[\s-]/g, '_')
-          if (!skills.includes(key)) skills.push(key)
-        }
-      }
-    }
-  }
-  parseSp(characterRace.value?.skillProficiencies)
-  parseSp(characterSubRace.value?.skillProficiencies)
-  return skills
-})
-
-const bgSkillProficiencies = computed(() => {
-  const bg = selectedBackgroundObj.value
-  if (!bg) return []
-  const skills = []
-  if (Array.isArray(bg.skillProficiencies)) {
-    for (const sp of bg.skillProficiencies) {
-      for (const [k, v] of Object.entries(sp)) {
-        if (v === true && k !== 'any' && k !== 'choose') {
-          skills.push(k.toLowerCase().replace(/[\s-]/g, '_'))
-        }
-      }
-    }
-  }
-  if (skills.length === 0 && (!bg.skillProficiencies || bg.skillProficiencies.length === 0)) {
-    const details = parseBackgroundDetails(bg)
-    for (const sk of (details?.skills || [])) {
-      const key = sk.toLowerCase().replace(/[\s-]/g, '_')
-      if (!skills.includes(key)) skills.push(key)
-    }
-  }
-  for (const sk of chosenBgSkills.value.filter(Boolean)) {
-    if (!skills.includes(sk)) skills.push(sk)
-  }
-  return [...new Set(skills)]
-})
-
-const priorGrantedSkills = computed(() => {
-  return [...new Set([...raceSkillProficiencies.value, ...bgSkillProficiencies.value])]
-})
-
-const classSkillConfig = computed(() => {
-  const cl = characterClass.value?.class
-  const cName = (cl?.name || classSelected.value || '').toLowerCase()
-  let count = 2
-  let from = []
-
-  const spSkills = cl?.startingProficiencies?.skills
-  if (Array.isArray(spSkills) && spSkills.length > 0) {
-    const item = spSkills[0]
-    if (item.choose) {
-      count = item.choose.count || 2
-      from = (item.choose.from || []).map(s => s.toLowerCase().replace(/[\s-]/g, '_'))
-    } else if (item.any) {
-      count = item.any
-      from = ALL_SKILLS.map(s => s.key)
-    }
-  }
-
-  if (from.length === 0) {
-    for (const [key, val] of Object.entries(CLASS_SKILL_FALLBACKS)) {
-      if (cName.includes(key)) {
-        count = val.count
-        from = val.from
-        break
-      }
-    }
-  }
-
-  if (from.length === 0) {
-    from = ALL_SKILLS.map(s => s.key)
-  }
-
-  return { count, from }
-})
-
-const chosenClassSkills = ref([])
-
-const availableClassSkills = computed(() => {
-  const prior = priorGrantedSkills.value
-  return classSkillConfig.value.from.filter(k => !prior.includes(k))
-})
-
-const toggleClassSkill = (skillKey) => {
-  const idx = chosenClassSkills.value.indexOf(skillKey)
-  if (idx >= 0) {
-    chosenClassSkills.value.splice(idx, 1)
-  } else {
-    if (chosenClassSkills.value.length < classSkillConfig.value.count) {
-      chosenClassSkills.value.push(skillKey)
-    }
-  }
-  const needed = Math.min(classSkillConfig.value.count, availableClassSkills.value.length)
-  if (chosenClassSkills.value.length >= needed) {
-    delete errors.classSkills
-  }
-}
-
-const allProficientSkills = computed(() => {
-  const mcSkills = multiclasses.value
-    .filter(mc => isMcPrereqMet(mc))
-    .flatMap(mc => mc.chosenSkills || [])
-  return [...new Set([...priorGrantedSkills.value, ...chosenClassSkills.value, ...mcSkills])]
-})
-
-const expertiseConfig = computed(() => {
-  const cName = (classSelected.value || characterClass.value?.class?.name || '').toLowerCase()
-  const lvl = Number(classLevel.value) || 1
-  let count = 0
-
-  if (cName.includes('rogue')) {
-    if (lvl >= 6) count = 4
-    else if (lvl >= 1) count = 2
-  } else if (cName.includes('bard')) {
-    if (lvl >= 10) count = 4
-    else if (lvl >= 3) count = 2
-  } else if (cName.includes('ranger') && selectedEdition.value === '2024') {
-    if (lvl >= 1) count = 1
-  }
-
-  return {
-    eligible: count > 0,
-    count
-  }
-})
-
-const chosenExpertiseSkills = ref([])
-
-watch(allProficientSkills, (newProfs) => {
-  chosenExpertiseSkills.value = chosenExpertiseSkills.value.filter(s => newProfs.includes(s))
-})
-
-const toggleExpertiseSkill = (skillKey) => {
-  if (!allProficientSkills.value.includes(skillKey)) return
-  const idx = chosenExpertiseSkills.value.indexOf(skillKey)
-  if (idx >= 0) {
-    chosenExpertiseSkills.value.splice(idx, 1)
-  } else {
-    if (chosenExpertiseSkills.value.length < expertiseConfig.value.count) {
-      chosenExpertiseSkills.value.push(skillKey)
-    }
-  }
-  const expNeeded = Math.min(expertiseConfig.value.count, allProficientSkills.value.length)
-  if (chosenExpertiseSkills.value.length >= expNeeded) {
-    delete errors.expertises
-  }
-}
-
 const onUpdateClassTool = (payload, maybeVal) => {
   const idx = typeof payload === 'object' && payload !== null ? payload.index : payload
   const val = typeof payload === 'object' && payload !== null ? payload.value : maybeVal
@@ -2907,10 +1192,6 @@ const allProficienciesList = computed(() => {
   return [...new Set(result.map(clean5eToolsMarkup).filter(Boolean))]
 })
 
-const getSkillLabel = (skillKey) => {
-  const sk = ALL_SKILLS.find(s => s.key === skillKey)
-  return sk ? `${sk.label} (${sk.ability})` : skillKey
-}
 
 const totalScores = computed(() => {
   const res = {}
@@ -3019,210 +1300,12 @@ const alignments = [
   'Unaligned'
 ]
 
-const strip5eTags = (text) => {
-  if (typeof text !== 'string') return ''
-  return text
-    .replace(/\{@(?:item|spell|feat|skill|sense|action|condition|hazard|creature|race|class|background|book|table|dice|chance|filter)\s+([^}|]+)(?:\|[^}]+)?\}/gi, '$1')
-    .replace(/\{@(?:b|i|bold|italic|note)\s+([^}]+)\}/gi, '$1')
-    .replace(/\{@\w+\s+([^}]+)\}/gi, '$1')
-    .replace(/\{@\w+\}/gi, '')
-    .trim()
-}
-
-const parseBackgroundDetails = (bg) => {
-  if (!bg) return null
-
-  const safeEntries = Array.isArray(bg.entries)
-    ? bg.entries
-    : (typeof bg.entries === 'string' ? JSON.parse(bg.entries || '[]') : [])
-
-  let featName = ''
-  if (bg.feats && bg.feats.length > 0) {
-    const f = bg.feats[0]
-    const raw = typeof f === 'string' ? f : Object.keys(f)[0]
-    const base = raw.split('|')[0].split(';')[0].trim()
-    featName = base.replace(/\b\w/g, l => l.toUpperCase())
-  }
-
-  let listSkills = ''
-  let listTools = ''
-  let listLanguages = ''
-  let listEquipment = ''
-  let listAbility = ''
-  let listFeat = ''
-
-  const list = safeEntries.find(e => e && e.type === 'list')
-  if (list && Array.isArray(list.items)) {
-    for (const it of list.items) {
-      const name = (it.name || '').toLowerCase()
-      const entry = strip5eTags(it.entry || '')
-      if (name.includes('skill')) listSkills = entry
-      else if (name.includes('tool')) listTools = entry
-      else if (name.includes('language')) listLanguages = entry
-      else if (name.includes('equipment')) listEquipment = entry
-      else if (name.includes('ability')) listAbility = entry
-      else if (name.includes('feat')) listFeat = entry
-    }
-  }
-
-  if (!featName && listFeat) featName = listFeat
-
-  let abilityText = listAbility
-  if (!abilityText && bg.ability && bg.ability.length > 0) {
-    const fromAbils = bg.ability[0]?.choose?.weighted?.from || []
-    if (fromAbils.length > 0) {
-      abilityText = fromAbils.map(a => a.toUpperCase()).join(' / ')
-    }
-  }
-
-  let featureName = ''
-  let featureEntries = []
-  const featEntry = safeEntries.find(e => e && (e.data?.isFeature || (typeof e.name === 'string' && /^feature:/i.test(e.name))))
-  if (featEntry) {
-    featureName = clean5eToolsMarkup((featEntry.name || '').replace(/^feature:\s*/i, 'Feature: '))
-    if (Array.isArray(featEntry.entries)) {
-      featureEntries = featEntry.entries
-        .map(e => typeof e === 'string' ? e : (typeof e?.entry === 'string' ? e.entry : ''))
-        .filter(Boolean)
-    }
-  }
-
-  let skills = []
-  if (listSkills) {
-    skills = listSkills.split(/,\s*|\s+and\s+/i).map(s => s.trim()).filter(Boolean)
-  } else if (bg.skillProficiencies && bg.skillProficiencies.length > 0) {
-    const s = bg.skillProficiencies[0]
-    skills = Object.keys(s).map(k => k.charAt(0).toUpperCase() + k.slice(1))
-  }
-
-  let toolsText = listTools
-  if (!toolsText && Array.isArray(bg.toolProficiencies) && bg.toolProficiencies.length > 0) {
-    const parts = []
-    for (const tp of bg.toolProficiencies) {
-      if (!tp || typeof tp !== 'object') continue
-      if (tp.anyArtisansTool) {
-        parts.push("One type of artisan's tools")
-      } else if (tp.anyMusicalInstrument) {
-        parts.push("One musical instrument")
-      } else if (tp.anyGamingSet) {
-        parts.push("One gaming set")
-      } else if (tp.choose?.from) {
-        const fromList = tp.choose.from.map(f => {
-          const fl = f.toLowerCase()
-          if (fl === 'anyartisanstool' || fl.includes('artisan')) return "artisan's tools"
-          if (fl === 'anymusicalinstrument' || fl.includes('musical instrument')) return "musical instrument"
-          if (fl === 'anygamingset' || fl.includes('gaming set')) return "gaming set"
-          return f.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-        })
-        parts.push(`One of: ${fromList.join(', ')}`)
-      } else {
-        Object.keys(tp).forEach(k => {
-          if (tp[k] === true) {
-            parts.push(k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '))
-          }
-        })
-      }
-    }
-    toolsText = parts.join(', ')
-  }
-
-  let languagesText = listLanguages
-  if (!languagesText && bg.languageProficiencies && bg.languageProficiencies.length > 0) {
-    const lp = bg.languageProficiencies[0]
-    if (lp.anyStandard) languagesText = `${lp.anyStandard} of your choice`
-  }
-
-  let bgStartingItems = []
-  let bgPackageGold = 0
-  let foundGoldInStartingEquipment = false
-  if (Array.isArray(bg.startingEquipment) && bg.startingEquipment.length > 0) {
-    for (let eqIdx = 0; eqIdx < bg.startingEquipment.length; eqIdx++) {
-      const eqObj = bg.startingEquipment[eqIdx]
-      if (!eqObj) continue
-      const choiceId = `eq_choice_${eqIdx}`
-      const chosenKey = chosenBgEquipmentChoices[choiceId] || 'a'
-
-      let listRaw = []
-      if ((eqObj.a || eqObj.A) && (eqObj.b || eqObj.B)) {
-        listRaw = chosenKey === 'b' ? (eqObj.b || eqObj.B) : (eqObj.a || eqObj.A)
-      } else {
-        listRaw = eqObj._ || eqObj.a || eqObj.A || []
-      }
-
-      for (const it of (listRaw || [])) {
-        if (typeof it === 'string') {
-          const clean = clean5eToolsMarkup(it).split('|')[0].trim()
-          const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-          if (gpMatch) {
-            bgPackageGold += parseInt(gpMatch[1], 10)
-            foundGoldInStartingEquipment = true
-            continue
-          }
-          if (clean) bgStartingItems.push(clean)
-        } else if (typeof it === 'object' && it) {
-          if (it.value != null || it.containsValue != null) {
-            bgPackageGold += Math.floor((it.value || it.containsValue) / 100)
-            foundGoldInStartingEquipment = true
-          } else {
-            let itemName = ''
-            if (it.item) {
-              const clean = clean5eToolsMarkup(it.displayName || it.item).split('|')[0].trim()
-              const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-              if (gpMatch) {
-                bgPackageGold += parseInt(gpMatch[1], 10) * (Number(it.quantity) || 1)
-                foundGoldInStartingEquipment = true
-                continue
-              }
-              itemName = clean
-            } else if (it.special) {
-              const clean = clean5eToolsMarkup(it.special).trim()
-              const gpMatch = clean.match(/^(\d+)\s*gp$/i)
-              if (gpMatch) {
-                bgPackageGold += parseInt(gpMatch[1], 10) * (Number(it.quantity) || 1)
-                foundGoldInStartingEquipment = true
-                continue
-              }
-              const qty = it.quantity ? `${it.quantity} ` : ''
-              itemName = `${qty}${clean}`.trim()
-            }
-            if (itemName) bgStartingItems.push(itemName)
-          }
-        }
-      }
-    }
-  }
-
-  if (!foundGoldInStartingEquipment) {
-    const textGpMatch = (listEquipment || '').match(/(\d+)\s*gp/i)
-    if (textGpMatch) {
-      bgPackageGold = parseInt(textGpMatch[1], 10)
-    } else {
-      bgPackageGold = selectedEdition.value === '2024' ? 16 : 15
-    }
-  }
-
-  const orChoiceKey = chosenBgEquipmentChoices['eq_choice_text_or']
-  if (orChoiceKey === 'b') {
-    const orChoice = bgEquipmentChoices.value.find(c => c.id === 'eq_choice_text_or')
-    if (orChoice?.optionB?.items) bgStartingItems.push(...orChoice.optionB.items)
-  } else if (orChoiceKey === 'a') {
-    const orChoice = bgEquipmentChoices.value.find(c => c.id === 'eq_choice_text_or')
-    if (orChoice?.optionA?.items) bgStartingItems.push(...orChoice.optionA.items)
-  }
-
-  return {
-    featName,
-    abilityText,
-    featureName,
-    featureEntries,
-    skills,
-    skillsText: listSkills || skills.join(', '),
-    toolsText,
-    languagesText,
-    equipmentText: listEquipment,
-    bgStartingItems,
-    bgPackageGold
-  }
+function parseBackgroundDetails(bg) {
+  return parseBgDetails(bg, {
+    chosenBgEquipmentChoices: chosenBgEquipmentChoices.value,
+    selectedEdition: selectedEdition.value,
+    bgEquipmentChoices: bgEquipmentChoices.value
+  })
 }
 
 const onBackgroundChange = () => {
@@ -3257,465 +1340,74 @@ const fetchCompendiumData = async () => {
   }
 }
 
-const loadCharacterForEdit = async (data) => {
-  if (!data) return
-  const ed = data.edition || '2024'
-  selectedEdition.value = ed
-  characterStore.edition = ed
-  currentTab.value = 'class'
-
-  const defaultSource = ed === '2024' ? 'XPHB' : 'PHB'
-  const sourcesToEnable = new Set([defaultSource])
-  if (data.race?.source) sourcesToEnable.add(data.race.source.toUpperCase())
-  if (data.sub_race?.source) sourcesToEnable.add(data.sub_race.source.toUpperCase())
-  const cObj = Array.isArray(data.class) ? data.class[0] : data.class
-  if (cObj?.source) sourcesToEnable.add(cObj.source.toUpperCase())
-  const scObj = Array.isArray(data.sub_class) ? data.sub_class[0] : data.sub_class
-  if (scObj?.source) sourcesToEnable.add(scObj.source.toUpperCase())
-  if (Array.isArray(data.feat)) {
-    for (const f of data.feat) {
-      if (f?.source) sourcesToEnable.add(f.source.toUpperCase())
-    }
-  }
-  selectedSources.value = [...sourcesToEnable]
-
-  characterName.value = data.name || ''
-  alignment.value = data.alignment || ''
-  classLevel.value = Number(data.level || 1)
-  characterBackground.value = data.background || ''
-  imageUrl.value = data.image_url || ''
-
-  if (data.characteristics) {
-    let ch = data.characteristics
-    if (typeof ch === 'string') {
-      try { ch = JSON.parse(ch) } catch (e) { ch = {} }
-    }
-    characteristics.gender = ch.gender || ''
-    characteristics.eyes = ch.eyes || ''
-    characteristics.size = ch.size || ''
-    characteristics.height = ch.height || ''
-    characteristics.faith = ch.faith || ''
-    characteristics.hair = ch.hair || ''
-    characteristics.skin = ch.skin || ''
-    characteristics.age = ch.age || ''
-    characteristics.weight = ch.weight || ''
-    characteristics.lifestyle = ch.lifestyle || 'Modest'
-    characteristics.appearance = ch.appearance || ''
-    characteristics.personalityTraits = Array.isArray(ch.personalityTraits) ? [...ch.personalityTraits] : (Array.isArray(ch.personality_traits) ? [...ch.personality_traits] : [])
-    characteristics.ideals = Array.isArray(ch.ideals) ? [...ch.ideals] : []
-    characteristics.bonds = Array.isArray(ch.bonds) ? [...ch.bonds] : []
-    characteristics.flaws = Array.isArray(ch.flaws) ? [...ch.flaws] : []
-    characteristics.notes = {
-      organizations: ch.notes?.organizations || '',
-      allies: ch.notes?.allies || '',
-      enemies: ch.notes?.enemies || '',
-      backstory: ch.notes?.backstory || '',
-      other: ch.notes?.other || ''
-    }
-  } else {
-    characteristics.gender = ''
-    characteristics.eyes = ''
-    characteristics.size = ''
-    characteristics.height = ''
-    characteristics.faith = ''
-    characteristics.hair = ''
-    characteristics.skin = ''
-    characteristics.age = ''
-    characteristics.weight = ''
-    characteristics.lifestyle = 'Modest'
-    characteristics.appearance = ''
-    characteristics.personalityTraits = []
-    characteristics.ideals = []
-    characteristics.bonds = []
-    characteristics.flaws = []
-    characteristics.notes = {
-      organizations: '',
-      allies: '',
-      enemies: '',
-      backstory: '',
-      other: ''
-    }
-  }
-
-  // Equipment
-  const eqList = data.equipment || data.equipments || []
-  if (Array.isArray(eqList) && eqList.length > 0) {
-    userEquipmentList.value = JSON.parse(JSON.stringify(eqList))
-    equipmentChoiceMode.value = 'package'
-  }
-
-  // Currency
-  const tr = data.treasure || {}
-  savedTreasure.pp = Number(tr.pp || 0)
-  savedTreasure.gp = Number(tr.gp != null ? tr.gp : 50)
-  savedTreasure.ep = Number(tr.ep || 0)
-  savedTreasure.sp = Number(tr.sp || 0)
-  savedTreasure.cp = Number(tr.cp || 0)
-  customStartingGold.value = savedTreasure.gp
-
-  // Fetch compendium lists
-  await fetchCompendiumData()
-
-  // ponytail: ensure saved feat sources are loaded so filteredFeats retains them
-  const rawFeats = Array.isArray(data.feats) ? data.feats : (Array.isArray(data.feat) ? data.feat : (data.feat ? [data.feat] : (data.feats ? [data.feats] : [])))
-  const initialSavedFeats = rawFeats.map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean)
-  for (const sf of initialSavedFeats) {
-    const match = availableFeats.value.find(af => af.name?.toLowerCase().trim() === sf.toLowerCase().trim())
-    if (match?.source) {
-      const s = match.source.toUpperCase()
-      if (!selectedSources.value.includes(s)) {
-        selectedSources.value.push(s)
-      }
-    }
-  }
-
-  // Match background
-  if (data.background) {
-    const bgMatch = backgrounds.value.find(b =>
-      b.name?.toLowerCase() === data.background.toLowerCase() &&
-      (b.source || '').toUpperCase() === defaultSource
-    ) || backgrounds.value.find(b =>
-      b.name?.toLowerCase() === data.background.toLowerCase() &&
-      selectedSources.value.includes((b.source || '').toUpperCase())
-    ) || backgrounds.value.find(b => b.name?.toLowerCase() === data.background.toLowerCase())
-    if (bgMatch) {
-      selectedBackgroundObj.value = bgMatch
-      if (bgMatch.source) {
-        const s = bgMatch.source.toUpperCase()
-        if (!selectedSources.value.includes(s)) selectedSources.value.push(s)
-      }
-    }
-  }
-
-  const savedLanguages = (data.language || []).map(l => (typeof l === 'string' ? l : l.name)).filter(Boolean)
-  const savedProfs = (data.proficiency || []).map(p => (typeof p === 'string' ? p : p.name)).filter(Boolean)
-  const spRow = data.skill_proficiency || {}
-  const profSkillKeys = Object.keys(spRow).filter(k => spRow[k] === true)
-
-  // Populate background choices
-  if (bgLangConfig.value.choiceCount > 0) {
-    const candidateBgLangs = savedLanguages.filter(l =>
-      !bgLangConfig.value.fixed.some(f => f.toLowerCase() === l.toLowerCase())
-    )
-    bgChosenLanguages.value = candidateBgLangs.slice(0, bgLangConfig.value.choiceCount)
-  }
-
-  if (bgSkillConfig.value.count > 0) {
-    const matchedBgSkills = (bgSkillConfig.value.options || []).filter(sk => profSkillKeys.includes(sk))
-    chosenBgSkills.value = matchedBgSkills.slice(0, bgSkillConfig.value.count)
-  }
-
-  if (bgToolConfig.value.count > 0) {
-    const matchedBgTools = (bgToolConfig.value.options || []).filter(opt =>
-      savedProfs.some(sp => sp.toLowerCase() === opt.toLowerCase())
-    )
-    chosenBgTools.value = matchedBgTools.slice(0, bgToolConfig.value.count)
-  }
-
-  // Match race
-  if (data.race?.name) {
-    const rList = Array.isArray(race.value) ? race.value : Object.values(race.value || {})
-    const rMatch = rList.find(r => r.name?.toLowerCase() === data.race.name.toLowerCase())
-    if (rMatch) {
-      characterRace.value = rMatch
-      try {
-        const res = await axios.get(`${API_URL}/sub-race/${rMatch.name}/${rMatch.source}?edition=${selectedEdition.value}`)
-        subRace.value = Array.isArray(res.data?.data) ? res.data.data : []
-      } catch (err) {
-        console.error(err)
-        subRace.value = []
-      }
-
-      if (data.sub_race?.name) {
-        const srMatch = subRace.value.find(sr => sr.name?.toLowerCase() === data.sub_race.name.toLowerCase())
-        if (srMatch) {
-          const s = (srMatch.source || defaultSource).toUpperCase()
-          if (!selectedSources.value.includes(s)) {
-            selectedSources.value.push(s)
-          }
-          characterSubRace.value = srMatch
-        }
-      }
-
-      if (raceLangConfig.value.choiceCount > 0) {
-        const alreadyClaimedLangs = [
-          ...bgLangConfig.value.fixed,
-          ...bgChosenLanguages.value,
-          ...raceLangConfig.value.fixed
-        ]
-        const remainingLangs = savedLanguages.filter(l =>
-          !alreadyClaimedLangs.some(c => c.toLowerCase() === l.toLowerCase())
-        )
-        raceChosenLanguages.value = remainingLangs.slice(0, raceLangConfig.value.choiceCount)
-      }
-
-      if (raceChoiceConfig.value && raceChoiceConfig.value.count > 0) {
-        const absData = data.ability_score || {}
-        const sortedFrom = [...raceChoiceConfig.value.from].sort((a, b) => (Number(absData[b] || 10)) - (Number(absData[a] || 10)))
-        raceChooseStats.value = sortedFrom.slice(0, raceChoiceConfig.value.count)
-      }
-    }
-  }
-
-  // Match class
-  if (cObj?.name) {
-    const cName = cObj.name.toLowerCase()
-    classSelected.value = cName
-    try {
-      const response = await axios.get(`${API_URL}/class/${cName}?edition=${selectedEdition.value}`)
-      if (response.data?.data?.class?.length) {
-        characterClass.value.class = response.data.data.class[0]
-        characterClass.value.classFeature = response.data.data.classFeature || []
-        const directSubclasses = response.data.data.subclass || response.data.data.subClass || []
-        if (directSubclasses.length > 0) {
-          subClass.value = directSubclasses
-          characterStore.subClassLists = directSubclasses
-        }
-        const c = response.data.data.class[0]
-        if (c?.name && c?.source) {
-          const scRes = await axios.get(`${API_URL}/sub-class/${c.name.toLowerCase()}/${c.source.toLowerCase()}?edition=${selectedEdition.value}`)
-          const scList = scRes.data?.data?.subClass || scRes.data?.data?.subclass || []
-          if (scList.length > 0) {
-            subClass.value = scList
-            characterStore.subClassLists = scList
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load class for edit', err)
-    }
-
-    // Match subclass
-    if (scObj?.name) {
-      const scName = scObj.name.toLowerCase()
-      const matchSc = availableSubClasses.value.find(s => s.name?.toLowerCase() === scName && (scObj.source ? s.source?.toLowerCase() === scObj.source.toLowerCase() : true)) || availableSubClasses.value.find(s => s.name?.toLowerCase() === scName)
-      if (matchSc) {
-        const s = (matchSc.source || defaultSource).toUpperCase()
-        if (!selectedSources.value.includes(s)) {
-          selectedSources.value.push(s)
-        }
-        await onSubClassSelect(`${matchSc.name}|${matchSc.source}`)
-      }
-    }
-
-    // Class skills
-    const prior = priorGrantedSkills.value
-    const availableForClass = (classSkillConfig.value.from || []).filter(k => !prior.includes(k))
-    const matchedClassSkills = availableForClass.filter(k => spRow[k] === true)
-    chosenClassSkills.value = matchedClassSkills.slice(0, classSkillConfig.value.count)
-
-    // Expertises
-    const seRow = data.skill_expertise || {}
-    const expSkillKeys = Object.keys(seRow).filter(k => seRow[k] === true)
-    if (expertiseConfig.value.eligible) {
-      chosenExpertiseSkills.value = expSkillKeys.slice(0, expertiseConfig.value.count)
-    }
-
-    // Class Tools
-    if (classToolConfig.value.count > 0) {
-      const matchedClassTools = (classToolConfig.value.options || []).filter(opt =>
-        savedProfs.some(sp => sp.toLowerCase() === opt.toLowerCase()) &&
-        !chosenBgTools.value.some(bt => bt.toLowerCase() === opt.toLowerCase())
-      )
-      chosenClassTools.value = matchedClassTools.slice(0, classToolConfig.value.count)
-    }
-
-    // Spells
-    const spList = data.spells || data.character_spells || []
-    if (Array.isArray(spList) && spList.length > 0) {
-      const normalizedSpList = spList.map(s => ({
-        ...s,
-        sourceFeat: s.sourceFeat || s.source_feat || null,
-        is_feat_spell: Boolean(s.is_feat_spell || s.source_feat || s.sourceFeat)
-      }))
-
-      let featSps = normalizedSpList.filter(s => s.sourceFeat || s.is_feat_spell)
-      let classSps = normalizedSpList.filter(s => !s.sourceFeat && !s.is_feat_spell)
-
-      // Fallback for legacy saved characters where source_feat was not persisted:
-      if (featSps.length === 0 && detectedFeatSpellSources.value.length > 0) {
-        const remainingClassSps = [...classSps]
-        const recoveredFeatSps = []
-
-        for (const fSrc of detectedFeatSpellSources.value) {
-          const cfg = fSrc.config
-          if (!cfg) continue
-
-          // 1. Recover fixed spells (e.g. Misty Step for Fey Touched)
-          if (Array.isArray(cfg.fixed)) {
-            for (const fixedName of cfg.fixed) {
-              const idx = remainingClassSps.findIndex(s => s.name && s.name.toLowerCase() === fixedName.toLowerCase())
-              if (idx !== -1) {
-                recoveredFeatSps.push({ ...remainingClassSps[idx], sourceFeat: fSrc.featName, is_feat_spell: true })
-                remainingClassSps.splice(idx, 1)
-              }
-            }
-          }
-
-          // 2. Recover cantrips (e.g. 2 cantrips for Magic Initiate)
-          const featCantripsNeeded = Number(cfg.cantrips || 0)
-          if (featCantripsNeeded > 0) {
-            const classMaxCantrips = getEstimatedClassCantrips(classSelected.value, selectedSubClassItem.value?.name, classLevel.value)
-            const cantripsInList = remainingClassSps.filter(s => Number(s.level) === 0 || s.is_cantrip)
-            const excessCantrips = isSpellcasterClass.value ? Math.max(0, cantripsInList.length - classMaxCantrips) : cantripsInList.length
-            const countToTake = Math.min(featCantripsNeeded, excessCantrips > 0 ? excessCantrips : (!isSpellcasterClass.value ? featCantripsNeeded : 0))
-
-            let taken = 0
-            for (let i = remainingClassSps.length - 1; i >= 0 && taken < countToTake; i--) {
-              const s = remainingClassSps[i]
-              if (Number(s.level) === 0 || s.is_cantrip) {
-                recoveredFeatSps.push({ ...s, sourceFeat: fSrc.featName, is_feat_spell: true })
-                remainingClassSps.splice(i, 1)
-                taken++
-              }
-            }
-          }
-
-          // 3. Recover 1st-level spells (e.g. 1 spell for Magic Initiate)
-          const featSpellsNeeded = Number(cfg.spells || 0)
-          if (featSpellsNeeded > 0) {
-            let taken = 0
-            for (let i = remainingClassSps.length - 1; i >= 0 && taken < featSpellsNeeded; i--) {
-              const s = remainingClassSps[i]
-              if (Number(s.level) === 1 && !s.is_cantrip) {
-                recoveredFeatSps.push({ ...s, sourceFeat: fSrc.featName, is_feat_spell: true })
-                remainingClassSps.splice(i, 1)
-                taken++
-              }
-            }
-          }
-        }
-
-        if (recoveredFeatSps.length > 0) {
-          featSps = recoveredFeatSps
-          classSps = remainingClassSps
-        }
-      }
-
-      if (featSps.length > 0) {
-        featChosenSpells.value = JSON.parse(JSON.stringify(featSps))
-        chosenSpells.value = JSON.parse(JSON.stringify(classSps))
-      } else if (!isSpellcasterClass.value && spList.length > 0) {
-        featChosenSpells.value = JSON.parse(JSON.stringify(spList))
-        chosenSpells.value = []
-      } else {
-        chosenSpells.value = JSON.parse(JSON.stringify(spList))
-        featChosenSpells.value = []
-      }
-    } else {
-      chosenSpells.value = []
-      featChosenSpells.value = []
-    }
-  }
-
-  // Handle Multiclass hydration
-  const rawClasses = Array.isArray(data.class) ? data.class : (data.class ? [data.class] : [])
-  const rawSubClasses = Array.isArray(data.sub_class) ? data.sub_class : (data.sub_class ? [data.sub_class] : [])
-
-  multiclasses.value = []
-  if (rawClasses.length > 1) {
-    for (let i = 1; i < rawClasses.length; i++) {
-      const secClass = rawClasses[i]
-      const secSub = rawSubClasses[i]
-      const mcItem = {
-        id: 'mc_' + Date.now() + '_' + i,
-        classSelected: (secClass.name || '').toLowerCase(),
-        classLevel: Number(secClass.level) || 1,
-        characterClass: { class: null, classFeature: [] },
-        subClassLists: [],
-        selectedSubClassKey: '',
-        selectedSubClassItem: null,
-        asiTierChoices: {},
-        chosenSpells: [],
-        chosenSkills: [],
-        classSubTab: 'features',
-        isCollapsed: false
-      }
-      multiclasses.value.push(mcItem)
-      if (mcItem.classSelected) {
-        await onMcClassChange(mcItem)
-        if (secSub?.name) {
-          const matchSc = (mcItem.subClassLists || []).find(s => s.name?.toLowerCase() === secSub.name?.toLowerCase())
-          if (matchSc) {
-            await onMcSubclassSelect(mcItem, `${matchSc.name}|${matchSc.source || ''}`)
-          }
-        }
-        const mcCfg = getMcSkillConfig(mcItem)
-        if (mcCfg.count > 0) {
-          const taken = new Set([...priorGrantedSkills.value, ...chosenClassSkills.value])
-          const mcMatched = mcCfg.from.filter(k => spRow[k] === true && !taken.has(k))
-          mcItem.chosenSkills = mcMatched.slice(0, mcCfg.count)
-        }
-      }
-    }
-  }
-
-  // Feats & ASI Tiers
-  await nextTick()
-  const savedFeats = (rawFeats || []).map(f => (typeof f === 'string' ? f : f?.name)).filter(Boolean)
-  const nonBgFeats = [...savedFeats]
-  const bgDetails = parseBackgroundDetails(selectedBackgroundObj.value) || {}
-  if (bgDetails.featName) {
-    const bgFeatIdx = nonBgFeats.findIndex(f => f.toLowerCase().trim() === bgDetails.featName.toLowerCase().trim())
-    if (bgFeatIdx >= 0) {
-      nonBgFeats.splice(bgFeatIdx, 1)
-    }
-  }
-
-  let featIdx = 0
-  for (const item of allUnlockedAsiList.value) {
-    if (featIdx < nonBgFeats.length) {
-      const rawName = nonBgFeats[featIdx++]
-      const match = availableFeats.value.find(af => af.name?.toLowerCase().trim() === rawName.toLowerCase().trim())
-      const exactName = match ? match.name : rawName.trim()
-      item.choice.type = 'feat'
-      item.choice.featName = exactName
-      if (item.classKey === 'primary' && item.tier) {
-        if (!asiTierChoices[item.tier]) {
-          asiTierChoices[item.tier] = {
-            type: 'feat',
-            asiMode: '+2',
-            plus2Stat: '',
-            plus1StatA: '',
-            plus1StatB: '',
-            featName: exactName,
-            featAbility: ''
-          }
-        } else {
-          asiTierChoices[item.tier].type = 'feat'
-          asiTierChoices[item.tier].featName = exactName
-        }
-      }
-    } else {
-      item.choice.type = ''
-      item.choice.plus2Stat = ''
-      item.choice.plus1StatA = ''
-      item.choice.plus1StatB = ''
-      item.choice.featName = ''
-    }
-  }
-
-  // 2024 ASI from Background
-  if (ed === '2024') {
-    const absData = data.ability_score || {}
-    const eligible = [...bgEligibleAbilities.value]
-    if (eligible.length >= 2) {
-      eligible.sort((a, b) => (Number(absData[b] || 10)) - (Number(absData[a] || 10)))
-      asi2024Plus2.value = eligible[0]
-      asi2024Plus1.value = eligible[1]
-    }
-  }
-
-  // Ability Scores
-  const abs = data.ability_score || {}
-  scoreMethod.value = 'manual'
-  for (const k of ABILITY_KEYS) {
-    const savedVal = Number(abs[k] != null ? abs[k] : 10)
-    const bonus = asiBonuses.value[k] || 0
-    baseScores[k] = Math.max(1, savedVal - bonus)
-  }
-}
-
+// Character Edit Mode Hydration
+const { loadCharacterForEdit } = useFormHydration({
+  API_URL,
+  selectedEdition,
+  characterStore,
+  currentTab,
+  selectedSources,
+  characterName,
+  alignment,
+  classLevel,
+  characterBackground,
+  imageUrl,
+  characteristics,
+  userEquipmentList,
+  equipmentChoiceMode,
+  savedTreasure,
+  customStartingGold,
+  fetchCompendiumData,
+  availableFeats,
+  backgrounds,
+  selectedBackgroundObj,
+  bgLangConfig,
+  bgChosenLanguages,
+  bgSkillConfig,
+  chosenBgSkills,
+  bgToolConfig,
+  chosenBgTools,
+  race,
+  characterRace,
+  subRace,
+  characterSubRace,
+  raceLangConfig,
+  raceChosenLanguages,
+  raceChoiceConfig,
+  raceChooseStats,
+  classSelected,
+  characterClass,
+  subClass,
+  availableSubClasses,
+  onSubClassSelect,
+  priorGrantedSkills,
+  classSkillConfig,
+  chosenClassSkills,
+  expertiseConfig,
+  chosenExpertiseSkills,
+  classToolConfig,
+  chosenClassTools,
+  detectedFeatSpellSources,
+  isSpellcasterClass,
+  getEstimatedClassCantrips,
+  featChosenSpells,
+  chosenSpells,
+  selectedSubClassItem,
+  multiclasses,
+  onMcClassChange,
+  onMcSubclassSelect,
+  getMcSkillConfig,
+  parseBackgroundDetails,
+  allUnlockedAsiList,
+  asiTierChoices,
+  bgEligibleAbilities,
+  asi2024Plus2,
+  asi2024Plus1,
+  scoreMethod,
+  baseScores,
+  asiBonuses,
+  ABILITY_KEYS
+})
 const changeEdition = async (newEdition) => {
   if (!isFirstStep.value) return
   if (selectedEdition.value === newEdition) return
@@ -3790,503 +1482,68 @@ watch(currentTab, () => {
   })
 })
 
-// Error clearance watchers
-watch(characterName, (val) => {
-  if (val && val.trim()) delete errors.characterName
+// Step Validation & Error Navigation
+const {
+  getDynamicErrorFieldOrder,
+  scrollToFirstError,
+  validateStep,
+  canGoToStep,
+  goToStep,
+  nextStep,
+  prevStep
+} = useFormValidation({
+  errors,
+  activeSteps,
+  currentTab,
+  currentStepIndex,
+  characterName,
+  characterRace,
+  characterSubRace,
+  isSubraceRequired,
+  selectedSources,
+  selectedEdition,
+  raceChosenLanguages,
+  raceLangConfig,
+  classSelected,
+  selectedSubClassKey,
+  classLevel,
+  isSubclassUnlocked,
+  characterStore,
+  bgChosenLanguages,
+  bgLangConfig,
+  alignment,
+  selectedBackgroundObj,
+  chosenBgSkills,
+  bgSkillConfig,
+  chosenBgTools,
+  bgToolConfig,
+  customStartingGold,
+  asi2024Plus2,
+  asi2024Plus1,
+  asi2024Mode,
+  pointBuyRemaining,
+  characterSubClass,
+  multiclasses,
+  allUnlockedAsiList,
+  classSubTab,
+  filteredClasses,
+  characterClass,
+  subRace,
+  subClass,
+  scoreMethod,
+  baseScores,
+  chosenClassSkills,
+  classSkillConfig,
+  chosenExpertiseSkills,
+  expertiseConfig,
+  allProficientSkills,
+  chosenClassTools,
+  classToolConfig,
+  chosenSpells,
+  featChosenSpells,
+  equipmentChoiceMode,
+  recheckAbilitiesErrors: () => recheckAbilitiesErrors()
 })
-
-watch(characterRace, (val) => {
-  if (val && val.name) {
-    delete errors.characterRace
-    if (!isSubraceRequired.value) {
-      delete errors.characterSubRace
-    }
-  }
-})
-
-watch(characterSubRace, (val) => {
-  if (val && val.name) {
-    delete errors.characterSubRace
-  } else if (!isSubraceRequired.value) {
-    delete errors.characterSubRace
-  }
-})
-
-watch(selectedSources, (newSources) => {
-  if (characterSubRace.value && characterSubRace.value.name) {
-    const s = (characterSubRace.value.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    if (!newSources.includes(s)) {
-      characterSubRace.value = {}
-    }
-  }
-  if (characterRace.value && characterRace.value.name) {
-    const s = (characterRace.value.source || (selectedEdition.value === '2024' ? 'XPHB' : 'PHB')).toUpperCase()
-    if (!newSources.includes(s)) {
-      characterRace.value = {}
-      characterSubRace.value = {}
-      subRace.value = []
-    }
-  }
-  if (classSelected.value && !filteredClasses.value[classSelected.value]) {
-    classSelected.value = ''
-    characterClass.value = {}
-    characterSubClass.value = {}
-    subClass.value = []
-  }
-}, { deep: true })
-
-watch(raceChosenLanguages, (val) => {
-  if (val.filter(Boolean).length >= raceLangConfig.value.choiceCount) {
-    delete errors.raceLanguages
-  }
-}, { deep: true })
-
-watch(classSelected, (val) => {
-  if (val) delete errors.characterClass
-})
-
-watch(selectedSubClassKey, (val) => {
-  if (val) delete errors.subclass
-})
-
-watch(classLevel, (lvl) => {
-  if (selectedEdition.value === '2024' && lvl < 3) {
-    characterStore.characterSubClass = {}
-    characterStore.isSubClassSelected = false
-    characterStore.subClassLevelGained = 0
-    selectedSubClassKey.value = ''
-    delete errors.subclass
-  } else if (!isSubclassUnlocked.value) {
-    delete errors.subclass
-  }
-})
-
-watch(bgChosenLanguages, (val) => {
-  if (val.filter(Boolean).length >= bgLangConfig.value.choiceCount) {
-    delete errors.bgLanguages
-  }
-}, { deep: true })
-
-watch(alignment, (val) => {
-  if (val) delete errors.alignment
-})
-
-watch(selectedBackgroundObj, (val) => {
-  if (val && val.name) delete errors.characterBackground
-})
-
-watch(chosenBgSkills, (val) => {
-  if (val.filter(Boolean).length >= bgSkillConfig.value.count) {
-    delete errors.bgSkills
-  }
-}, { deep: true })
-
-watch(chosenBgTools, (val) => {
-  if (val.filter(Boolean).length >= bgToolConfig.value.count) {
-    delete errors.bgTools
-  }
-}, { deep: true })
-
-watch(customStartingGold, (val) => {
-  if (val !== null && val !== undefined && Number(val) >= 0) {
-    delete errors.equipmentGold
-  }
-})
-
-watch([asi2024Plus2, asi2024Plus1, asi2024Mode], () => {
-  if (selectedEdition.value !== '2024' || asi2024Mode.value !== 'plus2_plus1' || asi2024Plus2.value !== asi2024Plus1.value) {
-    delete errors.asi2024
-  }
-})
-
-watch(pointBuyRemaining, (val) => {
-  if (val >= 0) delete errors.pointbuy
-})
-
-watch(() => characterStore.characterSubClass, (val) => {
-  characterSubClass.value = val
-})
-
-const getDynamicErrorFieldOrder = () => {
-  const order = [
-    'characterName',
-    'characterBackground',
-    'bgSkills',
-    'bgLanguages',
-    'bgTools',
-    'characterRace',
-    'characterSubRace',
-    'raceLanguages',
-    'characterClass',
-    'subclass',
-    'classSkills',
-    'expertises',
-    'classTools'
-  ]
-
-  multiclasses.value.forEach((_, idx) => {
-    order.push(`class_mc_${idx}`)
-    order.push(`skills_mc_${idx}`)
-    order.push(`subclass_mc_${idx}`)
-    order.push(`classSpells_mc_${idx}`)
-  })
-
-  order.push(
-    'classSpells',
-    'pointbuy',
-    'asi2024',
-    'abilities',
-    'asiTiers'
-  )
-
-  allUnlockedAsiList.value.forEach(item => {
-    order.push(item.errorKey)
-  })
-
-  order.push('equipmentGold')
-  return order
-}
-
-const scrollToFirstError = () => {
-  nextTick(() => {
-    const hasAsiError = Object.keys(errors).some(k => k.startsWith('asiTier_'))
-    if (errors.subclass || errors.classSkills || errors.expertises || errors.classTools || hasAsiError) {
-      classSubTab.value = 'features'
-    } else if (errors.classSpells) {
-      classSubTab.value = 'spells'
-    }
-
-    multiclasses.value.forEach((mc, idx) => {
-      const hasMcError = Object.keys(errors).some(k => k.includes(`mc_${idx}`))
-      if (hasMcError) {
-        mc.isCollapsed = false
-        if (errors['classSpells_mc_' + idx]) {
-          mc.classSubTab = 'spells'
-        } else {
-          mc.classSubTab = 'features'
-        }
-      }
-    })
-
-    setTimeout(() => {
-      const activeOrder = getDynamicErrorFieldOrder()
-      let firstKey = activeOrder.find(key => errors[key])
-      if (!firstKey) {
-        firstKey = Object.keys(errors).find(key => errors[key])
-      }
-      if (!firstKey) return
-
-      const el = document.querySelector(`[data-error-field="${firstKey}"]`) ||
-                 document.getElementById(firstKey) ||
-                 document.querySelector('.border-red-500, .ring-red-500, .border-red-400')
-
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-
-        el.classList.remove('error-pulse-highlight')
-        void el.offsetWidth
-        el.classList.add('error-pulse-highlight')
-        setTimeout(() => {
-          el.classList.remove('error-pulse-highlight')
-        }, 1600)
-
-        const focusable = el.matches('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')
-          ? el
-          : el.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')
-        if (focusable && typeof focusable.focus === 'function') {
-          focusable.focus({ preventScroll: true })
-        }
-      }
-    }, 75)
-  })
-}
-
-const validateStep = (stepId, shouldScroll = true) => {
-  if (stepId === 'characteristics') {
-    return true
-  }
-  let isValid = true
-
-  const validateAllAsiTiers = () => {
-    let valid = true
-    for (const item of allUnlockedAsiList.value) {
-      const ch = item.choice
-      if (!ch || !ch.type) {
-        errors[item.errorKey] = `Please choose Ability Increase or Feat for ${item.className} Level ${item.tier}`
-        errors.asiTiers = errors[item.errorKey]
-        valid = false
-        break
-      } else if (ch.type === 'feat' && !ch.featName) {
-        errors[item.errorKey] = `Please select a Feat for ${item.className} Level ${item.tier}`
-        errors.asiTiers = errors[item.errorKey]
-        valid = false
-        break
-      } else if (ch.type === 'asi') {
-        if (ch.asiMode === '+2' && !ch.plus2Stat) {
-          errors[item.errorKey] = `Please select an ability to increase (+2) for ${item.className} Level ${item.tier}`
-          errors.asiTiers = errors[item.errorKey]
-          valid = false
-          break
-        } else if (ch.asiMode === '+1_+1') {
-          if (!ch.plus1StatA || !ch.plus1StatB) {
-            errors[item.errorKey] = `Please select two abilities to increase (+1/+1) for ${item.className} Level ${item.tier}`
-            errors.asiTiers = errors[item.errorKey]
-            valid = false
-            break
-          } else if (ch.plus1StatA === ch.plus1StatB) {
-            errors[item.errorKey] = `Please select two different abilities for ${item.className} Level ${item.tier} (+1/+1)`
-            errors.asiTiers = errors[item.errorKey]
-            valid = false
-            break
-          }
-        }
-      }
-      delete errors[item.errorKey]
-    }
-    if (valid && !Object.keys(errors).some(k => k.startsWith('asiTier_'))) {
-      delete errors.asiTiers
-    }
-    return valid
-  }
-
-  if (!characterName.value.trim()) {
-    errors.characterName = 'Please enter character name'
-    isValid = false
-  } else {
-    delete errors.characterName
-  }
-
-  if (stepId === 'race' || stepId === 'species') {
-    if (!characterRace.value || !characterRace.value.name) {
-      errors.characterRace = selectedEdition.value === '2024' ? 'Please select a species' : 'Please select a race'
-      isValid = false
-    } else {
-      delete errors.characterRace
-    }
-
-    if (isSubraceRequired.value && (!characterSubRace.value || !characterSubRace.value.name)) {
-      errors.characterSubRace = selectedEdition.value === '2024' ? 'Please select a lineage / subrace' : 'Please select a subrace'
-      isValid = false
-    } else {
-      delete errors.characterSubRace
-    }
-
-    if (raceLangConfig.value.choiceCount > 0 && raceChosenLanguages.value.filter(Boolean).length < raceLangConfig.value.choiceCount) {
-      errors.raceLanguages = `Please choose ${raceLangConfig.value.choiceCount} language(s) from your ${selectedEdition.value === '2024' ? 'species' : 'race'}`
-      isValid = false
-    } else {
-      delete errors.raceLanguages
-    }
-  } else if (stepId === 'class') {
-    if (!characterClass.value || !characterClass.value.class || !classSelected.value) {
-      errors.characterClass = 'Please select a character class'
-      isValid = false
-    } else {
-      delete errors.characterClass
-    }
-
-    // Subclass requirement if unlocked
-    if (isSubclassUnlocked.value && !selectedSubClassKey.value) {
-      errors.subclass = `Please select a subclass (Required at Level ${subclassUnlockLevel.value}+)`
-      isValid = false
-    } else {
-      delete errors.subclass
-    }
-
-    // Multiclass requirements
-    multiclasses.value.forEach((mc, idx) => {
-      const classErrKey = 'class_mc_' + idx
-      if (!mc.classSelected) {
-        errors[classErrKey] = `Please select a class for Secondary Class ${idx + 1}, or remove it.`
-        isValid = false
-      } else {
-        delete errors[classErrKey]
-      }
-
-      const subErrKey = 'subclass_mc_' + idx
-      if (mc.classSelected) {
-        const mcSubUnlock = getSubclassUnlockLevel(mc.classSelected, selectedEdition.value)
-        const mcAvailable = getMcAvailableSubClasses(mc)
-        if (isMcPrereqMet(mc) && Number(mc.classLevel) >= mcSubUnlock && mcAvailable.length > 0 && !mc.selectedSubClassKey) {
-          errors[subErrKey] = `Please select a subclass for ${mc.classSelected.charAt(0).toUpperCase() + mc.classSelected.slice(1)}`
-          isValid = false
-        } else {
-          delete errors[subErrKey]
-        }
-
-        // Validate multiclass skill choice if required
-        const skillCfg = getMcSkillConfig(mc)
-        const availSkills = getMcAvailableSkills(mc)
-        const neededSkills = Math.min(skillCfg.count, availSkills.length)
-        const skillsErrKey = 'skills_mc_' + idx
-        if (isMcPrereqMet(mc) && neededSkills > 0 && (mc.chosenSkills || []).length < neededSkills) {
-          errors[skillsErrKey] = `Please choose ${neededSkills} skill proficiency for ${mc.classSelected.charAt(0).toUpperCase() + mc.classSelected.slice(1)} (Selected: ${(mc.chosenSkills || []).length})`
-          isValid = false
-        } else {
-          delete errors[skillsErrKey]
-        }
-      }
-    })
-
-    const needed = Math.min(classSkillConfig.value.count, availableClassSkills.value.length)
-    if (chosenClassSkills.value.length < needed) {
-      errors.classSkills = `Please choose ${needed} class skill proficiencies (Currently selected: ${chosenClassSkills.value.length})`
-      isValid = false
-    } else {
-      delete errors.classSkills
-    }
-
-    if (expertiseConfig.value.eligible) {
-      const expNeeded = Math.min(expertiseConfig.value.count, allProficientSkills.value.length)
-      if (chosenExpertiseSkills.value.length < expNeeded) {
-        errors.expertises = `Please choose ${expNeeded} expertise skill${expNeeded > 1 ? 's' : ''}`
-        isValid = false
-      } else {
-        delete errors.expertises
-      }
-    }
-
-    if (classToolConfig.value.count > 0 && chosenClassTools.value.filter(Boolean).length < classToolConfig.value.count) {
-      errors.classTools = `Please choose ${classToolConfig.value.count} tool/instrument option(s)`
-      isValid = false
-    } else {
-      delete errors.classTools
-    }
-
-    if (isSpellcasterClass.value) {
-      delete errors.classSpells
-    }
-
-    // Check ASI / Feat tier choices
-    if (!validateAllAsiTiers()) {
-      isValid = false
-    }
-  } else if (stepId === 'background') {
-    if (!characterBackground.value || !selectedBackgroundObj.value?.name) {
-      errors.characterBackground = 'Please select a background'
-      isValid = false
-    } else {
-      delete errors.characterBackground
-    }
-
-    if (bgSkillConfig.value.count > 0 && chosenBgSkills.value.filter(Boolean).length < bgSkillConfig.value.count) {
-      errors.bgSkills = `Please choose ${bgSkillConfig.value.count} skill(s) from your background`
-      isValid = false
-    } else {
-      delete errors.bgSkills
-    }
-
-    if (bgLangConfig.value.choiceCount > 0 && bgChosenLanguages.value.filter(Boolean).length < bgLangConfig.value.choiceCount) {
-      errors.bgLanguages = `Please choose ${bgLangConfig.value.choiceCount} language(s) from your background`
-      isValid = false
-    } else {
-      delete errors.bgLanguages
-    }
-
-    if (bgToolConfig.value.count > 0 && chosenBgTools.value.filter(Boolean).length < bgToolConfig.value.count) {
-      errors.bgTools = `Please choose ${bgToolConfig.value.count} tool/instrument from your background`
-      isValid = false
-    } else {
-      delete errors.bgTools
-    }
-  } else if (stepId === 'abilities') {
-    if (!strength.value || !dexterity.value || !constitution.value || !intelligence.value || !wisdom.value || !charisma.value) {
-      errors.abilities = 'Please fill all ability scores'
-      isValid = false
-    } else {
-      delete errors.abilities
-    }
-
-    if (scoreMethod.value === 'pointbuy' && pointBuyRemaining.value < 0) {
-      errors.pointbuy = 'Point buy budget exceeded (max 27 points)'
-      isValid = false
-    } else {
-      delete errors.pointbuy
-    }
-
-    if (selectedEdition.value === '2024' && asi2024Mode.value === 'plus2_plus1' && asi2024Plus2.value === asi2024Plus1.value) {
-      errors.asi2024 = 'Please select two different abilities for +2 and +1 ASI'
-      isValid = false
-    } else {
-      delete errors.asi2024
-    }
-
-    // Check ASI / Feat tier choices
-    if (!validateAllAsiTiers()) {
-      isValid = false
-    }
-
-    // Check multiclass ability score prerequisites
-    if (multiclasses.value.length > 0) {
-      for (let i = 0; i < multiclasses.value.length; i++) {
-        const mc = multiclasses.value[i]
-        const st = getMcPrereqStatus(mc)
-        if (st.scoresAssigned && !st.met) {
-          errors.abilities = `Multiclassing prerequisite not met for ${(mc.classSelected || '').toUpperCase()}: requires ${formatPrerequisitesText(mc.classSelected, mc.characterClass?.class)}`
-          isValid = false
-          break
-        }
-      }
-    }
-  } else if (stepId === 'equipment') {
-    if (equipmentChoiceMode.value === 'gold') {
-      if (customStartingGold.value === null || customStartingGold.value === undefined || Number(customStartingGold.value) < 0) {
-        errors.equipmentGold = 'Starting gold must be 0 or greater'
-        isValid = false
-      } else {
-        delete errors.equipmentGold
-      }
-    } else {
-      delete errors.equipmentGold
-    }
-  }
-
-  if (!isValid && shouldScroll) {
-    scrollToFirstError()
-  }
-
-  return isValid
-}
-
-const canGoToStep = (targetIdx) => {
-  if (targetIdx <= currentStepIndex.value) return true
-  for (let i = 0; i < targetIdx; i++) {
-    const stepId = activeSteps.value[i].id
-    if (!validateStep(stepId, false)) return false
-  }
-  return true
-}
-
-const goToStep = (tabId) => {
-  const targetIdx = activeSteps.value.findIndex(s => s.id === tabId)
-  if (targetIdx === -1 || targetIdx === currentStepIndex.value) return
-  if (targetIdx > currentStepIndex.value) {
-    for (let i = 0; i < targetIdx; i++) {
-      const stepId = activeSteps.value[i].id
-      if (!validateStep(stepId, false)) {
-        currentTab.value = stepId
-        scrollToFirstError()
-        return
-      }
-    }
-  }
-  currentTab.value = tabId
-}
-
-const nextStep = () => {
-  const currentStepId = activeSteps.value[currentStepIndex.value].id
-  if (!validateStep(currentStepId, true)) return
-  if (currentStepIndex.value < activeSteps.value.length - 1) {
-    currentTab.value = activeSteps.value[currentStepIndex.value + 1].id
-  }
-}
-
-const prevStep = () => {
-  if (currentStepIndex.value > 0) {
-    currentTab.value = activeSteps.value[currentStepIndex.value - 1].id
-  }
-}
-
 const searchSubRace = async (raceObj) => {
   characterSubRace.value = {}
   delete errors.characterSubRace
@@ -4385,2488 +1642,308 @@ const handleAnnotationClick = (event) => {
   console.log(event.target.innerText)
 }
 
-const isSubmitting = ref(false)
-
-const submitForm = async () => {
-  if (!characterName.value.trim()) {
-    errors.characterName = 'Please enter character name'
-    scrollToFirstError()
-    return
-  }
-
-  // Validate all steps
-  for (const step of activeSteps.value) {
-    if (!validateStep(step.id, false)) {
-      currentTab.value = step.id
-      scrollToFirstError()
-      return
-    }
-  }
-
-  isSubmitting.value = true
-
-  try {
-    const bgDetails = parseBackgroundDetails(selectedBackgroundObj.value) || {}
-
-    const skillObj = {}
-    for (const sk of ALL_SKILLS) {
-      skillObj[sk.key] = allProficientSkills.value.includes(sk.key)
-    }
-
-    const expertiseObj = {}
-    for (const sk of ALL_SKILLS) {
-      expertiseObj[sk.key] = chosenExpertiseSkills.value.includes(sk.key)
-    }
-
-    const allChosenFeats = []
-    if (bgDetails.featName) allChosenFeats.push(bgDetails.featName)
-    for (const item of allUnlockedAsiList.value) {
-      const ch = item.choice
-      if (ch && ch.type === 'feat' && ch.featName) {
-        allChosenFeats.push(ch.featName)
-      }
-    }
-
-    const classesPayload = [
-      {
-        name: characterClass.value.class?.name || classSelected.value,
-        level: Number(classLevel.value),
-        class: characterClass.value,
-        sub_class: selectedSubClassItem.value ? {
-          ...selectedSubClassItem.value,
-          subClassFeature: selectedSubClassItem.value.subClassFeature?.length
-            ? selectedSubClassItem.value.subClassFeature
-            : (characterSubClass.value?.subClassFeature || characterStore.characterSubClass?.subClassFeature || [])
-        } : (characterStore.characterSubClass || null),
-        spells: (chosenSpells.value || []).map(s => ({
-          ...s,
-          is_feat_spell: false,
-          source_feat: null,
-          sourceFeat: null
-        }))
-      }
-    ]
-
-    for (const mc of multiclasses.value) {
-      if (mc.classSelected) {
-        classesPayload.push({
-          name: mc.characterClass?.class?.name || mc.classSelected,
-          level: Number(mc.classLevel) || 1,
-          class: mc.characterClass,
-          sub_class: mc.selectedSubClassItem || null,
-          spells: (mc.chosenSpells || []).map(s => ({
-            ...s,
-            is_feat_spell: false,
-            source_feat: null,
-            sourceFeat: null
-          }))
-        })
-      }
-    }
-
-    const preparedFeatSpells = (featChosenSpells.value || []).map(s => ({
-      ...s,
-      sourceFeat: s.sourceFeat || s.source_feat || 'Feat',
-      source_feat: s.source_feat || s.sourceFeat || 'Feat',
-      is_feat_spell: true
-    }))
-
-    const allSpells = [
-      ...(chosenSpells.value || []).map(s => ({
-        ...s,
-        is_feat_spell: false,
-        source_feat: null,
-        sourceFeat: null
-      })),
-      ...multiclasses.value.flatMap(mc => (mc.chosenSpells || []).map(s => ({
-        ...s,
-        is_feat_spell: false,
-        source_feat: null,
-        sourceFeat: null
-      }))),
-      ...preparedFeatSpells
-    ]
-
-    const payload = {
-      edition: selectedEdition.value,
-      name: characterName.value,
-      image_url: imageUrl.value || null,
-      characteristics: {
-        alignment: alignment.value || null,
-        gender: characteristics.gender || '',
-        eyes: characteristics.eyes || '',
-        size: characteristics.size || '',
-        height: characteristics.height || '',
-        faith: characteristics.faith || '',
-        hair: characteristics.hair || '',
-        skin: characteristics.skin || '',
-        age: characteristics.age || '',
-        weight: characteristics.weight || '',
-        lifestyle: characteristics.lifestyle || 'Modest',
-        appearance: characteristics.appearance || '',
-        personalityTraits: (characteristics.personalityTraits || []).filter(Boolean),
-        ideals: (characteristics.ideals || []).filter(Boolean),
-        bonds: (characteristics.bonds || []).filter(Boolean),
-        flaws: (characteristics.flaws || []).filter(Boolean),
-        notes: {
-          organizations: characteristics.notes?.organizations || '',
-          allies: characteristics.notes?.allies || '',
-          enemies: characteristics.notes?.enemies || '',
-          backstory: characteristics.notes?.backstory || '',
-          other: characteristics.notes?.other || ''
-        }
-      },
-      background: characterBackground.value,
-      alignment: alignment.value,
-      level: totalCharacterLevel.value,
-      proficiency_bonus: computedProficiencyBonus.value,
-      race: characterRace.value,
-      sub_race: characterSubRace.value,
-      class: characterClass.value,
-      sub_class: characterStore.characterSubClass ? {
-        ...characterStore.characterSubClass,
-        subClassFeature: characterStore.characterSubClass.subClassFeature?.length
-          ? characterStore.characterSubClass.subClassFeature
-          : (characterSubClass.value?.subClassFeature || selectedSubClassItem.value?.subClassFeature || [])
-      } : (selectedSubClassItem.value || null),
-      classes: classesPayload,
-      strength: strength.value,
-      dexterity: dexterity.value,
-      constitution: constitution.value,
-      intelligence: intelligence.value,
-      wisdom: wisdom.value,
-      charisma: charisma.value,
-      ability_score: {
-        strength: strength.value,
-        dexterity: dexterity.value,
-        constitution: constitution.value,
-        intelligence: intelligence.value,
-        wisdom: wisdom.value,
-        charisma: charisma.value
-      },
-      skill_proficiencies: skillObj,
-      skills: skillObj,
-      skill_expertises: expertiseObj,
-      expertises: expertiseObj,
-      languages: allLanguagesList.value,
-      proficiencies: allProficienciesList.value,
-      feats: allChosenFeats,
-      feat: allChosenFeats[0] || null,
-      feature: bgDetails.featureName || null,
-      spells: allSpells,
-      equipment: userEquipmentList.value || [],
-      treasures: computedTreasures.value,
-      treasure: computedTreasures.value
-    }
-
-    if (isEditMode.value) {
-      const updateRes = await axios.put(`${API_URL}/character/${props.characterToEdit.id}`, payload)
-      const charKey = updateRes.data?.data?.public_id || props.characterToEdit.public_id || props.characterToEdit.id
-      const fullRes = await axios.get(`${API_URL}/character/${charKey}`)
-      if (fullRes.data?.data) {
-        emit('created', fullRes.data.data)
-      } else {
-        emit('back')
-      }
-    } else {
-      const res = await axios.post(`${API_URL}/character`, payload)
-      const newKey = res.data?.data?.public_id || res.data?.data?.id
-      if (newKey) {
-        const fullRes = await axios.get(`${API_URL}/character/${newKey}`)
-        if (fullRes.data?.data) {
-          emit('created', fullRes.data.data)
-        }
-      } else {
-        emit('back')
-      }
-    }
-  } catch (err) {
-    alert(err.response?.data?.message || err.message || 'Failed to submit character')
-  } finally {
-    isSubmitting.value = false
-  }
-}
+// Character Submission Handler
+const { isSubmitting, submitForm } = useFormSubmit({
+  API_URL,
+  props,
+  emit,
+  characterName,
+  activeSteps,
+  currentTab,
+  validateStep,
+  scrollToFirstError,
+  errors,
+  selectedBackgroundObj,
+  parseBackgroundDetails,
+  ALL_SKILLS,
+  allProficientSkills,
+  chosenExpertiseSkills,
+  allUnlockedAsiList,
+  characterClass,
+  classSelected,
+  classLevel,
+  selectedSubClassItem,
+  characterSubClass,
+  characterStore,
+  chosenSpells,
+  multiclasses,
+  featChosenSpells,
+  selectedEdition,
+  imageUrl,
+  alignment,
+  characteristics,
+  characterBackground,
+  totalCharacterLevel,
+  computedProficiencyBonus,
+  characterRace,
+  characterSubRace,
+  strength,
+  dexterity,
+  constitution,
+  intelligence,
+  wisdom,
+  charisma,
+  allLanguagesList,
+  allProficienciesList,
+  userEquipmentList,
+  computedTreasures,
+  isEditMode
+})
 </script>
 
 <template>
   <div ref="scrollRef" class="max-w-2xl mx-2 sm:mx-auto mb-20 sm:mb-24 my-4 p-3.5 sm:p-6 bg-white rounded border border-gray-200 shadow-sm">
-    <!-- Header: Back & Ruleset Edition Selector -->
-    <div class="mb-5 pb-4 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-      <div>
-        <button
-          type="button"
-          @click="emit('back')"
-          class="text-xs bg-white hover:bg-gray-100 text-gray-700 p-2 rounded border border-gray-300 font-medium transition cursor-pointer mb-2 sm:mb-0 flex items-center justify-center"
-          title="Back to Character List"
-          aria-label="Back to Character List"
-        >
-          <IconArrowLeft class="w-4 h-4" />
-        </button>
-      </div>
+    <!-- Form Header (Ruleset, Sources, Avatar, Character Name) -->
+    <FormHeader
+      :is-first-step="isFirstStep"
+      :selected-edition="selectedEdition"
+      :current-source-options="currentSourceOptions"
+      :selected-sources="selectedSources"
+      :display-image-url="displayImageUrl"
+      :image-url="imageUrl"
+      :is-uploading-image="isUploadingImage"
+      :image-upload-error="imageUploadError"
+      v-model:character-name="characterName"
+      :errors="errors"
+      @back="emit('back')"
+      @change-edition="changeEdition"
+      @toggle-source="toggleSource"
+      @set-sources-core-only="setSourcesCoreOnly"
+      @set-sources-select-all="setSourcesSelectAll"
+      @avatar-selected="handleAvatarSelected"
+      @remove-image="imageUrl = ''"
+    />
 
-      <div class="flex items-center gap-2">
-        <span class="text-xs font-semibold text-gray-700">Ruleset:</span>
-        <div class="flex gap-1 bg-gray-200 p-1 rounded">
-          <button
-            type="button"
-            :disabled="!isFirstStep"
-            @click="changeEdition('2024')"
-            :class="[
-              selectedEdition === '2024' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-700 hover:text-black',
-              !isFirstStep ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-            ]"
-            class="px-3 py-1 text-xs rounded font-medium transition"
-          >
-            2024 One D&D
-          </button>
-          <button
-            type="button"
-            :disabled="!isFirstStep"
-            @click="changeEdition('2014')"
-            :class="[
-              selectedEdition === '2014' ? 'bg-gray-800 text-white shadow-sm' : 'text-gray-700 hover:text-black',
-              !isFirstStep ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-            ]"
-            class="px-3 py-1 text-xs rounded font-medium transition"
-          >
-            2014 Classic
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Source Books Toolbar (Disabled outside first step) -->
-    <div class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs" :class="!isFirstStep ? 'bg-gray-100/70 border-gray-200' : ''">
-      <div class="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-        <div class="flex items-center gap-2 font-semibold text-gray-700">
-          <span>Sources:</span>
-          <div v-if="isFirstStep" class="flex items-center gap-1 font-normal">
-            <button
-              type="button"
-              @click="setSourcesCoreOnly"
-              class="px-1.5 py-0.5 text-[10px] bg-white hover:bg-gray-100 border border-gray-300 rounded font-medium cursor-pointer transition shadow-2xs"
-            >
-              Core Only
-            </button>
-            <button
-              type="button"
-              @click="setSourcesSelectAll"
-              class="px-1.5 py-0.5 text-[10px] bg-white hover:bg-gray-100 border border-gray-300 rounded font-medium cursor-pointer transition shadow-2xs"
-            >
-              Select All
-            </button>
-          </div>
-        </div>
-        <span v-if="isFirstStep" class="text-[10px] text-gray-500">Core default</span>
-      </div>
-      <div class="flex flex-wrap gap-1.5">
-        <button
-          v-for="src in currentSourceOptions"
-          :key="src.code"
-          type="button"
-          :disabled="!isFirstStep"
-          @click="toggleSource(src.code)"
-          :class="[
-            !isFirstStep ? 'cursor-not-allowed opacity-80' : 'cursor-pointer',
-            (selectedSources || []).includes(src.code) ? 'bg-gray-200 border-gray-400 text-gray-900 font-semibold shadow-xs' : 'bg-white border-gray-200 text-gray-400 hover:text-gray-600'
-          ]"
-          class="px-2 py-0.5 rounded border text-[11px] transition"
-        >
-          <span class="font-bold">{{ src.code }}</span>
-          <span class="hidden sm:inline text-[10px] ml-1 opacity-75">({{ src.label.split('(')[0].trim() }})</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Character Avatar & Name Input -->
-    <div class="mb-5 flex flex-row items-center gap-3 sm:gap-4" data-error-field="characterName">
-      <!-- Portrait Uploader -->
-      <div class="relative shrink-0 flex flex-col items-center">
-        <div
-          @click="avatarFileInputRef?.click()"
-          class="w-14 h-14 sm:w-16 sm:h-16 rounded-lg border-2 border-dashed border-gray-300 hover:border-gray-500 bg-gray-50 flex flex-col items-center justify-center cursor-pointer relative group overflow-hidden transition shadow-xs"
-          title="Upload character image (Max 2MB)"
-        >
-          <img
-            v-if="displayImageUrl"
-            :src="displayImageUrl"
-            alt="Portrait"
-            class="w-full h-full object-cover"
-          />
-          <div v-else class="flex flex-col items-center justify-center text-gray-400 group-hover:text-gray-600">
-            <IconCamera class="w-5 h-5 mb-0.5" />
-            <span class="text-[9px] font-bold uppercase tracking-wider">Photo</span>
-          </div>
-
-          <!-- Hover overlay if image exists -->
-          <div
-            v-if="displayImageUrl"
-            class="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition text-[10px] font-semibold"
-          >
-            Change
-          </div>
-
-          <!-- Loading state -->
-          <div
-            v-if="isUploadingImage"
-            class="absolute inset-0 bg-white/85 flex items-center justify-center text-[10px] font-bold text-gray-700"
-          >
-            ...
-          </div>
-        </div>
-
-        <input
-          ref="avatarFileInputRef"
-          type="file"
-          accept="image/*"
-          class="hidden"
-          @change="handleAvatarSelected"
-        />
-
-        <button
-          v-if="imageUrl"
-          type="button"
-          @click="imageUrl = ''"
-          class="mt-1 text-[10px] text-gray-500 hover:text-red-600 underline font-medium cursor-pointer"
-        >
-          Remove
-        </button>
-      </div>
-
-      <!-- Name Input -->
-      <div class="flex-1 min-w-0">
-        <label for="characterName" class="block text-xs font-semibold text-gray-700 mb-1">Character Name:</label>
-        <input
-          type="text"
-          id="characterName"
-          v-model="characterName"
-          :class="errors.characterName ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-          class="p-2 border rounded w-full text-xs bg-white focus:outline-none focus:border-gray-900"
-          placeholder="Enter character name"
-        />
-        <p v-if="errors.characterName" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.characterName }}
-        </p>
-        <p v-if="imageUploadError" class="mt-1 text-xs text-red-600 font-medium">
-          {{ imageUploadError }}
-        </p>
-      </div>
-    </div>
-
-    <!-- Tab Navigation -->
-    <div class="flex items-center justify-between border-b border-gray-200 mb-6 overflow-x-auto no-scrollbar gap-1 sm:gap-2 pb-0.5">
-      <button
-        v-for="tab in activeSteps"
-        :key="tab.id"
-        type="button"
-        @click="goToStep(tab.id)"
-        :class="[
-          currentTab === tab.id
-            ? 'border-gray-900 text-gray-900 font-bold'
-            : 'border-transparent text-gray-500 hover:text-gray-800 hover:border-gray-300 font-medium',
-          'flex-1 text-center py-2.5 px-1 sm:px-3 border-b-2 text-xs sm:text-sm transition cursor-pointer whitespace-nowrap'
-        ]"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
+    <!-- Tab Navigation Stepper -->
+    <FormStepNavigation
+      :active-steps="activeSteps"
+      :current-tab="currentTab"
+      @go-to-step="goToStep"
+    />
 
     <!-- TAB 1: Background (2024 first, 2014 third) -->
-    <div v-if="currentTab === 'background'">
-      <h2 class="text-base font-bold text-gray-900 mb-3">
-        {{ selectedEdition === '2024' ? 'Background & Origin (2024)' : 'Background (2014)' }}
-      </h2>
-
-      <div class="mb-4" data-error-field="characterBackground">
-        <label for="characterBackground" class="block text-xs font-semibold text-gray-700 mb-1">Choose Background:</label>
-        <v-select
-          id="characterBackground"
-          v-model="selectedBackgroundObj"
-          :options="filteredBackgrounds"
-          :get-option-label="b => b ? `${b.name} (${b.source || 'PHB'})` : ''"
-          :get-option-key="b => b ? (b.id || b.name + '|' + (b.source || '')) : ''"
-          placeholder="Choose background..."
-          @update:model-value="onBackgroundChange"
-          :class="{ 'has-error': errors.characterBackground }"
-        />
-        <p v-if="errors.characterBackground" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.characterBackground }}
-        </p>
-      </div>
-
-      <!-- Background Details Card -->
-      <div v-if="selectedBackgroundObj" class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-800 space-y-2.5">
-        <div class="flex items-center justify-between font-semibold text-gray-900 border-b border-gray-200 pb-1.5">
-          <span>{{ selectedBackgroundObj.name }} ({{ selectedBackgroundObj.source }})</span>
-          <span class="text-[10px] font-normal text-gray-500 border border-gray-200 bg-white px-1.5 py-0.5 rounded">
-            {{ selectedEdition === '2024' ? 'One D&D 2024' : 'Classic 2014' }}
-          </span>
-        </div>
-
-        <!-- Ability Score Increase Info (2024 only) -->
-        <div v-if="selectedEdition === '2024' && parseBackgroundDetails(selectedBackgroundObj)?.abilityText">
-          <span class="font-medium text-gray-700">Ability Score Increase:</span>
-          <p class="text-gray-900 mt-0.5">+2/+1 or +1/+1/+1 to {{ parseBackgroundDetails(selectedBackgroundObj).abilityText }}</p>
-        </div>
-
-        <!-- Origin Feat (if any) -->
-        <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.featName">
-          <span class="font-medium text-gray-700">Feat:</span>
-          <p class="text-gray-900 font-medium mt-0.5">{{ parseBackgroundDetails(selectedBackgroundObj).featName }}</p>
-        </div>
-
-        <!-- Background Feature (2014) -->
-        <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.featureName" class="border-t border-gray-200 pt-2">
-          <div class="font-semibold text-gray-900 mb-1">
-            {{ parseBackgroundDetails(selectedBackgroundObj).featureName }}
-          </div>
-          <div
-            v-for="(p, i) in parseBackgroundDetails(selectedBackgroundObj).featureEntries"
-            :key="i"
-            class="text-gray-600 leading-relaxed mt-1"
-            v-html="renderAnnotatedText(p)"
-          ></div>
-        </div>
-
-        <!-- Proficiencies & Gear Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-gray-200 pt-2">
-          <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.skillsText">
-            <span class="font-medium text-gray-700">Skill Proficiencies:</span>
-            <p class="text-gray-900 mt-0.5">{{ parseBackgroundDetails(selectedBackgroundObj).skillsText }}</p>
-          </div>
-
-          <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.toolsText">
-            <span class="font-medium text-gray-700">Tool Proficiencies:</span>
-            <p class="text-gray-900 mt-0.5">{{ parseBackgroundDetails(selectedBackgroundObj).toolsText }}</p>
-          </div>
-
-          <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.languagesText">
-            <span class="font-medium text-gray-700">Languages:</span>
-            <p class="text-gray-900 mt-0.5">{{ parseBackgroundDetails(selectedBackgroundObj).languagesText }}</p>
-          </div>
-
-          <div v-if="parseBackgroundDetails(selectedBackgroundObj)?.equipmentText" class="sm:col-span-2">
-            <span class="font-medium text-gray-700">Starting Equipment:</span>
-            <p class="text-gray-900 mt-0.5 leading-relaxed">{{ parseBackgroundDetails(selectedBackgroundObj).equipmentText }}</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Background Skill Choices -->
-      <div v-if="bgSkillConfig.count > 0" data-error-field="bgSkills" class="mb-4 p-3 bg-gray-50 border rounded text-xs" :class="errors.bgSkills ? 'border-red-400' : 'border-gray-200'">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="font-medium text-gray-800">{{ bgSkillConfig.label }}:</span>
-          <span
-            class="text-xs font-mono font-medium"
-            :class="chosenBgSkills.filter(Boolean).length === bgSkillConfig.count ? 'text-green-700' : 'text-gray-600'"
-          >
-            {{ chosenBgSkills.filter(Boolean).length }} / {{ bgSkillConfig.count }}
-          </span>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div v-for="idx in bgSkillConfig.count" :key="idx">
-            <v-select
-              v-model="chosenBgSkills[idx - 1]"
-              :options="bgSkillConfig.options"
-              :get-option-label="skKey => getSkillLabel(skKey)"
-              :selectable="skKey => !chosenBgSkills.includes(skKey) || chosenBgSkills[idx - 1] === skKey"
-              :placeholder="`Select Skill #${idx}...`"
-              :class="{ 'has-error': errors.bgSkills }"
-            />
-          </div>
-        </div>
-        <p v-if="errors.bgSkills" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.bgSkills }}
-        </p>
-      </div>
-
-      <!-- Background Language Choices -->
-      <div v-if="bgLangConfig.choiceCount > 0" data-error-field="bgLanguages" class="mb-4 p-3 bg-gray-50 border rounded text-xs" :class="errors.bgLanguages ? 'border-red-400' : 'border-gray-200'">
-        <div class="font-medium text-gray-800 mb-1.5">
-          Choose {{ bgLangConfig.choiceCount }} Language{{ bgLangConfig.choiceCount > 1 ? 's' : '' }} (Background):
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div v-for="idx in bgLangConfig.choiceCount" :key="idx">
-            <v-select
-              v-model="bgChosenLanguages[idx - 1]"
-              :options="STANDARD_LANGUAGES"
-              :selectable="l => !bgLangConfig.fixed.includes(l) && (!bgChosenLanguages.includes(l) || bgChosenLanguages[idx - 1] === l)"
-              :placeholder="`Select Language #${idx}...`"
-              :class="{ 'has-error': errors.bgLanguages && !bgChosenLanguages[idx - 1] }"
-            />
-          </div>
-        </div>
-        <p v-if="errors.bgLanguages" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.bgLanguages }}
-        </p>
-      </div>
-
-      <!-- Background Tool / Instrument Choices -->
-      <div v-if="bgToolConfig.count > 0" data-error-field="bgTools" class="mb-4 p-3 bg-gray-50 border rounded text-xs" :class="errors.bgTools ? 'border-red-400' : 'border-gray-200'">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="font-medium text-gray-800">{{ bgToolConfig.label }}:</span>
-          <span
-            class="text-xs font-mono font-medium"
-            :class="chosenBgTools.filter(Boolean).length === bgToolConfig.count ? 'text-green-700' : 'text-gray-600'"
-          >
-            {{ chosenBgTools.filter(Boolean).length }} / {{ bgToolConfig.count }}
-          </span>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div v-for="idx in bgToolConfig.count" :key="idx">
-            <v-select
-              v-model="chosenBgTools[idx - 1]"
-              :options="bgToolConfig.options"
-              :selectable="opt => !chosenBgTools.includes(opt) || chosenBgTools[idx - 1] === opt"
-              :placeholder="`Select Option #${idx}...`"
-              :class="{ 'has-error': errors.bgTools }"
-            />
-          </div>
-        </div>
-        <p v-if="errors.bgTools" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.bgTools }}
-        </p>
-      </div>
-
-      <!-- Origin Feat Spell Notification -->
-      <div v-if="detectedFeatSpellSources.some(s => s.sourceType === 'background')" class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs flex items-center justify-between gap-2">
-        <div>
-          <span class="font-bold text-gray-900 block">Origin Feat Grants Spells</span>
-          <span class="text-gray-600 text-[11px]">
-            Your background feat grants spells! Configure and choose them in the Class tab.
-          </span>
-        </div>
-        <button
-          type="button"
-          @click="currentTab = 'class'; classSubTab = 'featSpells'"
-          class="px-2.5 py-1 bg-gray-800 hover:bg-gray-900 text-white rounded font-bold text-xs cursor-pointer shrink-0 transition"
-        >
-          Pick Feat Spells ({{ featChosenSpells.length }}) &rarr;
-        </button>
-      </div>
-    </div>
+    <FormBackgroundStep
+      v-if="currentTab === 'background'"
+      :selected-edition="selectedEdition"
+      v-model:character-background="selectedBackgroundObj"
+      :filtered-backgrounds="filteredBackgrounds"
+      :selected-background-obj="selectedBackgroundObj"
+      :errors="errors"
+      :bg-skill-config="bgSkillConfig"
+      :chosen-bg-skills="chosenBgSkills"
+      :bg-lang-config="bgLangConfig"
+      :bg-chosen-languages="bgChosenLanguages"
+      :standard-languages="STANDARD_LANGUAGES"
+      :bg-tool-config="bgToolConfig"
+      :chosen-bg-tools="chosenBgTools"
+      :detected-feat-spell-sources="detectedFeatSpellSources"
+      :feat-chosen-spells="featChosenSpells"
+      :parse-background-details="parseBackgroundDetails"
+      :get-skill-label="getSkillLabel"
+      @background-change="onBackgroundChange"
+      @go-to-feat-spells="currentTab = 'class'; classSubTab = 'featSpells'"
+    />
 
     <!-- TAB: Characteristics & Details -->
-    <div v-else-if="currentTab === 'characteristics'" class="space-y-6">
-      <div class="border-b border-gray-200 pb-2">
-        <h2 class="text-sm font-bold text-gray-900 tracking-wider uppercase">CHARACTERISTICS</h2>
-      </div>
-
-      <!-- Top Characteristics Grid -->
-      <div class="bg-gray-50/70 p-3 sm:p-4 rounded border border-gray-200">
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 text-xs">
-          <!-- Alignment -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">ALIGNMENT</label>
-            <v-select
-              v-model="alignment"
-              :options="alignments"
-              placeholder="--"
-              class="text-xs bg-white rounded"
-            />
-          </div>
-          <!-- Gender -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">GENDER</label>
-            <select
-              v-model="characteristics.gender"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            >
-              <option value="">--</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-            </select>
-          </div>
-          <!-- Eyes -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">EYES</label>
-            <input
-              type="text"
-              v-model="characteristics.eyes"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Size -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">SIZE</label>
-            <select
-              v-model="characteristics.size"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            >
-              <option value="">--</option>
-              <option v-for="s in DND_SIZES" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </div>
-          <!-- Height -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">HEIGHT</label>
-            <input
-              type="text"
-              v-model="characteristics.height"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Faith -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">FAITH</label>
-            <input
-              type="text"
-              v-model="characteristics.faith"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Hair -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">HAIR</label>
-            <input
-              type="text"
-              v-model="characteristics.hair"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Skin -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">SKIN</label>
-            <input
-              type="text"
-              v-model="characteristics.skin"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Age -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">AGE</label>
-            <input
-              type="text"
-              v-model="characteristics.age"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-          <!-- Weight -->
-          <div>
-            <label class="block text-[10px] font-bold text-gray-600 uppercase tracking-wider mb-1">WEIGHT</label>
-            <input
-              type="text"
-              v-model="characteristics.weight"
-              placeholder="--"
-              class="w-full p-1.5 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- Personality Traits, Ideals, Bonds, Flaws -->
-      <div class="space-y-4 pt-1">
-        <!-- Personality Traits -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <h3 class="font-bold text-gray-900 text-xs">Personality Traits</h3>
-            <button
-              type="button"
-              @click="openTraitTableModal('personalityTraits')"
-              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
-              title="View suggested traits table or roll"
-            >
-              <IconDice class="w-3.5 h-3.5 text-gray-600" />
-              <span>Table / Roll</span>
-            </button>
-          </div>
-          <div v-if="characteristics.personalityTraits.length === 0">
-            <button
-              type="button"
-              @click="addPersonalityTrait"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Personality Trait</span>
-            </button>
-          </div>
-          <div v-else class="space-y-1.5">
-            <div
-              v-for="(trait, idx) in characteristics.personalityTraits"
-              :key="idx"
-              class="flex items-start gap-1.5"
-            >
-              <textarea
-                v-model="characteristics.personalityTraits[idx]"
-                rows="2"
-                placeholder="Enter personality trait..."
-                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-              ></textarea>
-              <button
-                type="button"
-                @click="removePersonalityTrait(idx)"
-                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
-                title="Remove"
-              >
-                <IconTrash class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              @click="addPersonalityTrait"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Personality Trait</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Ideals -->
-        <div class="space-y-2 pt-2 border-t border-gray-100">
-          <div class="flex items-center justify-between">
-            <h3 class="font-bold text-gray-900 text-xs">Ideals</h3>
-            <button
-              type="button"
-              @click="openTraitTableModal('ideals')"
-              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
-              title="View suggested ideals table or roll"
-            >
-              <IconDice class="w-3.5 h-3.5 text-gray-600" />
-              <span>Table / Roll</span>
-            </button>
-          </div>
-          <div v-if="characteristics.ideals.length === 0">
-            <button
-              type="button"
-              @click="addIdeal"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Ideal</span>
-            </button>
-          </div>
-          <div v-else class="space-y-1.5">
-            <div
-              v-for="(ideal, idx) in characteristics.ideals"
-              :key="idx"
-              class="flex items-start gap-1.5"
-            >
-              <textarea
-                v-model="characteristics.ideals[idx]"
-                rows="2"
-                placeholder="Enter ideal..."
-                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-              ></textarea>
-              <button
-                type="button"
-                @click="removeIdeal(idx)"
-                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
-                title="Remove"
-              >
-                <IconTrash class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              @click="addIdeal"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Ideal</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Bonds -->
-        <div class="space-y-2 pt-2 border-t border-gray-100">
-          <div class="flex items-center justify-between">
-            <h3 class="font-bold text-gray-900 text-xs">Bonds</h3>
-            <button
-              type="button"
-              @click="openTraitTableModal('bonds')"
-              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
-              title="View suggested bonds table or roll"
-            >
-              <IconDice class="w-3.5 h-3.5 text-gray-600" />
-              <span>Table / Roll</span>
-            </button>
-          </div>
-          <div v-if="characteristics.bonds.length === 0">
-            <button
-              type="button"
-              @click="addBond"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Bond</span>
-            </button>
-          </div>
-          <div v-else class="space-y-1.5">
-            <div
-              v-for="(bond, idx) in characteristics.bonds"
-              :key="idx"
-              class="flex items-start gap-1.5"
-            >
-              <textarea
-                v-model="characteristics.bonds[idx]"
-                rows="2"
-                placeholder="Enter bond..."
-                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-              ></textarea>
-              <button
-                type="button"
-                @click="removeBond(idx)"
-                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
-                title="Remove"
-              >
-                <IconTrash class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              @click="addBond"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Bond</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Flaws -->
-        <div class="space-y-2 pt-2 border-t border-gray-100">
-          <div class="flex items-center justify-between">
-            <h3 class="font-bold text-gray-900 text-xs">Flaws</h3>
-            <button
-              type="button"
-              @click="openTraitTableModal('flaws')"
-              class="inline-flex items-center gap-1 text-[11px] text-gray-700 hover:text-black font-semibold cursor-pointer px-2 py-0.5 rounded border border-gray-200 bg-white hover:bg-gray-50 transition"
-              title="View suggested flaws table or roll"
-            >
-              <IconDice class="w-3.5 h-3.5 text-gray-600" />
-              <span>Table / Roll</span>
-            </button>
-          </div>
-          <div v-if="characteristics.flaws.length === 0">
-            <button
-              type="button"
-              @click="addFlaw"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Flaw</span>
-            </button>
-          </div>
-          <div v-else class="space-y-1.5">
-            <div
-              v-for="(flaw, idx) in characteristics.flaws"
-              :key="idx"
-              class="flex items-start gap-1.5"
-            >
-              <textarea
-                v-model="characteristics.flaws[idx]"
-                rows="2"
-                placeholder="Enter flaw..."
-                class="flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-              ></textarea>
-              <button
-                type="button"
-                @click="removeFlaw(idx)"
-                class="p-1.5 text-gray-400 hover:text-gray-700 cursor-pointer"
-                title="Remove"
-              >
-                <IconTrash class="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <button
-              type="button"
-              @click="addFlaw"
-              class="text-gray-500 hover:text-gray-800 text-xs font-medium cursor-pointer inline-flex items-center gap-1 pt-1"
-            >
-              <IconPlus class="w-3.5 h-3.5" />
-              <span>Add Flaw</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- APPEARANCE -->
-      <div class="space-y-2 pt-3 border-t border-gray-200">
-        <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">APPEARANCE</h3>
-        <textarea
-          v-model="characteristics.appearance"
-          rows="3"
-          placeholder="+ Add Appearance information (physical features, clothing, demeanor, scars, etc.)"
-          class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-        ></textarea>
-      </div>
-
-      <!-- Lifestyle & Wealth -->
-      <div class="space-y-2 pt-3 border-t border-gray-200">
-        <div class="flex items-center justify-between">
-          <h3 class="text-xs font-bold text-gray-900 uppercase tracking-wider">Lifestyle & Wealth</h3>
-          <span class="text-[11px] font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
-            {{ LIFESTYLES.find(l => l.value === characteristics.lifestyle)?.cost || '1 gp/day' }}
-          </span>
-        </div>
-        <v-select
-          v-model="characteristics.lifestyle"
-          :options="LIFESTYLES"
-          :reduce="opt => opt.value"
-          label="label"
-          :clearable="false"
-          class="text-xs bg-white rounded"
-        />
-        <p class="text-[11px] text-gray-500">
-          {{ LIFESTYLES.find(l => l.value === characteristics.lifestyle)?.desc }}
-        </p>
-      </div>
-
-      <!-- Notes & Organizations Sub-Tabs -->
-      <div class="pt-4 border-t border-gray-200 space-y-3">
-        <!-- Sub-tabs bar: ALL, ORGS, ALLIES, ENEMIES, BACKSTORY, OTHER -->
-        <div class="flex items-center gap-1 overflow-x-auto pb-1 text-xs font-bold border-b border-gray-200">
-          <button
-            v-for="st in ['ALL', 'ORGS', 'ALLIES', 'ENEMIES', 'BACKSTORY', 'OTHER']"
-            :key="st"
-            type="button"
-            @click="activeNotesSubTab = st"
-            :class="activeNotesSubTab === st ? 'bg-gray-900 text-white' : 'text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200'"
-            class="px-2.5 py-1 rounded text-[11px] font-bold tracking-wider transition cursor-pointer"
-          >
-            {{ st }}
-          </button>
-        </div>
-
-        <!-- Sections displayed based on activeNotesSubTab -->
-        <div class="space-y-4 pt-1">
-          <!-- ORGANIZATIONS -->
-          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ORGS'" class="space-y-1.5">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ORGANIZATIONS</h4>
-            <textarea
-              v-model="characteristics.notes.organizations"
-              rows="2"
-              placeholder="+ Add Organizations"
-              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            ></textarea>
-          </div>
-
-          <!-- ALLIES -->
-          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ALLIES'" class="space-y-1.5">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ALLIES</h4>
-            <textarea
-              v-model="characteristics.notes.allies"
-              rows="2"
-              placeholder="+ Add Allies"
-              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            ></textarea>
-          </div>
-
-          <!-- ENEMIES -->
-          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'ENEMIES'" class="space-y-1.5">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">ENEMIES</h4>
-            <textarea
-              v-model="characteristics.notes.enemies"
-              rows="2"
-              placeholder="+ Add Enemies"
-              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            ></textarea>
-          </div>
-
-          <!-- BACKSTORY -->
-          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'BACKSTORY'" class="space-y-1.5">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">BACKSTORY</h4>
-            <textarea
-              v-model="characteristics.notes.backstory"
-              rows="3"
-              placeholder="+ Add Backstory"
-              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            ></textarea>
-          </div>
-
-          <!-- OTHER -->
-          <div v-if="activeNotesSubTab === 'ALL' || activeNotesSubTab === 'OTHER'" class="space-y-1.5">
-            <h4 class="text-xs font-bold text-gray-900 uppercase tracking-wider">OTHER</h4>
-            <textarea
-              v-model="characteristics.notes.other"
-              rows="2"
-              placeholder="+ Add Other"
-              class="w-full p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-            ></textarea>
-          </div>
-        </div>
-      </div>
-    </div>
+    <FormCharacteristicsStep
+      v-else-if="currentTab === 'characteristics'"
+      :characteristics="characteristics"
+      v-model:alignment="alignment"
+      :alignments="alignments"
+      @open-trait-modal="openTraitTableModal"
+    />
 
     <!-- TAB 2: Race / Species -->
-    <div v-else-if="currentTab === 'race' || currentTab === 'species'">
-      <h2 class="text-base font-bold text-gray-900 mb-3">{{ selectedEdition === '2024' ? 'Species' : 'Race' }}</h2>
-      <div class="mb-4" data-error-field="characterRace">
-        <label for="characterRace" class="block text-xs font-semibold text-gray-700 mb-1">
-          {{ selectedEdition === '2024' ? 'Character Species:' : 'Character Race:' }}
-        </label>
-        <v-select
-          id="characterRace"
-          :model-value="characterRace && characterRace.name ? characterRace : null"
-          :options="filteredRaces"
-          :get-option-label="r => r?.name ? `${r.name} (${r.source || 'PHB'})` : ''"
-          :get-option-key="r => r ? (r.id || r.name + '|' + (r.source || '')) : ''"
-          :placeholder="`Choose ${selectedEdition === '2024' ? 'species' : 'race'}...`"
-          @update:model-value="r => { characterRace = r || {}; searchSubRace(characterRace) }"
-          :class="{ 'has-error': errors.characterRace }"
-        />
-        <p v-if="errors.characterRace" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.characterRace }}
-        </p>
-      </div>
-
-      <RaceSubRaceDetail :selected="characterRace" v-model:abilityChoices="raceChooseStats" />
-
-      <div v-if="Object.keys(characterRace || {}).length !== 0 && filteredSubRaces.length !== 0" class="my-4" data-error-field="characterSubRace">
-        <label for="characterSubRace" class="block text-xs font-semibold text-gray-700 mb-1">
-          {{ selectedEdition === '2024' ? 'Lineage / Subrace:' : 'Sub Race / Lineage:' }}
-          <span v-if="isSubraceRequired" class="text-red-500">*</span>
-          <span v-else class="text-gray-400 font-normal ml-1">(Optional)</span>
-        </label>
-        <v-select
-          id="characterSubRace"
-          :model-value="characterSubRace && characterSubRace.name ? characterSubRace : null"
-          :options="filteredSubRaces"
-          :get-option-label="r => r?.name ? `${r.name} (${r.source || 'PHB'})` : ''"
-          :get-option-key="r => r ? (r.id || r.name + '|' + (r.source || '')) : ''"
-          :placeholder="isSubraceRequired ? `Choose ${selectedEdition === '2024' ? 'lineage' : 'sub race'} (Required)...` : 'None / Standard'"
-          @update:model-value="r => { characterSubRace = r || {} }"
-          :class="{ 'has-error': errors.characterSubRace }"
-        />
-        <p v-if="errors.characterSubRace" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.characterSubRace }}
-        </p>
-      </div>
-      <RaceSubRaceDetail :selected="characterSubRace" v-model:abilityChoices="raceChooseStats" />
-
-      <!-- Race Language Choices -->
-      <div v-if="raceLangConfig.choiceCount > 0" data-error-field="raceLanguages" class="my-4 p-3 bg-gray-50 border rounded text-xs" :class="errors.raceLanguages ? 'border-red-400' : 'border-gray-200'">
-        <div class="font-medium text-gray-800 mb-1.5">
-          Choose {{ raceLangConfig.choiceCount }} Language{{ raceLangConfig.choiceCount > 1 ? 's' : '' }} ({{ selectedEdition === '2024' ? 'Species' : 'Race' }}):
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div v-for="idx in raceLangConfig.choiceCount" :key="idx">
-            <v-select
-              v-model="raceChosenLanguages[idx - 1]"
-              :options="STANDARD_LANGUAGES"
-              :selectable="l => !raceLangConfig.fixed.includes(l) && (!raceChosenLanguages.includes(l) || raceChosenLanguages[idx - 1] === l)"
-              :placeholder="`Select Language #${idx}...`"
-              :class="{ 'has-error': errors.raceLanguages && !raceChosenLanguages[idx - 1] }"
-            />
-          </div>
-        </div>
-        <p v-if="errors.raceLanguages" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.raceLanguages }}
-        </p>
-      </div>
-    </div>
+    <FormRaceStep
+      v-else-if="currentTab === 'race' || currentTab === 'species'"
+      :selected-edition="selectedEdition"
+      v-model:character-race="characterRace"
+      v-model:character-sub-race="characterSubRace"
+      :filtered-races="filteredRaces"
+      :filtered-sub-races="filteredSubRaces"
+      :is-subrace-required="isSubraceRequired"
+      v-model:race-choose-stats="raceChooseStats"
+      :race-lang-config="raceLangConfig"
+      :race-chosen-languages="raceChosenLanguages"
+      :standard-languages="STANDARD_LANGUAGES"
+      :errors="errors"
+      @search-sub-race="searchSubRace"
+    />
 
     <!-- TAB 3: Class & Subclass -->
-    <div v-else-if="currentTab === 'class'">
-      <div class="flex items-center justify-between mb-3">
-        <div>
-          <h2 class="text-base font-bold text-gray-900">Class & Subclass</h2>
-          <p class="text-xs text-gray-500">
-            Total Character Level: <span class="font-bold text-gray-800">{{ totalCharacterLevel }} / 20</span>
-          </p>
-        </div>
-        <button
-          v-if="totalCharacterLevel < 20 && Object.keys(availableClassesForMulticlass).length > 0"
-          type="button"
-          @click="addMulticlass"
-          class="text-xs font-semibold px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 rounded transition cursor-pointer flex items-center gap-1"
-        >
-          <span>+ Add Class</span>
-        </button>
-      </div>
-
-      <!-- Primary Class Card -->
-      <div class="p-3 bg-white border border-gray-200 rounded mb-4">
-        <div class="text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-2">
-          Primary Class
-        </div>
-        <div class="grid grid-cols-4 gap-2 mb-3">
-          <div class="col-span-3" data-error-field="characterClass">
-            <label for="characterClass" class="block text-xs font-semibold text-gray-700 mb-1">Class:</label>
-            <v-select
-              id="characterClass"
-              :model-value="classSelected || null"
-              :options="Object.keys(filteredClasses)"
-              :get-option-label="n => n ? n.charAt(0).toUpperCase() + n.slice(1) : ''"
-              placeholder="Choose class..."
-              @update:model-value="val => { classSelected = val || ''; searchClass(classSelected) }"
-              :class="{ 'has-error': errors.characterClass }"
-            />
-            <p v-if="errors.characterClass" class="mt-1 text-xs text-red-600 font-medium">
-              {{ errors.characterClass }}
-            </p>
-          </div>
-
-          <div class="col-span-1">
-            <label for="characterClassLevel" class="block text-xs font-semibold text-gray-700 mb-1">Level:</label>
-            <select v-model="classLevel" class="p-2 border border-gray-300 rounded w-full text-xs bg-white" id="characterClassLevel">
-              <option v-for="n in maxPrimaryClassLevel" :key="n" :value="n">{{ n }}</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Sub-tabs for Class Features vs Spells vs Feat Spells -->
-        <div v-if="isSpellcasterClass || detectedFeatSpellSources.length > 0" class="flex border-b border-gray-200 mb-3">
-          <button
-            type="button"
-            @click="classSubTab = 'features'"
-            :class="classSubTab === 'features' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
-            class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t"
-          >
-            Class Features
-          </button>
-          <button
-            v-if="isSpellcasterClass"
-            type="button"
-            @click="classSubTab = 'spells'"
-            :class="classSubTab === 'spells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
-            class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
-          >
-            <span>Spells</span>
-            <span
-              v-if="chosenSpells.length > 0"
-              class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200"
-            >
-              {{ chosenSpells.length }}
-            </span>
-          </button>
-          <button
-            v-if="detectedFeatSpellSources.length > 0"
-            type="button"
-            @click="classSubTab = 'featSpells'"
-            :class="classSubTab === 'featSpells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-gray-100' : 'text-gray-500 hover:text-gray-700 font-medium'"
-            class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
-          >
-            <span>Feat Spells</span>
-            <span
-              v-if="featChosenSpells.length > 0"
-              class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200"
-            >
-              {{ featChosenSpells.length }}
-            </span>
-          </button>
-        </div>
-
-        <!-- Features view -->
-        <div v-show="classSubTab === 'features' || (!isSpellcasterClass && classSubTab !== 'featSpells')">
-          <ClassSubClassDetail
-            :selected="characterClass"
-            :classLevel="Number(classLevel)"
-            :availableSubClasses="availableSubClasses"
-            :selectedSubClassKey="selectedSubClassKey"
-            :subclassError="errors.subclass"
-            :subclassUnlockLevel="subclassUnlockLevel"
-            :subClassFeatures="characterSubClass?.subClassFeature || characterStore.characterSubClass?.subClassFeature || []"
-            :classSkillConfig="classSkillConfig"
-            :availableClassSkills="availableClassSkills"
-            :chosenClassSkills="chosenClassSkills"
-            :priorGrantedSkills="priorGrantedSkills"
-            :skillError="errors.classSkills"
-            :getSkillLabel="getSkillLabel"
-            :expertiseConfig="expertiseConfig"
-            :allProficientSkills="allProficientSkills"
-            :chosenExpertiseSkills="chosenExpertiseSkills"
-            :expertiseError="errors.expertises"
-            :classToolConfig="classToolConfig"
-            :chosenClassTools="chosenClassTools"
-            :toolError="errors.classTools"
-            :asiTierChoices="asiTierChoices"
-            :unlockedAsiTiers="unlockedAsiTiers"
-            :filteredFeats="filteredFeats"
-            :asiTierErrors="errors"
-            :errorPrefix="''"
-            :edition="selectedEdition"
-            :abilityScores="currentAbilityScoresMap"
-            @selectSubclass="onSubClassSelect"
-            @toggleClassSkill="toggleClassSkill"
-            @toggleExpertiseSkill="toggleExpertiseSkill"
-            @updateClassTool="onUpdateClassTool"
-          />
-        </div>
-
-        <!-- Spells view -->
-        <div v-if="isSpellcasterClass && classSubTab === 'spells'" data-error-field="classSpells">
-          <ClassSpellsPicker
-            :edition="selectedEdition"
-            :className="characterClass.class?.name || classSelected"
-            :subclassName="selectedSubClassItem?.name || characterStore.characterSubClass?.name || ''"
-            :classLevel="Number(classLevel)"
-            :abilityScores="{ strength, dexterity, constitution, intelligence, wisdom, charisma }"
-            :proficiencyBonus="computedProficiencyBonus"
-            :error="errors.classSpells"
-            v-model="chosenSpells"
-            @close="classSubTab = 'features'"
-          />
-        </div>
-
-        <!-- Feat Spells view -->
-        <div v-if="detectedFeatSpellSources.length > 0 && classSubTab === 'featSpells'">
-          <FeatSpellsPicker
-            :edition="selectedEdition"
-            :featSources="detectedFeatSpellSources"
-            :abilityScores="{ strength, dexterity, constitution, intelligence, wisdom, charisma }"
-            :proficiencyBonus="computedProficiencyBonus"
-            v-model="featChosenSpells"
-            @close="classSubTab = 'features'"
-          />
-        </div>
-      </div>
-
-      <!-- Secondary Multiclass Collapsible Cards -->
-      <div
-        v-for="(mc, mcIdx) in multiclasses"
-        :key="mc.id"
-        :id="mc.id"
-        class="border rounded mb-4 bg-white shadow-xs transition relative"
-        :class="[
-          errors['class_mc_' + mcIdx] ? 'border-red-400 ring-1 ring-red-400' : 'border-gray-200',
-          !mc.isCollapsed ? 'focus-within:z-30' : ''
-        ]"
-        :data-error-field="'class_mc_' + mcIdx"
-      >
-        <!-- Collapsible Header -->
-        <div
-          @click="mc.isCollapsed = !mc.isCollapsed"
-          class="flex items-center justify-between p-3 bg-gray-50/90 hover:bg-gray-100/80 cursor-pointer select-none transition border-b border-gray-200"
-          :class="mc.isCollapsed ? 'rounded' : 'rounded-t'"
-        >
-          <div class="flex items-center gap-2">
-            <svg
-              class="w-3.5 h-3.5 text-gray-500 transition-transform duration-200"
-              :class="{ '-rotate-90': mc.isCollapsed }"
-              viewBox="0 0 20 20"
-              fill="currentColor"
-            >
-              <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
-            </svg>
-            <span class="text-xs font-bold uppercase tracking-wider text-gray-900">
-              Class {{ mcIdx + 2 }}: {{ mc.characterClass?.class?.name || (mc.classSelected ? (mc.classSelected.charAt(0).toUpperCase() + mc.classSelected.slice(1)) : 'Secondary Class') }}
-            </span>
-            <span v-if="mc.classSelected" class="px-2 py-0.5 text-[11px] font-mono font-semibold rounded bg-gray-100 text-gray-700 border border-gray-200">
-              Level {{ mc.classLevel }}
-            </span>
-          </div>
-
-          <button
-            type="button"
-            @click.stop="removeMulticlass(mcIdx)"
-            class="text-[11px] text-red-600 hover:text-red-700 font-medium cursor-pointer px-2 py-1 rounded hover:bg-red-50 transition"
-          >
-            Remove Class
-          </button>
-        </div>
-
-        <!-- Collapsible Content -->
-        <div v-show="!mc.isCollapsed" class="p-3 rounded-b">
-          <div class="grid grid-cols-4 gap-2 mb-3">
-            <div class="col-span-3">
-              <label class="block text-xs font-semibold text-gray-700 mb-1">Class:</label>
-              <v-select
-                :model-value="mc.classSelected || null"
-                :options="Object.keys(filteredClasses)"
-                :get-option-label="n => n ? n.charAt(0).toUpperCase() + n.slice(1) : ''"
-                :selectable="n => n.toLowerCase() !== (classSelected || '').toLowerCase() && !multiclasses.some((other, oIdx) => oIdx !== mcIdx && other.classSelected?.toLowerCase() === n.toLowerCase())"
-                placeholder="Choose secondary class..."
-                @update:model-value="val => { mc.classSelected = val || ''; onMcClassChange(mc) }"
-                :class="{ 'has-error': errors['class_mc_' + mcIdx] }"
-              />
-              <p v-if="errors['class_mc_' + mcIdx]" class="mt-1 text-xs text-red-600 font-medium">
-                {{ errors['class_mc_' + mcIdx] }}
-              </p>
-            </div>
-
-            <div class="col-span-1">
-              <label class="block text-xs font-semibold text-gray-700 mb-1">Level:</label>
-              <select v-model="mc.classLevel" class="p-2 border border-gray-300 rounded w-full text-xs bg-white">
-                <option v-for="n in getMaxLevelForMc(mcIdx)" :key="n" :value="n">{{ n }}</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Prompt when no class selected yet -->
-          <div v-if="!mc.classSelected" class="p-4 bg-gray-50 border border-dashed border-gray-300 rounded text-center text-xs text-gray-500">
-            Choose a secondary class above to configure its progression, features, and archetypes.
-          </div>
-
-          <!-- When class is selected -->
-          <template v-else>
-            <!-- Multiclass Prerequisites & Proficiencies Rules Card -->
-            <div class="mb-3 p-3 bg-gray-50 border border-gray-200 rounded text-xs space-y-2.5">
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-gray-900 uppercase tracking-wider text-[11px]">
-                  Multiclassing Rules ({{ (mc.classSelected || '').toUpperCase() }})
-                </span>
-                <span
-                  v-if="getMcPrereqStatus(mc).scoresAssigned"
-                  :class="getMcPrereqStatus(mc).met
-                    ? 'text-emerald-700 font-semibold'
-                    : 'text-red-600 font-semibold'"
-                  class="text-[11px]"
-                >
-                  {{ getMcPrereqStatus(mc).met ? 'Prerequisite Met' : 'Prerequisite Not Met' }}
-                </span>
-                <span
-                  v-else
-                  class="text-[11px] text-gray-500 font-normal"
-                >
-                  Min 13 Required
-                </span>
-              </div>
-
-              <!-- Prerequisites Breakdown -->
-              <div class="space-y-1 text-gray-700 pt-1 border-t border-gray-200">
-                <div class="flex items-start justify-between gap-2">
-                  <span>
-                    <span class="font-semibold text-gray-800">Prerequisite ({{ (mc.classSelected || '').toUpperCase() }}):</span>
-                    Min 13 {{ formatPrerequisitesText(mc.classSelected, mc.characterClass?.class) }}
-                  </span>
-                  <span
-                    v-if="getMcPrereqStatus(mc).scoresAssigned"
-                    :class="getMcPrereqStatus(mc).met ? 'text-emerald-700' : 'text-rose-600'"
-                    class="font-mono text-[11px] font-semibold shrink-0"
-                  >
-                    {{ getMcPrereqStatus(mc).details }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- Multiclass Proficiencies Gained Breakdown -->
-              <div class="pt-2 border-t border-gray-200 space-y-1 text-gray-700">
-                <div class="font-semibold text-gray-800 text-[11px] uppercase tracking-wider">
-                  Proficiencies Gained:
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
-                  <div><b>Armor:</b> {{ getMcProficiencies(mc).armor.length ? getMcProficiencies(mc).armor.join(', ') : 'None' }}</div>
-                  <div><b>Weapons:</b> {{ getMcProficiencies(mc).weapons.length ? getMcProficiencies(mc).weapons.join(', ') : 'None' }}</div>
-                  <div><b>Tools:</b> {{ getMcProficiencies(mc).tools.length ? getMcProficiencies(mc).tools.join(', ') : 'None' }}</div>
-                  <div><b>Starting Equipment:</b> {{ getMcProficiencies(mc).equipment?.length ? getMcProficiencies(mc).equipment.join(', ') : 'None' }}</div>
-                </div>
-              </div>
-
-              <!-- Interactive Multiclass Skill Choice (e.g. Rogue, Ranger, Bard) -->
-              <div
-                v-if="isMcPrereqMet(mc) && getMcSkillConfig(mc).count > 0"
-                :data-error-field="'skills_mc_' + mcIdx"
-                class="pt-2 border-t border-gray-200 space-y-1.5"
-              >
-                <div class="flex items-center justify-between">
-                  <span class="font-semibold text-gray-800 text-[11px]">
-                    Choose {{ getMcSkillConfig(mc).count }} Skill Proficiency:
-                  </span>
-                  <span class="text-[11px] text-gray-500 font-mono">
-                    {{ (mc.chosenSkills || []).length }} / {{ Math.min(getMcSkillConfig(mc).count, getMcAvailableSkills(mc).length) }} selected
-                  </span>
-                </div>
-                <div class="flex flex-wrap gap-1">
-                  <button
-                    v-for="skKey in getMcSkillConfig(mc).from"
-                    :key="skKey"
-                    type="button"
-                    :disabled="isSkillPriorGranted(skKey, mc)"
-                    @click="toggleMcSkill(mc, skKey, mcIdx)"
-                    :class="[
-                      isSkillPriorGranted(skKey, mc)
-                        ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
-                        : (mc.chosenSkills || []).includes(skKey)
-                          ? 'border-gray-800 bg-gray-100 text-gray-900 font-semibold ring-1 ring-gray-800'
-                          : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50',
-                      'px-2 py-1 border rounded text-xs transition cursor-pointer'
-                    ]"
-                  >
-                    {{ getSkillLabel(skKey) }}
-                    <span v-if="isSkillPriorGranted(skKey, mc)" class="text-[9px] text-gray-400 ml-1">
-                      (already granted)
-                    </span>
-                  </button>
-                </div>
-                <p v-if="errors['skills_mc_' + mcIdx]" class="text-xs text-red-600 font-medium">
-                  {{ errors['skills_mc_' + mcIdx] }}
-                </p>
-              </div>
-            </div>
-
-            <!-- If multiclass prerequisites are met: show feature collapses & spells -->
-            <template v-if="isMcPrereqMet(mc)">
-              <!-- Sub-tabs for Features vs Spells (if secondary class is Spellcaster) -->
-              <div v-if="isMcSpellcaster(mc)" class="flex border-b border-gray-200 mb-3">
-                <button
-                  type="button"
-                  @click="mc.classSubTab = 'features'"
-                  :class="mc.classSubTab === 'features' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
-                  class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t"
-                >
-                  Features
-                </button>
-                <button
-                  type="button"
-                  @click="mc.classSubTab = 'spells'"
-                  :class="mc.classSubTab === 'spells' ? 'border-b-2 border-gray-800 text-gray-900 font-bold bg-white' : 'text-gray-500 hover:text-gray-700 font-medium'"
-                  class="px-3.5 py-1.5 text-xs uppercase tracking-wider cursor-pointer transition rounded-t flex items-center gap-1.5"
-                >
-                  <span>Spells</span>
-                  <span v-if="mc.chosenSpells?.length > 0" class="px-1.5 py-0.2 text-[10px] bg-gray-100 text-gray-700 rounded-full font-mono font-bold border border-gray-200">
-                    {{ mc.chosenSpells.length }}
-                  </span>
-                </button>
-              </div>
-
-              <!-- Features view -->
-              <div v-show="!isMcSpellcaster(mc) || mc.classSubTab === 'features'">
-                <ClassSubClassDetail
-                  v-if="mc.characterClass?.class"
-                  :selected="mc.characterClass"
-                  :classLevel="Number(mc.classLevel)"
-                  :availableSubClasses="getMcAvailableSubClasses(mc)"
-                  :selectedSubClassKey="mc.selectedSubClassKey"
-                  :subclassError="errors['subclass_mc_' + mcIdx]"
-                  :subclassUnlockLevel="getSubclassUnlockLevel(mc.classSelected || mc.characterClass?.class?.name, selectedEdition)"
-                  :subClassFeatures="mc.selectedSubClassItem?.subClassFeature || []"
-                  :classSkillConfig="{ count: 0, from: [] }"
-                  :availableClassSkills="[]"
-                  :chosenClassSkills="[]"
-                  :priorGrantedSkills="allProficientSkills"
-                  :skillError="''"
-                  :getSkillLabel="getSkillLabel"
-                  :expertiseConfig="{ eligible: false, count: 0 }"
-                  :allProficientSkills="allProficientSkills"
-                  :chosenExpertiseSkills="[]"
-                  :expertiseError="''"
-                  :classToolConfig="{ count: 0, from: [] }"
-                  :chosenClassTools="[]"
-                  :toolError="''"
-                  :asiTierChoices="mc.asiTierChoices"
-                  :unlockedAsiTiers="getUnlockedAsiTiersForClass(mc.classSelected || mc.characterClass?.class?.name, mc.classLevel)"
-                  :filteredFeats="filteredFeats"
-                  :asiTierErrors="errors"
-                  :errorPrefix="'mc_' + mcIdx"
-                  :edition="selectedEdition"
-                  :abilityScores="currentAbilityScoresMap"
-                  @selectSubclass="(key) => onMcSubclassSelect(mc, key, mcIdx)"
-                  @toggleClassSkill="() => {}"
-                  @toggleExpertiseSkill="() => {}"
-                  @updateClassTool="() => {}"
-                />
-              </div>
-
-              <!-- Spells view -->
-              <div v-if="isMcSpellcaster(mc) && mc.classSubTab === 'spells'">
-                <ClassSpellsPicker
-                  :edition="selectedEdition"
-                  :className="mc.characterClass.class?.name || mc.classSelected"
-                  :subclassName="mc.selectedSubClassItem?.name || ''"
-                  :classLevel="Number(mc.classLevel)"
-                  :abilityScores="{ strength, dexterity, constitution, intelligence, wisdom, charisma }"
-                  :proficiencyBonus="computedProficiencyBonus"
-                  :error="''"
-                  v-model="mc.chosenSpells"
-                  @close="mc.classSubTab = 'features'"
-                />
-              </div>
-            </template>
-
-            <!-- Locked State When Prerequisites Not Met -->
-            <div
-              v-else
-              class="p-4 bg-gray-50 border border-dashed border-gray-300 rounded text-center text-xs text-gray-600 space-y-1"
-            >
-              <div class="font-semibold text-gray-800">
-                Prerequisites Not Met
-              </div>
-              <p class="text-[11px] text-gray-500 leading-relaxed max-w-md mx-auto">
-                Features, subclass options, and spells remain locked until ability score prerequisites are satisfied in the Ability Scores step.
-              </p>
-            </div>
-          </template>
-        </div>
-      </div>
-    </div>
+    <FormClassStep
+      v-else-if="currentTab === 'class'"
+      :total-character-level="totalCharacterLevel"
+      :available-classes-for-multiclass="availableClassesForMulticlass"
+      v-model:class-selected="classSelected"
+      :filtered-classes="filteredClasses"
+      v-model:class-level="classLevel"
+      :max-primary-class-level="maxPrimaryClassLevel"
+      :is-spellcaster-class="isSpellcasterClass"
+      :detected-feat-spell-sources="detectedFeatSpellSources"
+      v-model:class-sub-tab="classSubTab"
+      v-model:chosen-spells="chosenSpells"
+      v-model:feat-chosen-spells="featChosenSpells"
+      :character-class="characterClass"
+      :available-sub-classes="availableSubClasses"
+      :selected-sub-class-key="selectedSubClassKey"
+      :subclass-unlock-level="subclassUnlockLevel"
+      :sub-class-features="characterSubClass?.subClassFeature || characterStore.characterSubClass?.subClassFeature || []"
+      :class-skill-config="classSkillConfig"
+      :available-class-skills="availableClassSkills"
+      :chosen-class-skills="chosenClassSkills"
+      :prior-granted-skills="priorGrantedSkills"
+      :get-skill-label="getSkillLabel"
+      :expertise-config="expertiseConfig"
+      :all-proficient-skills="allProficientSkills"
+      :chosen-expertise-skills="chosenExpertiseSkills"
+      :class-tool-config="classToolConfig"
+      :chosen-class-tools="chosenClassTools"
+      :asi-tier-choices="asiTierChoices"
+      :unlocked-asi-tiers="unlockedAsiTiers"
+      :filtered-feats="filteredFeats"
+      :selected-edition="selectedEdition"
+      :current-ability-scores-map="currentAbilityScoresMap"
+      :selected-sub-class-item="selectedSubClassItem"
+      :strength="strength"
+      :dexterity="dexterity"
+      :constitution="constitution"
+      :intelligence="intelligence"
+      :wisdom="wisdom"
+      :charisma="charisma"
+      :computed-proficiency-bonus="computedProficiencyBonus"
+      :multiclasses="multiclasses"
+      :errors="errors"
+      :add-multiclass="addMulticlass"
+      :search-class="searchClass"
+      :on-sub-class-select="onSubClassSelect"
+      :toggle-class-skill="toggleClassSkill"
+      :toggle-expertise-skill="toggleExpertiseSkill"
+      :on-update-class-tool="onUpdateClassTool"
+      :remove-multiclass="removeMulticlass"
+      :get-max-level-for-mc="getMaxLevelForMc"
+      :on-mc-class-change="onMcClassChange"
+      :get-mc-prereq-status="getMcPrereqStatus"
+      :format-prerequisites-text="formatPrerequisitesText"
+      :get-mc-proficiencies="getMcProficiencies"
+      :is-mc-prereq-met="isMcPrereqMet"
+      :get-mc-skill-config="getMcSkillConfig"
+      :get-mc-available-skills="getMcAvailableSkills"
+      :is-skill-prior-granted="isSkillPriorGranted"
+      :toggle-mc-skill="toggleMcSkill"
+      :is-mc-spellcaster="isMcSpellcaster"
+      :get-mc-available-sub-classes="getMcAvailableSubClasses"
+      :get-subclass-unlock-level="getSubclassUnlockLevel"
+      :get-unlocked-asi-tiers-for-class="getUnlockedAsiTiersForClass"
+      :on-mc-subclass-select="onMcSubclassSelect"
+    />
 
     <!-- TAB 4: Abilities & Feats -->
-    <div v-else-if="currentTab === 'abilities'">
-      <h2 class="text-base font-bold text-gray-900 mb-3">Ability Scores</h2>
-
-      <!-- Class Primary Stats Recommendation -->
-      <div v-if="allClassRecommendations.length" class="mb-3 text-xs text-gray-600 space-y-1">
-        <div v-for="cr in allClassRecommendations" :key="cr.name">
-          Recommended for <span class="capitalize">{{ cr.name.toLowerCase() }}</span>:
-          <span class="font-medium text-gray-800">{{ cr.stats.join(', ') }}</span>
-        </div>
-      </div>
-
-      <!-- Generation Method Selector -->
-      <div class="mb-4">
-        <label class="block text-xs font-semibold text-gray-700 mb-1">Score Generation Method:</label>
-        <div class="flex gap-1 bg-gray-100 p-1 rounded">
-          <button
-            type="button"
-            @click="setScoreMethod('standard')"
-            :class="scoreMethod === 'standard' ? 'bg-white text-gray-900 shadow-sm font-semibold' : 'text-gray-600 hover:text-gray-900'"
-            class="flex-1 py-1.5 text-xs rounded text-center transition cursor-pointer"
-          >
-            Standard Array
-          </button>
-          <button
-            type="button"
-            @click="setScoreMethod('pointbuy')"
-            :class="scoreMethod === 'pointbuy' ? 'bg-white text-gray-900 shadow-sm font-semibold' : 'text-gray-600 hover:text-gray-900'"
-            class="flex-1 py-1.5 text-xs rounded text-center transition cursor-pointer"
-          >
-            Point Buy (27)
-          </button>
-          <button
-            type="button"
-            @click="setScoreMethod('manual')"
-            :class="scoreMethod === 'manual' ? 'bg-white text-gray-900 shadow-sm font-semibold' : 'text-gray-600 hover:text-gray-900'"
-            class="flex-1 py-1.5 text-xs rounded text-center transition cursor-pointer"
-          >
-            Manual / Roll
-          </button>
-        </div>
-      </div>
-
-      <!-- Method Sub-banner -->
-      <div v-if="scoreMethod === 'standard'" class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600">
-        Standard array (15, 14, 13, 12, 10, 8). Values are automatically swapped when assigned.
-      </div>
-
-      <div v-else-if="scoreMethod === 'pointbuy'" data-error-field="pointbuy" class="mb-4 p-2.5 bg-gray-50 border rounded text-xs flex justify-between items-center" :class="errors.pointbuy ? 'border-red-400' : 'border-gray-200'">
-        <span class="font-medium" :class="pointBuyRemaining < 0 ? 'text-red-600' : 'text-gray-700'">
-          Points: {{ pointBuyRemaining }} / 27
-        </span>
-        <button
-          type="button"
-          @click="resetPointBuy"
-          class="text-xs text-gray-500 underline hover:text-gray-800 cursor-pointer"
-        >
-          Reset to 8
-        </button>
-      </div>
-
-      <div v-else-if="scoreMethod === 'manual'" class="mb-4 p-2.5 bg-gray-50 border border-gray-200 rounded text-xs flex justify-between items-center">
-        <span class="text-gray-600">Enter numbers directly or roll 4d6 (drop lowest).</span>
-        <button
-          type="button"
-          @click="rollAllStats"
-          class="px-2.5 py-1 bg-gray-800 text-white rounded text-xs hover:bg-black transition cursor-pointer"
-        >
-          Roll All
-        </button>
-      </div>
-
-      <p v-if="errors.pointbuy" class="mb-3 text-xs text-red-600 font-medium">
-        {{ errors.pointbuy }}
-      </p>
-
-      <!-- ASI Bonus Section (Background in 2024; Race in 2014) -->
-      <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs">
-        <!-- 2024 ASI Section -->
-        <div v-if="selectedEdition === '2024'" data-error-field="asi2024">
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-gray-800">
-              Background ASI: {{ characterBackground || 'None Selected' }}
-            </span>
-            <div class="flex gap-1">
-              <button
-                type="button"
-                @click="asi2024Mode = 'plus2_plus1'"
-                :class="asi2024Mode === 'plus2_plus1' ? 'bg-white text-gray-900 border font-medium shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-xs cursor-pointer"
-              >
-                +2 / +1
-              </button>
-              <button
-                type="button"
-                @click="asi2024Mode = 'plus1_three'"
-                :class="asi2024Mode === 'plus1_three' ? 'bg-white text-gray-900 border font-medium shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-xs cursor-pointer"
-              >
-                +1 / +1 / +1
-              </button>
-            </div>
-          </div>
-
-          <div v-if="asi2024Mode === 'plus2_plus1'" class="grid grid-cols-2 gap-2 mt-2">
-            <div>
-              <label class="block text-gray-600 mb-1">+2 Ability:</label>
-              <select v-model="asi2024Plus2" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option v-for="ab in bgEligibleAbilities" :key="ab" :value="ab">
-                  {{ KEY_TO_LABEL[ab] }} (+2)
-                </option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-gray-600 mb-1">+1 Ability:</label>
-              <select v-model="asi2024Plus1" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option v-for="ab in bgEligibleAbilities.filter(k => k !== asi2024Plus2)" :key="ab" :value="ab">
-                  {{ KEY_TO_LABEL[ab] }} (+1)
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <div v-else class="text-gray-600 mt-1">
-            +1 to: {{ bgEligibleAbilities.slice(0, 3).map(k => KEY_TO_LABEL[k]).join(', ') }}
-          </div>
-
-          <p v-if="errors.asi2024" class="mt-1 text-xs text-red-600 font-medium">
-            {{ errors.asi2024 }}
-          </p>
-        </div>
-
-        <!-- 2014 ASI Section -->
-        <div v-else>
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-gray-800">
-              Racial ASI: {{ characterRace.name || 'None' }}
-              <span v-if="characterSubRace.name">({{ characterSubRace.name }})</span>
-            </span>
-            <div class="flex gap-1">
-              <button
-                type="button"
-                @click="asi2014Mode = 'racial'"
-                :class="asi2014Mode === 'racial' ? 'bg-white text-gray-900 border font-medium shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-xs cursor-pointer"
-              >
-                Racial
-              </button>
-              <button
-                type="button"
-                @click="asi2014Mode = 'custom'"
-                :class="asi2014Mode === 'custom' ? 'bg-white text-gray-900 border font-medium shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-xs cursor-pointer"
-              >
-                Custom (+2/+1)
-              </button>
-            </div>
-          </div>
-
-          <div v-if="asi2014Mode === 'custom'" class="grid grid-cols-2 gap-2 mt-2">
-            <div>
-              <label class="block text-gray-600 mb-1">+2 Custom:</label>
-              <select v-model="asi2014CustomPlus2" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option v-for="k in ABILITY_KEYS" :key="k" :value="k">
-                  {{ KEY_TO_LABEL[k] }} (+2)
-                </option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-gray-600 mb-1">+1 Custom:</label>
-              <select v-model="asi2014CustomPlus1" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option v-for="k in ABILITY_KEYS.filter(a => a !== asi2014CustomPlus2)" :key="k" :value="k">
-                  {{ KEY_TO_LABEL[k] }} (+1)
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <div v-else class="text-gray-600">
-            <span>{{ Object.entries(asiBonuses).filter(([_, v]) => v > 0).map(([k, v]) => `${KEY_TO_LABEL[k]} +${v}`).join(', ') || 'No racial bonus detected' }}</span>
-
-            <div v-if="raceChoiceConfig" class="grid grid-cols-2 gap-2 mt-2">
-              <div v-for="idx in raceChoiceConfig.count" :key="idx">
-                <select v-model="raceChooseStats[idx - 1]" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                  <option
-                    v-for="opt in raceChoiceConfig.from"
-                    :key="opt"
-                    :value="opt"
-                    :disabled="raceChooseStats.filter((val, i) => i !== idx - 1).includes(opt)"
-                  >
-                    {{ KEY_TO_LABEL[opt] }} (+1)
-                  </option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 6 Ability Score Cards Grid -->
-      <div
-        data-error-field="abilities"
-        class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6 p-1 rounded"
-        :class="errors.abilities ? 'border border-red-500 rounded p-2' : ''"
-      >
-        <div
-          v-for="stat in ABILITY_KEYS"
-          :key="stat"
-          class="p-3 border border-gray-200 rounded bg-white flex flex-col justify-between"
-        >
-          <div>
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-bold uppercase text-gray-800">{{ KEY_TO_SHORT[stat] }}</span>
-              <span v-if="isPrimaryStat(stat)" class="text-[10px] text-gray-500 font-medium">Primary</span>
-            </div>
-
-            <div class="flex items-baseline justify-between mb-1">
-              <span class="text-xl font-bold text-gray-900">{{ totalScores[stat] }}</span>
-              <span class="text-xs font-semibold text-gray-600">{{ abilityModifiers[stat] }}</span>
-            </div>
-
-            <div class="text-[11px] text-gray-500 mb-2">
-              Base {{ baseScores[stat] }} <span v-if="asiBonuses[stat]">(+{{ asiBonuses[stat] }})</span>
-            </div>
-          </div>
-
-          <!-- Method Controls -->
-          <div class="pt-2 border-t border-gray-100">
-            <!-- Standard Array Selector -->
-            <div v-if="scoreMethod === 'standard'">
-              <select
-                :value="baseScores[stat]"
-                @change="onStandardArraySelect(stat, $event.target.value)"
-                class="w-full p-1 text-xs border border-gray-300 rounded bg-white text-gray-800"
-              >
-                <option v-for="val in STANDARD_ARRAY" :key="val" :value="val">
-                  {{ val }}
-                </option>
-              </select>
-            </div>
-
-            <!-- Point Buy Controls -->
-            <div v-else-if="scoreMethod === 'pointbuy'" class="flex items-center justify-between gap-1">
-              <button
-                type="button"
-                @click="decrementPointBuy(stat)"
-                :disabled="!canDecrementPointBuy(stat)"
-                class="w-7 h-7 border rounded text-xs font-bold disabled:opacity-30 cursor-pointer"
-              >
-                -
-              </button>
-              <span class="text-xs font-medium">{{ baseScores[stat] }}</span>
-              <button
-                type="button"
-                @click="incrementPointBuy(stat)"
-                :disabled="!canIncrementPointBuy(stat)"
-                class="w-7 h-7 border rounded text-xs font-bold disabled:opacity-30 cursor-pointer"
-              >
-                +
-              </button>
-            </div>
-
-            <!-- Manual / Roll Controls -->
-            <div v-else-if="scoreMethod === 'manual'" class="flex gap-1">
-              <input
-                type="number"
-                min="3"
-                max="20"
-                v-model.number="baseScores[stat]"
-                class="p-1 border border-gray-300 rounded w-full text-xs text-center"
-              />
-              <button
-                type="button"
-                @click="rollSingleStat(stat)"
-                class="px-2 border rounded text-xs text-gray-600 hover:text-black cursor-pointer"
-                title="Roll 4d6 drop lowest"
-              >
-                Roll
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-      <p v-if="errors.abilities" class="mt-1 mb-4 text-xs text-red-600 font-medium">
-        {{ errors.abilities }}
-      </p>
-
-      <!-- Level 4, 6, 8, etc. ASI / Feat Improvement Choices -->
-      <div v-if="allUnlockedAsiList.length > 0" data-error-field="asiTiers" class="mb-5 p-3.5 bg-gray-50 border rounded text-xs space-y-3" :class="errors.asiTiers ? 'border-red-400' : 'border-gray-200'">
-        <div class="font-semibold text-gray-900 border-b border-gray-200 pb-1.5 flex justify-between items-center">
-          <span>Level Improvements (ASI or Feat)</span>
-          <span class="text-[10px] text-gray-500 font-normal">{{ allUnlockedAsiList.length }} improvement{{ allUnlockedAsiList.length > 1 ? 's' : '' }} eligible</span>
-        </div>
-
-        <div v-for="item in allUnlockedAsiList" :key="item.errorKey" :data-error-field="item.errorKey" class="p-2.5 bg-white border border-gray-200 rounded space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="font-bold text-gray-800">{{ item.className }} &mdash; Level {{ item.tier }}</span>
-            <div class="flex gap-1 bg-gray-100 p-0.5 rounded">
-              <button
-                type="button"
-                @click="item.choice.type = 'asi'"
-                :class="item.choice.type === 'asi' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer"
-              >
-                Ability Increase
-              </button>
-              <button
-                type="button"
-                @click="item.choice.type = 'feat'"
-                :class="item.choice.type === 'feat' ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-500'"
-                class="px-2 py-0.5 rounded text-[11px] transition cursor-pointer"
-              >
-                Feat
-              </button>
-            </div>
-          </div>
-
-          <!-- ASI Sub-options -->
-          <div v-if="item.choice.type === 'asi'" class="space-y-2 pt-1">
-            <div class="flex items-center gap-4">
-              <label class="flex items-center gap-1 cursor-pointer">
-                <input type="radio" value="+2" v-model="item.choice.asiMode" class="text-gray-900 focus:ring-0" />
-                <span>+2 to one ability</span>
-              </label>
-              <label class="flex items-center gap-1 cursor-pointer">
-                <input type="radio" value="+1_+1" v-model="item.choice.asiMode" class="text-gray-900 focus:ring-0" />
-                <span>+1 to two abilities</span>
-              </label>
-            </div>
-
-            <div v-if="item.choice.asiMode === '+2'">
-              <select v-model="item.choice.plus2Stat" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option value="">Select Ability (+2)...</option>
-                <option v-for="k in ABILITY_KEYS" :key="k" :value="k">
-                  {{ KEY_TO_LABEL[k] }} (+2)
-                </option>
-              </select>
-            </div>
-
-            <div v-else class="grid grid-cols-2 gap-2">
-              <select v-model="item.choice.plus1StatA" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option value="">Select Ability A (+1)...</option>
-                <option v-for="k in ABILITY_KEYS" :key="k" :value="k">
-                  {{ KEY_TO_LABEL[k] }} (+1)
-                </option>
-              </select>
-              <select v-model="item.choice.plus1StatB" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option value="">Select Ability B (+1)...</option>
-                <option v-for="k in ABILITY_KEYS.filter(a => a !== item.choice.plus1StatA)" :key="k" :value="k">
-                  {{ KEY_TO_LABEL[k] }} (+1)
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Feat Sub-options -->
-          <div v-else-if="item.choice.type === 'feat'" class="space-y-2 pt-1">
-            <div>
-              <label class="block text-gray-600 text-[11px] mb-1">Choose Feat:</label>
-              <v-select
-                v-model="item.choice.featName"
-                :options="filteredFeats"
-                :reduce="f => f.name"
-                :get-option-label="f => `${f.name} (${f.source || 'PHB'})`"
-                :get-option-key="f => f.name + '|' + (f.source || '')"
-                placeholder="Select a feat..."
-              />
-            </div>
-            <div>
-              <label class="block text-gray-600 text-[11px] mb-1">Feat Ability Increase (+1 if applicable):</label>
-              <select v-model="item.choice.featAbility" class="p-1.5 border border-gray-300 rounded w-full bg-white text-xs">
-                <option value="">None (+0)</option>
-                <option v-for="k in ABILITY_KEYS" :key="k" :value="k">
-                  +1 {{ KEY_TO_LABEL[k] }}
-                </option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Unselected prompt -->
-          <div v-else class="text-[11px] text-gray-500 italic pt-1">
-            Choose Ability Increase or Feat above.
-          </div>
-
-          <p v-if="errors[item.errorKey]" class="mt-1 text-xs text-red-600 font-medium">
-            {{ errors[item.errorKey] }}
-          </p>
-        </div>
-
-        <p v-if="errors.asiTiers" class="mt-1 text-xs text-red-600 font-medium">
-          {{ errors.asiTiers }}
-        </p>
-      </div>
-    </div>
+    <FormAbilitiesStep
+      v-else-if="currentTab === 'abilities'"
+      :all-class-recommendations="allClassRecommendations"
+      :score-method="scoreMethod"
+      :point-buy-remaining="pointBuyRemaining"
+      :errors="errors"
+      :selected-edition="selectedEdition"
+      :character-background="characterBackground"
+      :bg-eligible-abilities="bgEligibleAbilities"
+      v-model:asi2024-mode="asi2024Mode"
+      v-model:asi2024-plus2="asi2024Plus2"
+      v-model:asi2024-plus1="asi2024Plus1"
+      :character-race="characterRace"
+      :character-sub-race="characterSubRace"
+      v-model:asi2014-mode="asi2014Mode"
+      v-model:asi2014-custom-plus2="asi2014CustomPlus2"
+      v-model:asi2014-custom-plus1="asi2014CustomPlus1"
+      :asi-bonuses="asiBonuses"
+      :race-choice-config="raceChoiceConfig"
+      :race-choose-stats="raceChooseStats"
+      :base-scores="baseScores"
+      :total-scores="totalScores"
+      :ability-modifiers="abilityModifiers"
+      :all-unlocked-asi-list="allUnlockedAsiList"
+      :filtered-feats="filteredFeats"
+      :set-score-method="setScoreMethod"
+      :reset-point-buy="resetPointBuy"
+      :roll-all-stats="rollAllStats"
+      :roll-single-stat="rollSingleStat"
+      :on-standard-array-select="onStandardArraySelect"
+      :can-decrement-point-buy="canDecrementPointBuy"
+      :can-increment-point-buy="canIncrementPointBuy"
+      :decrement-point-buy="decrementPointBuy"
+      :increment-point-buy="incrementPointBuy"
+      :is-primary-stat="isPrimaryStat"
+    />
 
     <!-- TAB 5: Equipment & Wealth -->
-    <div v-else-if="currentTab === 'equipment'">
-      <h2 class="text-base font-bold text-gray-900 mb-3">Equipment & Starting Wealth</h2>
-
-      <!-- Selected Background Info Banner -->
-      <div v-if="selectedBackgroundObj" class="mb-4 p-3.5 bg-gray-50 border border-gray-200 rounded text-xs space-y-2">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <span class="font-bold text-gray-900 text-sm">Background: {{ selectedBackgroundObj.name }}</span>
-            <span class="text-[10px] px-2 py-0.5 rounded font-medium bg-gray-200 text-gray-700">
-              {{ selectedEdition === '2024' ? '2024 Rules' : '2014 Rules' }}
-            </span>
-          </div>
-          <span class="text-[11px] text-gray-500 font-mono">
-            {{ (parseBackgroundDetails(selectedBackgroundObj)?.bgStartingItems || []).length }} background items
-          </span>
-        </div>
-
-        <div v-if="parseBackgroundDetails(selectedBackgroundObj).equipmentText" class="text-gray-700 leading-relaxed pt-1.5 border-t border-gray-200">
-          <span class="font-semibold text-gray-800">Background Equipment: </span>
-          <span v-html="renderAnnotatedText(parseBackgroundDetails(selectedBackgroundObj).equipmentText)"></span>
-        </div>
-      </div>
-      <div v-else class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-        No background selected yet. Starting equipment will default to class starter kit. You can select a background in the Background tab.
-      </div>
-
-
-
-      <!-- Mode Selector -->
-      <div class="mb-4">
-        <label class="block text-xs font-semibold text-gray-700 mb-1.5">Starting Equipment Option:</label>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <label
-            :class="[
-              equipmentChoiceMode === 'package' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
-              'p-3 border rounded cursor-pointer transition text-xs block'
-            ]"
-          >
-            <input
-              type="radio"
-              value="package"
-              v-model="equipmentChoiceMode"
-              class="hidden"
-            />
-            <div class="font-bold text-gray-900 mb-0.5">Starter Equipment Package</div>
-            <p class="text-[11px] text-gray-600 leading-relaxed">
-              {{ selectedEdition === '2024'
-                ? `Standard starter gear from ${characterClass?.class?.name || 'Class'} & ${selectedBackgroundObj?.name || 'Background'}, plus ${computedTreasures.gp} GP pouch currency.`
-                : `Class starting gear + ${selectedBackgroundObj?.name || 'Background'} equipment kit, plus ${computedTreasures.gp} GP starting pouch.`
-              }}
-            </p>
-          </label>
-
-          <label
-            :class="[
-              equipmentChoiceMode === 'gold' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
-              'p-3 border rounded cursor-pointer transition text-xs block'
-            ]"
-          >
-            <input
-              type="radio"
-              value="gold"
-              v-model="equipmentChoiceMode"
-              class="hidden"
-            />
-            <div class="font-bold text-gray-900 mb-0.5">Starting Gold Only ({{ defaultStartingGold }} GP)</div>
-            <p class="text-[11px] text-gray-600 leading-relaxed">
-              {{ selectedEdition === '2024'
-                ? 'Official 2024 rule: forego background equipment package and start with 50 GP to purchase items freely.'
-                : `Classic rule: forego class and background gear. Receive ${defaultStartingGold} GP (class starting wealth) to purchase items freely.`
-              }}
-            </p>
-          </label>
-        </div>
-      </div>
-
-      <!-- Package View Details -->
-      <div v-if="equipmentChoiceMode === 'package'" class="space-y-3 mb-4">
-        <!-- Starting Wealth Pouch -->
-        <div class="p-3 bg-gray-50 border border-gray-200 rounded text-xs">
-          <div class="flex items-center justify-between">
-            <span class="font-semibold text-gray-800">Starting Currency (Pouch):</span>
-            <span class="font-bold text-amber-700 font-mono text-sm">{{ computedTreasures.gp }} GP</span>
-          </div>
-          <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-600">
-            <span>Background ({{ selectedBackgroundObj?.name || 'Background' }}): <strong class="text-gray-800 font-mono">{{ backgroundStartingGold }} GP</strong></span>
-            <span>+</span>
-            <span>Class ({{ characterClass?.class?.name || 'Class' }}): <strong class="text-gray-800 font-mono">{{ classStartingGold }} GP</strong></span>
-            <span>=</span>
-            <span>Total: <strong class="text-amber-700 font-mono">{{ computedTreasures.gp }} GP</strong></span>
-          </div>
-        </div>
-
-        <!-- Class Starting Equipment Alternative Choices -->
-        <div v-if="classEquipmentChoices.length > 0" class="p-3 bg-white border border-gray-200 rounded text-xs space-y-2.5">
-          <div class="font-semibold text-gray-800 border-b border-gray-100 pb-1 flex items-center justify-between">
-            <span>Primary Class Starting Equipment ({{ characterClass?.class?.name || 'Class 1' }})</span>
-            <span class="text-[10px] text-gray-500 font-normal">Select starter gear options</span>
-          </div>
-          <div v-for="ch in classEquipmentChoices" :key="ch.id" class="space-y-1.5">
-            <div class="text-[11px] text-gray-600 font-medium">{{ ch.label }}:</div>
-            <div :class="['grid gap-2', ch.options.length === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2']">
-              <label
-                v-for="opt in ch.options"
-                :key="opt.key"
-                :class="[
-                  chosenClassEquipmentChoices[ch.id] === opt.key ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
-                  'p-2.5 border rounded cursor-pointer transition text-xs block'
-                ]"
-              >
-                <input
-                  type="radio"
-                  :name="ch.id"
-                  :value="opt.key"
-                  v-model="chosenClassEquipmentChoices[ch.id]"
-                  @change="syncDefaultEquipment(true)"
-                  class="hidden"
-                />
-                <span class="font-medium text-gray-900 block leading-snug">{{ opt.description }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Fixed Class Items Chips -->
-        <div v-if="fixedClassItems.length > 0" class="p-2.5 bg-gray-50 border border-gray-200 rounded text-xs">
-          <div class="font-semibold text-gray-700 mb-1">
-            Standard gear included with {{ characterClass?.class?.name }}:
-          </div>
-          <div class="flex flex-wrap gap-1">
-            <span
-              v-for="(fItem, fIdx) in fixedClassItems"
-              :key="fIdx"
-              class="px-2 py-0.5 bg-white border border-gray-200 text-gray-700 rounded text-[11px]"
-            >
-              {{ fItem.amount > 1 ? `${fItem.amount}x ` : '' }}{{ fItem.name }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Background Starting Equipment Alternative Choices -->
-        <div v-if="bgEquipmentChoices.length > 0" class="p-3 bg-white border border-gray-200 rounded text-xs space-y-2.5">
-          <div class="font-semibold text-gray-800 border-b border-gray-100 pb-1 flex items-center justify-between">
-            <span>Background Equipment Choices</span>
-            <span class="text-[10px] text-gray-500 font-normal">Select starter gear</span>
-          </div>
-          <div v-for="ch in bgEquipmentChoices" :key="ch.id" class="space-y-1.5">
-            <div class="text-[11px] text-gray-600 font-medium">{{ ch.label }}:</div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <label
-                :class="[
-                  chosenBgEquipmentChoices[ch.id] === 'a' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
-                  'p-2.5 border rounded cursor-pointer transition text-xs block'
-                ]"
-              >
-                <input
-                  type="radio"
-                  :name="ch.id"
-                  value="a"
-                  v-model="chosenBgEquipmentChoices[ch.id]"
-                  @change="syncDefaultEquipment(true)"
-                  class="hidden"
-                />
-                <span class="font-medium text-gray-900 block leading-snug">{{ ch.optionA.label }}</span>
-              </label>
-
-              <label
-                :class="[
-                  chosenBgEquipmentChoices[ch.id] === 'b' ? 'border-gray-900 bg-gray-100 ring-1 ring-gray-900' : 'border-gray-200 bg-white hover:border-gray-300',
-                  'p-2.5 border rounded cursor-pointer transition text-xs block'
-                ]"
-              >
-                <input
-                  type="radio"
-                  :name="ch.id"
-                  value="b"
-                  v-model="chosenBgEquipmentChoices[ch.id]"
-                  @change="syncDefaultEquipment(true)"
-                  class="hidden"
-                />
-                <span class="font-medium text-gray-900 block leading-snug">{{ ch.optionB.label }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Background Items Chips -->
-        <div
-          v-if="selectedBackgroundObj && (parseBackgroundDetails(selectedBackgroundObj)?.bgStartingItems || []).length > 0"
-          class="p-2.5 bg-gray-50 border border-gray-200 rounded text-xs"
-        >
-          <div class="font-semibold text-gray-900 mb-1">
-            Items from {{ selectedBackgroundObj.name }}:
-          </div>
-          <div class="flex flex-wrap gap-1">
-            <span
-              v-for="(itName, itIdx) in parseBackgroundDetails(selectedBackgroundObj).bgStartingItems"
-              :key="itIdx"
-              class="px-2 py-0.5 bg-white border border-gray-200 text-gray-800 rounded text-[11px]"
-            >
-              {{ itName }}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Gold View Details -->
-      <div v-else data-error-field="equipmentGold" class="space-y-3 p-3.5 bg-gray-50 border rounded text-xs mb-4" :class="errors.equipmentGold ? 'border-red-400' : 'border-gray-200'">
-        <div>
-          <label class="block font-semibold text-gray-800 mb-1">Starting Gold Pieces (GP):</label>
-          <div class="flex items-center gap-2">
-            <input
-              id="customStartingGold"
-              type="number"
-              min="0"
-              v-model.number="customStartingGold"
-              :class="errors.equipmentGold ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'"
-              class="p-2 border rounded w-32 bg-white text-xs font-mono font-bold"
-            />
-            <span class="text-xs font-bold text-gray-700">GP</span>
-            <button
-              type="button"
-              @click="resetStartingGold"
-              class="px-2.5 py-1.5 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer text-xs"
-            >
-              Reset to Default ({{ defaultStartingGold }} GP)
-            </button>
-          </div>
-          <p v-if="errors.equipmentGold" class="mt-1 text-xs text-red-600 font-medium">
-            {{ errors.equipmentGold }}
-          </p>
-          <p class="text-[11px] text-gray-500 mt-2 leading-relaxed">
-            Standard rule: {{ selectedEdition === '2024' ? '2024 rules grant a flat 50 GP starting wealth option.' : `Classic 2014 rule gives an average of ${defaultStartingGold} GP for ${characterClass?.class?.name || 'your class'}.` }}
-            Use "+ Add from Compendium" below to select equipment for your inventory.
-          </p>
-        </div>
-      </div>
-
-      <!-- Weight / Encumbrance Bar Widget -->
-      <div class="p-3 bg-gray-50 border border-gray-200 space-y-2 mb-4">
-        <div class="flex items-center justify-between text-xs font-semibold text-gray-700">
-          <span>Weight / Carrying Capacity</span>
-          <span class="text-[11px] font-normal text-gray-500">{{ Math.round((computedTotalWeight / (computedCarryCapacity || 1)) * 100) }}%</span>
-        </div>
-
-        <div class="relative w-full bg-gray-200 h-6 overflow-hidden border border-gray-300">
-          <div
-            class="h-full transition-all duration-300"
-            :class="formWeightBarColor"
-            :style="{ width: `${formWeightPercent}%` }"
-          ></div>
-          <div
-            class="absolute inset-0 flex items-center justify-center text-xs font-bold pointer-events-none select-none tracking-tight"
-            :class="formWeightPercent > 55 ? 'text-white drop-shadow-xs' : 'text-gray-900'"
-          >
-            {{ computedTotalWeight.toFixed(1) }} / {{ computedCarryCapacity }} lbs
-          </div>
-        </div>
-
-        <div class="flex items-center justify-between text-[11px]">
-          <span class="text-gray-500">
-            Status: <span class="font-bold" :class="formWeightStatusTextColor">{{ formWeightStatusLabel }}</span>
-          </span>
-          <span class="text-gray-500">
-            Max: <strong class="text-gray-800">{{ computedCarryCapacity }} lbs</strong>
-          </span>
-        </div>
-      </div>
-
-      <!-- Inventory Items Table (Shared for both Package and Gold) -->
-      <div class="border border-gray-200 rounded overflow-hidden">
-        <div class="bg-gray-50 px-3 py-2 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <div>
-            <span class="text-xs font-semibold text-gray-800">Inventory Items ({{ userEquipmentList.length }})</span>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <button
-              type="button"
-              @click="openWizardCompendium"
-              class="bg-gray-900 hover:bg-black text-white text-[11px] font-semibold px-2.5 py-1 rounded transition cursor-pointer"
-            >
-              + Add from Compendium
-            </button>
-            <button
-              v-if="equipmentChoiceMode === 'package'"
-              type="button"
-              @click="syncDefaultEquipment(true)"
-              class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 text-[11px] px-2 py-1 rounded transition cursor-pointer"
-              title="Reset to default class and background starter package"
-            >
-              Reset Default
-            </button>
-            <button
-              v-else
-              type="button"
-              @click="userEquipmentList = []"
-              class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 text-[11px] px-2 py-1 rounded transition cursor-pointer"
-              title="Clear all inventory items"
-            >
-              Clear All
-            </button>
-          </div>
-        </div>
-
-        <div v-if="userEquipmentList.length === 0" class="p-6 text-center text-gray-400 italic text-xs">
-          No equipment in inventory. Click "+ Add from Compendium" to add items.
-        </div>
-
-        <div v-else class="divide-y divide-gray-100 max-h-80 overflow-y-auto">
-          <div
-            v-for="(item, idx) in userEquipmentList"
-            :key="idx"
-            class="px-3 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs hover:bg-gray-50/70 gap-2"
-          >
-            <div class="flex items-center gap-2 flex-1 min-w-0 w-full sm:w-auto">
-              <span class="font-medium text-gray-900 truncate">{{ item.name }}</span>
-              <span v-if="item.is_armor" class="text-[10px] px-1 py-0.2 bg-gray-100 text-gray-800 border border-gray-200 rounded shrink-0">Armor</span>
-            </div>
-
-            <div class="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-gray-100">
-              <!-- Status Toggle -->
-              <button
-                type="button"
-                @click="toggleWizardItemStatus(idx)"
-                :class="item.status === 'equipped' ? 'bg-gray-900 text-white border-gray-900 font-bold' : 'bg-gray-50 text-gray-600 border-gray-200'"
-                class="px-2 py-0.5 text-[10px] rounded border transition cursor-pointer capitalize"
-                title="Toggle Equipped / Inventory"
-              >
-                {{ item.status === 'equipped' ? 'Equipped' : 'Inventory' }}
-              </button>
-
-              <!-- Amount +/- -->
-              <div class="inline-flex items-center gap-1">
-                <button
-                  type="button"
-                  @click="changeWizardItemAmount(idx, -1)"
-                  class="w-4 h-4 bg-gray-100 hover:bg-gray-200 rounded text-[10px] font-bold leading-none cursor-pointer"
-                >-</button>
-                <span class="w-5 text-center text-[11px] font-semibold">{{ item.amount || 1 }}</span>
-                <button
-                  type="button"
-                  @click="changeWizardItemAmount(idx, 1)"
-                  class="w-4 h-4 bg-gray-100 hover:bg-gray-200 rounded text-[10px] font-bold leading-none cursor-pointer"
-                >+</button>
-              </div>
-
-              <!-- Weight -->
-              <span class="text-[11px] text-gray-500 font-mono w-14 text-right">
-                {{ item.weight || '0' }} lb
-              </span>
-
-              <!-- Delete -->
-              <button
-                type="button"
-                @click="removeWizardItem(idx)"
-                class="text-gray-400 hover:text-red-600 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer"
-                title="Remove Item"
-              >
-                <IconX class="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <FormEquipmentStep
+      v-else-if="currentTab === 'equipment'"
+      :selected-background-obj="selectedBackgroundObj"
+      :selected-edition="selectedEdition"
+      :character-class="characterClass"
+      v-model:equipment-choice-mode="equipmentChoiceMode"
+      :computed-treasures="computedTreasures"
+      :default-starting-gold="defaultStartingGold"
+      :background-starting-gold="backgroundStartingGold"
+      :class-starting-gold="classStartingGold"
+      :class-equipment-choices="classEquipmentChoices"
+      :chosen-class-equipment-choices="chosenClassEquipmentChoices"
+      :fixed-class-items="fixedClassItems"
+      :bg-equipment-choices="bgEquipmentChoices"
+      :chosen-bg-equipment-choices="chosenBgEquipmentChoices"
+      v-model:custom-starting-gold="customStartingGold"
+      :errors="errors"
+      :computed-total-weight="computedTotalWeight"
+      :computed-carry-capacity="computedCarryCapacity"
+      :form-weight-percent="formWeightPercent"
+      :form-weight-bar-color="formWeightBarColor"
+      :form-weight-status-text-color="formWeightStatusTextColor"
+      :form-weight-status-label="formWeightStatusLabel"
+      :user-equipment-list="userEquipmentList"
+      :parse-background-details="parseBackgroundDetails"
+      :render-annotated-text="renderAnnotatedText"
+      @sync-default-equipment="syncDefaultEquipment"
+      @reset-starting-gold="resetStartingGold"
+      @open-wizard-compendium="openWizardCompendium"
+      @clear-user-equipment="userEquipmentList = []"
+      @toggle-wizard-item-status="toggleWizardItemStatus"
+      @change-wizard-item-amount="({ idx, delta }) => changeWizardItemAmount(idx, delta)"
+      @remove-wizard-item="removeWizardItem"
+    />
 
     <!-- Trait Table Selection & Roll Modal -->
-    <div
-      v-if="traitTableModal.isOpen"
-      @click.self="closeTraitTableModal"
-      class="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4"
-    >
-      <div class="bg-white border border-gray-200 rounded-lg shadow-xl max-w-lg w-full text-xs max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between p-3.5 border-b border-gray-200">
-          <div>
-            <h3 class="font-bold text-gray-900 text-sm">{{ traitTableModal.title }} Table</h3>
-            <p class="text-[11px] text-gray-500">
-              {{ selectedBackgroundObj?.name ? `${selectedBackgroundObj.name} suggested options` : 'Suggested options' }} (d{{ traitTableModal.options.length }})
-            </p>
-          </div>
-          <button
-            type="button"
-            @click="closeTraitTableModal"
-            class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer"
-          >
-            <IconX class="w-4 h-4" />
-          </button>
-        </div>
-
-        <div class="p-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
-          <span class="text-xs text-gray-600">Pick any option below or roll:</span>
-          <button
-            type="button"
-            @click="rollTraitFromModal"
-            class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-black text-white text-xs font-semibold rounded cursor-pointer transition shadow-xs"
-          >
-            <IconDice class="w-4 h-4" />
-            <span>Roll Random (d{{ traitTableModal.options.length }})</span>
-          </button>
-        </div>
-
-        <div class="p-3 overflow-y-auto space-y-2 flex-1">
-          <div
-            v-for="(opt, idx) in traitTableModal.options"
-            :key="idx"
-            @click="selectTraitFromModal(opt)"
-            class="p-2.5 rounded border border-gray-200 hover:border-gray-900 hover:bg-gray-50 cursor-pointer transition flex items-start gap-2.5 group text-xs text-gray-700"
-          >
-            <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-100 group-hover:bg-gray-900 group-hover:text-white font-bold text-[11px] shrink-0 text-gray-600 transition">
-              {{ idx + 1 }}
-            </span>
-            <span class="flex-1 leading-relaxed">{{ opt }}</span>
-          </div>
-        </div>
-
-        <div class="p-3 border-t border-gray-200 flex justify-end">
-          <button
-            type="button"
-            @click="closeTraitTableModal"
-            class="px-3 py-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 cursor-pointer"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
+    <FormTraitTableModal
+      :is-open="traitTableModal.isOpen"
+      :title="traitTableModal.title"
+      :options="traitTableModal.options"
+      :background-name="selectedBackgroundObj?.name || ''"
+      @close="closeTraitTableModal"
+      @select="selectTraitFromModal"
+      @roll="rollTraitFromModal"
+    />
 
     <!-- Wizard Compendium Item Picker Modal -->
-    <div
-      v-if="isWizardCompendiumOpen"
-      class="fixed inset-0 bg-black/30 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4"
-    >
-      <div class="bg-white border border-gray-200 rounded-lg shadow-xl max-w-lg w-full p-3 sm:p-4 text-xs space-y-3 max-h-[85vh] flex flex-col">
-        <div class="flex items-center justify-between pb-2 border-b border-gray-200">
-          <h3 class="font-bold text-gray-900 text-sm">Add Item from Compendium</h3>
-          <button
-            type="button"
-            @click="isWizardCompendiumOpen = false"
-            class="text-gray-400 hover:text-gray-700 leading-none p-1 cursor-pointer"
-          >
-            <IconX class="w-4 h-4" />
-          </button>
-        </div>
-
-        <div class="flex flex-col sm:flex-row gap-2">
-          <input
-            type="text"
-            v-model="wizardCompendiumSearch"
-            @keyup.enter="searchWizardCompendium(false)"
-            placeholder="Search weapon, armor, pack, gear..."
-            class="w-full sm:flex-1 p-2 border border-gray-300 rounded text-xs bg-white focus:outline-none focus:border-gray-900"
-          />
-          <div class="flex gap-2 w-full sm:w-auto items-center">
-            <v-select
-              v-model="wizardCompendiumCategory"
-              :options="[
-                { value: 'all', label: 'All Types' },
-                { value: 'weapon', label: 'Weapons' },
-                { value: 'armor', label: 'Armor & Shield' }
-              ]"
-              :reduce="opt => opt.value"
-              label="label"
-              :clearable="false"
-              class="flex-1 min-w-[140px]"
-              @update:model-value="searchWizardCompendium(false)"
-            />
-            <button
-              type="button"
-              @click="searchWizardCompendium(false)"
-              class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded text-xs font-medium cursor-pointer shrink-0"
-            >
-              Search
-            </button>
-          </div>
-        </div>
-
-        <div
-          @scroll="onWizardCompendiumScroll"
-          class="flex-1 overflow-y-auto divide-y divide-gray-100 min-h-[220px]"
-        >
-          <div v-if="wizardCompendiumLoading" class="py-10 text-center text-gray-400">
-            Searching items...
-          </div>
-          <div v-else-if="wizardCompendiumResults.length === 0" class="py-10 text-center text-gray-400 italic">
-            No items found. Try another search query.
-          </div>
-          <template v-else>
-            <div
-              v-for="it in wizardCompendiumResults"
-              :key="it.id || it.name"
-              class="py-2 px-1 flex items-center justify-between hover:bg-gray-50"
-            >
-              <div>
-                <div class="font-semibold text-gray-900">{{ it.name }}</div>
-                <div class="text-[10px] text-gray-500">
-                  <span class="capitalize">{{ it.type || 'Item' }}</span>
-                  <span v-if="it.weight"> &bull; {{ it.weight }} lb</span>
-                  <span v-if="it.ac"> &bull; AC {{ it.ac }}</span>
-                  <span v-if="it.dmg1"> &bull; {{ it.dmg1 }} {{ it.dmgType }}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="addWizardItemFromCompendium(it)"
-                class="bg-white hover:bg-gray-50 text-gray-800 border border-gray-300 hover:border-gray-400 px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
-              >
-                Add
-              </button>
-            </div>
-
-            <div v-if="wizardCompendiumHasMore" class="p-2 text-center border-t border-gray-100">
-              <button
-                type="button"
-                :disabled="wizardCompendiumLoadingMore"
-                @click="searchWizardCompendium(true)"
-                class="text-xs text-gray-800 hover:text-black font-medium py-1 px-3 border border-gray-300 rounded hover:bg-gray-50 cursor-pointer"
-              >
-                {{ wizardCompendiumLoadingMore ? 'Loading more...' : 'Load more items' }}
-              </button>
-            </div>
-          </template>
-        </div>
-
-        <div class="pt-2 border-t border-gray-100 flex justify-end">
-          <button
-            type="button"
-            @click="isWizardCompendiumOpen = false"
-            class="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-3 py-1.5 rounded text-xs font-medium cursor-pointer"
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>
+    <FormItemCompendiumModal
+      :is-open="isWizardCompendiumOpen"
+      :edition="selectedEdition"
+      :api-url="API_URL"
+      @close="isWizardCompendiumOpen = false"
+      @add-item="addWizardItemFromCompendium"
+    />
   </div>
 
   <!-- Sticky Bottom Navigation -->
-  <div class="sticky-buttons">
-    <div class="button-container">
-      <div v-if="!isFirstStep">
-        <button
-          type="button"
-          class="bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-4 py-2 rounded cursor-pointer transition text-xs font-medium"
-          @click="prevStep"
-        >
-          Previous
-        </button>
-      </div>
-      <div v-else>
-        <button
-          type="button"
-          class="bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 p-2 rounded cursor-pointer transition text-xs font-medium flex items-center justify-center"
-          @click="emit('back')"
-          title="Back to Character List"
-          aria-label="Back to Character List"
-        >
-          <IconArrowLeft class="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-    <div class="button-container">
-      <div v-if="!isLastStep">
-        <button
-          type="button"
-          class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded cursor-pointer transition text-xs font-medium"
-          @click="nextStep"
-        >
-          Next
-        </button>
-      </div>
-      <div v-else>
-        <button
-          type="button"
-          :disabled="isSubmitting"
-          class="bg-gray-900 hover:bg-black text-white px-5 py-2 rounded cursor-pointer disabled:opacity-50 transition text-xs font-semibold shadow-xs"
-          @click="submitForm"
-        >
-          {{ isSubmitting ? 'Saving...' : (isEditMode ? 'Save Changes' : 'Submit & View Sheet') }}
-        </button>
-      </div>
-    </div>
-  </div>
+  <FormStickyFooter
+    :is-first-step="isFirstStep"
+    :is-last-step="isLastStep"
+    :is-submitting="isSubmitting"
+    :is-edit-mode="isEditMode"
+    @prev="prevStep"
+    @next="nextStep"
+    @back="emit('back')"
+    @submit="submitForm"
+  />
 </template>
 
 <style>
